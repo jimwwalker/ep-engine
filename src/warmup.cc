@@ -471,6 +471,7 @@ void Warmup::createVBuckets(uint16_t shardId) {
                                  store->getEPEngine().getEpStats(),
                                  store->getEPEngine().getCheckpointConfig(),
                                  store->getVBuckets().getShard(vbid),
+                                 store->getEPEngine().getStoragePool(),
                                  vbs.highSeqno, vbs.lastSnapStart,
                                  vbs.lastSnapEnd, table, vbs.state, 1,
                                  vbs.purgeSeqno));

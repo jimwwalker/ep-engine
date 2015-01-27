@@ -38,6 +38,8 @@
 #include "locks.h"
 #include "tapconnection.h"
 #include "workload.h"
+#include "vbucket.h"
+#include "storagepool.h"
 
 
 class DcpConnMap;
@@ -49,6 +51,10 @@ extern "C" {
     ENGINE_ERROR_CODE create_instance(uint64_t interface,
                                       GET_SERVER_API get_server_api,
                                       ENGINE_HANDLE **handle);
+
+    EXPORT_FUNCTION
+    void destroy_engine(void);
+
     void EvpNotifyPendingConns(void*arg);
 }
 
@@ -722,6 +728,10 @@ public:
      */
     void runDefragmenterTask(void);
 
+    EventuallyPersistentStoragePool& getStoragePool() {
+        return storagePool;
+    }
+
 protected:
     friend class EpEngineValueChangeListener;
 
@@ -903,6 +913,8 @@ private:
     // ep_engine starts up.
     time_t startupTime;
 
+    EventuallyPersistentStoragePool& storagePool;
+
 };
 
-#endif  // SRC_EP_ENGINE_H_
+#endif

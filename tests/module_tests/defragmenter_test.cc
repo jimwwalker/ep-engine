@@ -16,6 +16,7 @@
  */
 
 #include "defragmenter_visitor.h"
+#include "storagepool.h"
 
 #include <iomanip>
 #include <locale>
@@ -106,7 +107,8 @@ int main(void) {
     /* Create and populate a vbucket */
     EPStats stats;
     CheckpointConfig config;
-    VBucket vbucket(0, vbucket_state_active, stats, config, NULL, 0, 0, 0, NULL);
+    EventuallyPersistentStoragePool storagePool;
+    VBucket vbucket(0, vbucket_state_active, stats, config, NULL, storagePool, 0, 0, 0, NULL);
 
     const size_t one_minute = 60 * 1000;
 
