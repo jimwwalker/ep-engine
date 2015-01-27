@@ -479,7 +479,8 @@ void Warmup::createVBuckets(uint16_t shardId) {
             vb.reset(new VBucket(vbid, vbs.state,
                                  store->getEPEngine().getEpStats(),
                                  store->getEPEngine().getCheckpointConfig(),
-                                 shard, vbs.highSeqno, vbs.lastSnapStart,
+                                 shard, store->getEPEngine().getStoragePool(),
+                                 vbs.highSeqno, vbs.lastSnapStart,
                                  vbs.lastSnapEnd, table, cb, vbs.state, 1,
                                  vbs.purgeSeqno, vbs.maxCas,
                                  vbs.driftCounter));

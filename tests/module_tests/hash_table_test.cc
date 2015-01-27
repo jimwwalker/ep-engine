@@ -152,7 +152,7 @@ static std::vector<std::string> generateKeys(int num, int start=0) {
 // ----------------------------------------------------------------------
 
 static void testHashSize() {
-    HashTable h(global_stats);
+    HashTable h;
     cb_assert(count(h) == 0);
 
     std::string k = "testkey";
@@ -162,7 +162,7 @@ static void testHashSize() {
 }
 
 static void testHashSizeTwo() {
-    HashTable h(global_stats);
+    HashTable h;
     cb_assert(count(h) == 0);
 
     std::vector<std::string> keys = generateKeys(5);
@@ -176,7 +176,7 @@ static void testHashSizeTwo() {
 static void testReverseDeletions() {
     alarm(10);
     size_t initialSize = global_stats.currentSize.load();
-    HashTable h(global_stats, 5, 1);
+    HashTable h(5, 1);
     cb_assert(count(h) == 0);
     const int nkeys = 10000;
 
@@ -199,7 +199,7 @@ static void testReverseDeletions() {
 static void testForwardDeletions() {
     alarm(10);
     size_t initialSize = global_stats.currentSize.load();
-    HashTable h(global_stats, 5, 1);
+    HashTable h(5, 1);
     cb_assert(h.getSize() == 5);
     cb_assert(h.getNumLocks() == 1);
     cb_assert(count(h) == 0);
@@ -240,12 +240,12 @@ static void testFind(HashTable &h) {
 }
 
 static void testFind() {
-    HashTable h(global_stats, 5, 1);
+    HashTable h(5, 1);
     testFind(h);
 }
 
 static void testAddExpiry() {
-    HashTable h(global_stats, 5, 1);
+    HashTable h(5, 1);
     std::string k("aKey");
 
     add(h, k, ADD_SUCCESS, ep_real_time() + 5);
@@ -266,7 +266,7 @@ static void testAddExpiry() {
 }
 
 static void testResize() {
-    HashTable h(global_stats, 5, 3);
+    HashTable h(5, 3);
 
     std::vector<std::string> keys = generateKeys(5000);
     storeMany(h, keys);
@@ -321,7 +321,7 @@ private:
 };
 
 static void testConcurrentAccessResize() {
-    HashTable h(global_stats, 5, 3);
+    HashTable h(5, 3);
 
     std::vector<std::string> keys = generateKeys(20000);
     h.resize(keys.size());
@@ -335,7 +335,7 @@ static void testConcurrentAccessResize() {
 }
 
 static void testAutoResize() {
-    HashTable h(global_stats, 5, 3);
+    HashTable h(5, 3);
 
     std::vector<std::string> keys = generateKeys(5000);
     storeMany(h, keys);
@@ -348,7 +348,7 @@ static void testAutoResize() {
 }
 
 static void testAdd() {
-    HashTable h(global_stats, 5, 1);
+    HashTable h(5, 1);
     const int nkeys = 5000;
 
     std::vector<std::string> keys = generateKeys(nkeys);
@@ -382,7 +382,7 @@ static void testAdd() {
 }
 
 static void testDepthCounting() {
-    HashTable h(global_stats, 5, 1);
+    HashTable h(5, 1);
     const int nkeys = 5000;
 
     std::vector<std::string> keys = generateKeys(nkeys);
@@ -397,7 +397,7 @@ static void testDepthCounting() {
 static void testPoisonKey() {
     std::string k("A\\NROBs_oc)$zqJ1C.9?XU}Vn^(LW\"`+K/4lykF[ue0{ram;fvId6h=p&Zb3T~SQ]82'ixDP");
 
-    HashTable h(global_stats, 5, 1);
+    HashTable h(5, 1);
 
     store(h, k);
     cb_assert(count(h) == 1);
@@ -405,7 +405,7 @@ static void testPoisonKey() {
 
 static void testSizeStats() {
     global_stats.reset();
-    HashTable ht(global_stats, 5, 1);
+    HashTable ht(5, 1);
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
@@ -430,7 +430,7 @@ static void testSizeStats() {
 
 static void testSizeStatsFlush() {
     global_stats.reset();
-    HashTable ht(global_stats, 5, 1);
+    HashTable ht(5, 1);
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
@@ -455,7 +455,7 @@ static void testSizeStatsFlush() {
 
 static void testSizeStatsSoftDel() {
     global_stats.reset();
-    HashTable ht(global_stats, 5, 1);
+    HashTable ht(5, 1);
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
@@ -481,7 +481,7 @@ static void testSizeStatsSoftDel() {
 
 static void testSizeStatsSoftDelFlush() {
     global_stats.reset();
-    HashTable ht(global_stats, 5, 1);
+    HashTable ht(5, 1);
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
@@ -507,7 +507,7 @@ static void testSizeStatsSoftDelFlush() {
 
 static void testSizeStatsEject() {
     global_stats.reset();
-    HashTable ht(global_stats, 5, 1);
+    HashTable ht(5, 1);
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
@@ -539,7 +539,7 @@ static void testSizeStatsEject() {
 
 static void testSizeStatsEjectFlush() {
     global_stats.reset();
-    HashTable ht(global_stats, 5, 1);
+    HashTable ht( 5, 1);
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
@@ -571,7 +571,7 @@ static void testSizeStatsEjectFlush() {
 
 static void testItemAge() {
     // Setup
-    HashTable ht(global_stats, 5, 1);
+    HashTable ht(5, 1);
     std::string key("key");
     Item item(key.data(), key.length(), 0, 0, "value", strlen("value"));
     cb_assert(ht.set(item) == WAS_CLEAN);

@@ -804,11 +804,11 @@ public:
      * @param s the number of hash table buckets
      * @param l the number of locks in the hash table
      */
-    HashTable(EPStats &st, size_t s = 0, size_t l = 0) :
+    HashTable(size_t s = 0, size_t l = 0) :
         maxDeletedRevSeqno(0), numTotalItems(0),
         numNonResidentItems(0), numEjects(0),
-        memSize(0), cacheSize(0), metaDataMemory(0), stats(st),
-        valFact(st), visitors(0), numItems(0), numResizes(0),
+        memSize(0), cacheSize(0), metaDataMemory(0),
+        valFact(stats), visitors(0), numItems(0), numResizes(0),
         numTempItems(0)
     {
         size = HashTable::getNumBuckets(s);
@@ -970,6 +970,7 @@ public:
         return unlocked_set(v, val, cas, allowExisting, hasMetaData, policy, nru);
     }
 
+    // TYNSET: pass stats for caller?
     mutation_type_t unlocked_set(StoredValue*& v, const Item &val, uint64_t cas,
                                  bool allowExisting, bool hasMetaData = true,
                                  item_eviction_policy_t policy = VALUE_ONLY,
@@ -1533,7 +1534,7 @@ private:
     size_t               n_locks;
     StoredValue        **values;
     Mutex               *mutexes;
-    EPStats&             stats;
+    EPStats              stats; // TYNSET: Delete me.
     StoredValueFactory   valFact;
     AtomicValue<size_t>       visitors;
     AtomicValue<size_t>       numItems;

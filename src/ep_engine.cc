@@ -48,6 +48,7 @@
 #include "dcp-consumer.h"
 #include "dcp-producer.h"
 #include "warmup.h"
+#include "storagepool.h"
 
 #include <JSON_checker.h>
 
@@ -1806,6 +1807,10 @@ extern "C" {
         return ENGINE_SUCCESS;
     }
 
+   void destroy_engine(void) {
+
+    }
+
     static bool EvpGetItemInfo(ENGINE_HANDLE *handle, const void *,
                                const item* itm, item_info *itm_info)
     {
@@ -1903,7 +1908,8 @@ EventuallyPersistentEngine::EventuallyPersistentEngine(
     workloadPriority(NO_BUCKET_PRIORITY),
     tapThrottle(NULL), getServerApiFunc(get_server_api),
     tapConnMap(NULL), tapConfig(NULL), checkpointConfig(NULL),
-    trafficEnabled(false), flushAllEnabled(false),startupTime(0)
+    trafficEnabled(false), flushAllEnabled(false), startupTime(0),
+    storagePool(StoragePool::getStoragePool())
 {
     interface.interface = 1;
     ENGINE_HANDLE_V1::get_info = EvpGetInfo;
