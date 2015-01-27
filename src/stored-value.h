@@ -57,18 +57,12 @@ class StoredValue {
         The two could be the same or we (and the binary protocol) can do
         things to make the hashable key different.
 
-<<<<<<< HEAD
         This object must only be used in conjunction with StoredValue, it
         requires special in-place construction into a memory buffer large enough
         for the trailing key.
-=======
-        This object must only be used in conjunction with StoredValue, it requires
-        special in-place construction into a memory buffer large enough for
-        the trailing key.
 
         The hashkey is the entire object, [bucket_id_t][keylen][keybytes]
         Thus bucket1:key1 and bucket2:key1 are different.
->>>>>>> a1a7470... Tynset: Store bucket_id_t in memory
     **/
     class StoredValueKey {
 
@@ -721,6 +715,7 @@ private:
     }
 
     friend class HashTable;
+    friend class HashTableStorage;
     friend class StoredValueFactory;
 
     value_t            value;          // 8 bytes
@@ -938,6 +933,139 @@ private:
 };
 
 /**
+ * Class representing the storage (and locks protecting the storage) for a HashTable.
+ *  This storage may be unique or shared between hashtables.
+ */
+class HashTableStorage {
+public:
+       HashTableStorage(size_t s = 0, size_t l = 0)
+         : numItems(0), visitors(0) {
+        size = getNumBuckets(s);
+        n_locks = getNumLocks(l);
+        cb_assert(size > 0);
+        cb_assert(n_locks > 0);
+        hashBuckets = static_cast<StoredValue**>(calloc(size, sizeof(StoredValue*)));
+        mutexes = new Mutex[n_locks];
+    }
+
+    ~HashTableStorage() {
+        clear();
+        free(hashBuckets);
+        delete [] mutexes;
+    }
+
+    /*
+     * Get the 'head' StoredValue for the hash-bucket index
+     * Can be NULL if empty
+     */
+    StoredValue* getBucketHead(int index) {
+        return hashBuckets[index];
+    }
+
+    void setBucketHead(int index, StoredValue* v) {
+        hashBuckets[index] = v;
+    }
+
+    Mutex& getMutex(int index) {
+        return mutexes[index];
+    }
+
+    /*
+        Get pointer to the start of the mutexes, required for multilockholder
+    */
+    Mutex* getMutexes() {
+        return mutexes;
+    }
+
+    size_t getNumLocks() const {
+        return n_locks;
+    }
+
+    size_t getSize() const {
+        return size;
+    }
+
+    void incrementNumItems() {
+        ++numItems;
+    }
+
+    void decrementNumItems() {
+        --numItems;
+    }
+
+    /**
+     * Automatically resize to fit the current data.
+     * return true if resize was performed
+     */
+    bool resize();
+
+    /**
+     * Resize to the specified size.
+     * return true if the resize was performed.
+     */
+    bool resize(size_t to);
+
+    /**
+     * locate the correct bucket based upon our size
+     */
+    int getBucketForHash(int h) {
+        return abs(h % static_cast<int>(getSize()));
+    }
+
+    /**
+     * Get the number of items stored in this storage instance
+     */
+    size_t getNumItems() {
+        return numItems;
+    }
+
+    /**
+     * Get a visitor tracker object to be used in an RAII pattern.
+     */
+    VisitorTracker getNewVisitorTracker() {
+        return VisitorTracker(&visitors);
+    }
+
+    /**
+     * Clear all items relating to the bucket_id_t, caller must obtain all mutexes.
+     */
+    HashTableStatVisitor clearBucketUnlocked(bucket_id_t deleteMe);
+
+    /**
+     * Set the default number of buckets.
+     */
+    static void setDefaultNumBuckets(size_t n);
+
+    /**
+     * Set the default number of locks.
+     */
+    static void setDefaultNumLocks(size_t n);
+
+private:
+
+    void setSize(size_t newSize) {
+        size.store(newSize);
+    }
+
+    /**
+     * Clear out the storage by deleting all StoredValues
+     */
+    void clear();
+
+    static size_t getNumBuckets(size_t n);
+    static size_t getNumLocks(size_t n);
+    static size_t defaultNumBuckets;
+    static size_t defaultNumLocks;
+
+    AtomicValue<size_t> numItems; // number of items stored in this storage
+    AtomicValue<size_t> size;
+    AtomicValue<size_t> visitors; // number of visitors accessing this storage
+    size_t              n_locks;
+    StoredValue         **hashBuckets;
+    Mutex               *mutexes;
+};
+
+/**
  * A container of StoredValue instances.
  */
 class HashTable {
@@ -985,60 +1113,63 @@ public:
     /**
      * Create a HashTable.
      *
-     * @param st the global stats reference
+     * @param bucketId for the bucket owning this HashTable (safe deletion)
+     * @param st pointer to the storage object for this hashtable
+     * @param st the owning buckets stats object
      * @param s the number of hash table buckets
      * @param l the number of locks in the hash table
      */
-    HashTable(EPStats &st, size_t s = 0, size_t l = 0) :
+    HashTable(bucket_id_t bId, HashTableStorage* hts, EPStats &st) :
         maxDeletedRevSeqno(0), numTotalItems(0),
         numNonResidentItems(0), numEjects(0),
-        memSize(0), cacheSize(0), metaDataMemory(0), stats(st),
-        valFact(st), visitors(0), numItems(0), numResizes(0),
-        numTempItems(0)
+        memSize(0), cacheSize(0), metaDataMemory(0),
+        storage(hts), stats(st), valFact(st), numItems(0),
+        numResizes(0), numTempItems(0), bucketId(bId)
     {
-        size = HashTable::getNumBuckets(s);
-        n_locks = HashTable::getNumLocks(l);
-        cb_assert(size > 0);
-        cb_assert(n_locks > 0);
-        cb_assert(visitors == 0);
-        values = static_cast<StoredValue**>(calloc(size, sizeof(StoredValue*)));
-        mutexes = new Mutex[n_locks];
         activeState = true;
     }
 
     ~HashTable() {
-        clear(true);
-        // Wait for any outstanding visitors to finish.
-        while (visitors > 0) {
-#ifdef _MSC_VER
-            Sleep(1);
-#else
-            usleep(100);
-#endif
-        }
-        delete []mutexes;
-        free(values);
-        values = NULL;
+
+        // delete all objects belonging to this HashTable
+        MultiLockHolder mlh(getMutexes(), getNumLocks());
+        storage->clearBucketUnlocked(bucketId);
     }
 
     size_t memorySize() {
         return sizeof(HashTable)
-            + (size * sizeof(StoredValue*))
-            + (n_locks * sizeof(Mutex));
+            + (storage->getSize() * sizeof(StoredValue*))
+            + (storage->getNumLocks() * sizeof(Mutex));
     }
 
     /**
      * Get the number of hash table buckets this hash table has.
      */
-    size_t getSize(void) { return size; }
+    size_t getSize(void) const { return storage->getSize(); }
 
     /**
      * Get the number of locks in this hash table.
      */
-    size_t getNumLocks(void) { return n_locks; }
+    size_t getNumLocks(void) const { return storage->getNumLocks(); }
+
+    StoredValue* getBucketHead(int index) {
+        return storage->getBucketHead(index);
+    }
+
+    void setBucketHead(int index, StoredValue* v) {
+        storage->setBucketHead(index, v);
+    }
+
+    Mutex& getMutex(int index) {
+        return storage->getMutex(index);
+    }
+
+    Mutex* getMutexes() {
+        return storage->getMutexes();
+    }
 
     /**
-     * Get the number of in-memory non-resident and resident items within
+     * Get the number of in-memory non-resident and resident items stored via
      * this hash table.
      */
     size_t getNumInMemoryItems(void) { return numItems; }
@@ -1050,11 +1181,20 @@ public:
 
     /**
      * Get the number of non-resident and resident items managed by
-     * this hash table. Note that this will be equal to getNumItems() if
+     * this hash table. Note that this will be equal to getNumInMemoryItems() if
      * VALUE_ONLY_EVICTION is chosen as a cache management.
      */
     size_t getNumItems(void) {
         return numTotalItems;
+    }
+
+    /*
+        Increment the number of items stored via this HashTable object
+    */
+    void incrementNumItems() {
+        ++numItems;
+        // and increase the storage layer items too
+        storage->incrementNumItems();
     }
 
     void decrNumItems(void) {
@@ -1067,6 +1207,7 @@ public:
                 break;
             }
         } while (!numItems.compare_exchange_strong(count, count - 1));
+        storage->decrementNumItems();
     }
 
     void decrNumTotalItems(void) {
@@ -1104,13 +1245,11 @@ public:
     size_t getItemMemory(void) { return memSize; }
 
     /**
-     * Clear the hash table.
+     * Clear the hash table of items
      *
-     * @param deactivate true when this hash table is being destroyed completely
-     *
-     * @return a stat visitor reporting how much stuff was removed
+     * @return a stat visitor reporting how much was removed
      */
-    HashTableStatVisitor clear(bool deactivate = false);
+    HashTableStatVisitor clear();
 
     /**
      * Get the number of times this hash table has been resized.
@@ -1255,7 +1394,7 @@ public:
 
             if (v->isTempItem()) {
                 --numTempItems;
-                ++numItems;
+                incrementNumItems();
                 ++numTotalItems;
             }
 
@@ -1267,9 +1406,9 @@ public:
             rv = NOT_FOUND;
         } else {
             int bucket_num = getBucketForHash(hash(itm));
-            v = valFact(itm, values[bucket_num], *this);
-            values[bucket_num] = v;
-            ++numItems;
+            v = valFact(itm, getBucketHead(bucket_num), *this);
+            setBucketHead(bucket_num, v);
+            incrementNumItems();
             ++numTotalItems;
             if (nru <= MAX_NRU_VALUE && !v->isTempItem()) {
                 v->setNRUValue(nru);
@@ -1431,7 +1570,7 @@ public:
 
             if (v->isTempItem()) {
                 --numTempItems;
-                ++numItems;
+                incrementNumItems();
                 ++numTotalItems;
             }
 
@@ -1463,7 +1602,7 @@ public:
      */
     StoredValue *unlocked_find(const ItemKey& key, int bucket_num,
                                bool wantsDeleted=false, bool trackReference=true) {
-        StoredValue *v = values[bucket_num];
+        StoredValue *v = getBucketHead(bucket_num);
         while (v) {
             if (v->hasKey(key)) {
                 if (trackReference && !v->isDeleted()) {
@@ -1488,8 +1627,7 @@ public:
      *
      * @return the hash value
      */
-    inline int hash(const char *str, const size_t len) {
-        cb_assert(isActive());
+    static inline int hash(const char *str, const size_t len) {
         int h=5381;
 
         for(size_t i=0; i < len; i++) {
@@ -1505,12 +1643,12 @@ public:
      * @param s the string
      * @return the hash value
      */
-    inline int hash(const Item &item) {
+    static inline int hash(const Item &item) {
         return hash(item.getItemKey().getHashKey(),
                     item.getItemKey().getHashKeyLen());
     }
 
-    inline int hash(const StoredValue* sv) {
+    static inline int hash(const StoredValue* sv) {
         return hash(sv->getHashKey(), sv->getHashKeyLen());
     }
 
@@ -1521,7 +1659,7 @@ public:
      * @return a locked LockHolder
      */
     inline LockHolder getLockedBucket(int bucket) {
-        LockHolder rv(mutexes[mutexForBucket(bucket)]);
+        LockHolder rv(getMutex(mutexForBucket(bucket)));
         return rv;
     }
 
@@ -1537,7 +1675,7 @@ public:
         while (true) {
             cb_assert(isActive());
             *bucket = getBucketForHash(h);
-            LockHolder rv(mutexes[mutexForBucket(*bucket)]);
+            LockHolder rv(getMutex(mutexForBucket(*bucket)));
             if (*bucket == getBucketForHash(h)) {
                 return rv;
             }
@@ -1582,7 +1720,7 @@ public:
      */
     bool unlocked_del(const ItemKey& key, int bucket_num) {
         cb_assert(isActive());
-        StoredValue *v = values[bucket_num];
+        StoredValue *v = getBucketHead(bucket_num);
 
         // Special case empty bucket.
         if (!v) {
@@ -1595,7 +1733,7 @@ public:
                 return false;
             }
 
-            values[bucket_num] = v->next;
+            setBucketHead(bucket_num, v->next);
             StoredValue::reduceCacheSize(*this, v->size());
             StoredValue::reduceMetaDataSize(*this, stats, v->metaDataSize());
             if (v->isTempItem()) {
@@ -1702,16 +1840,6 @@ public:
     static size_t getNumLocks(size_t s);
 
     /**
-     * Set the default number of buckets.
-     */
-    static void setDefaultNumBuckets(size_t);
-
-    /**
-     * Set the default number of locks.
-     */
-    static void setDefaultNumLocks(size_t);
-
-    /**
      * Get the max deleted revision seqno seen so far.
      */
     uint64_t getMaxDeletedRevSeqno() const {
@@ -1757,30 +1885,15 @@ private:
     inline bool isActive() const { return activeState; }
     inline void setActiveState(bool newv) { activeState = newv; }
 
-    AtomicValue<size_t> size;
-    size_t               n_locks;
-    StoredValue        **values;
-    Mutex               *mutexes;
-    EPStats&             stats;
-    StoredValueFactory   valFact;
-    AtomicValue<size_t>       visitors;
-    AtomicValue<size_t>       numItems;
-    AtomicValue<size_t>       numResizes;
-    AtomicValue<size_t>       numTempItems;
-    bool                 activeState;
-
-    static size_t                 defaultNumBuckets;
-    static size_t                 defaultNumLocks;
-
     int getBucketForHash(int h) {
-        return abs(h % static_cast<int>(size));
+        return storage->getBucketForHash(h);
     }
 
     inline int mutexForBucket(int bucket_num) {
         cb_assert(isActive());
         cb_assert(bucket_num >= 0);
-        int lock_num = bucket_num % static_cast<int>(n_locks);
-        cb_assert(lock_num < static_cast<int>(n_locks));
+        int lock_num = bucket_num % static_cast<int>(getNumLocks());
+        cb_assert(lock_num < static_cast<int>(getNumLocks()));
         cb_assert(lock_num >= 0);
         return lock_num;
     }
@@ -1788,6 +1901,15 @@ private:
     Item *getRandomKeyFromSlot(int slot);
 
     DISALLOW_COPY_AND_ASSIGN(HashTable);
+
+    HashTableStorage* storage;
+    EPStats&             stats;
+    StoredValueFactory   valFact;
+    AtomicValue<size_t>       numItems;
+    AtomicValue<size_t>       numResizes;
+    AtomicValue<size_t>       numTempItems;
+    bucket_id_t          bucketId;
+    bool                 activeState;
 };
 
 /**

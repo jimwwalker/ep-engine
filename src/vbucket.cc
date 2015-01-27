@@ -146,7 +146,10 @@ VBucket::~VBucket() {
     stats.memOverhead.fetch_sub(sizeof(VBucket) + ht.memorySize() + sizeof(CheckpointManager));
     cb_assert(stats.memOverhead.load() < GIGANTOR);
 
-    LOG(EXTENSION_LOG_INFO, "Destroying vbucket %d\n", id);
+    // finally delete the hashtable
+    delete &ht;
+
+    LOG(EXTENSION_LOG_INFO, "Destroyed vbucket %d\n", id);
 }
 
 void VBucket::fireAllOps(EventuallyPersistentEngine &engine,

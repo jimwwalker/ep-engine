@@ -16,6 +16,7 @@
  */
 
 #include "defragmenter_visitor.h"
+#include "storagepool.h"
 
 #include <iomanip>
 #include <locale>
@@ -120,7 +121,10 @@ int main(void) {
     EPStats stats;
     CheckpointConfig config;
     shared_ptr<Callback<uint16_t> > cb(new DummyCB());
-    VBucket vbucket(0, vbucket_state_active, stats, config, NULL, 0, 0, 0, NULL,
+
+    HashTableStorage hts;
+    HashTable ht(0, &hts, stats);
+    VBucket vbucket(0, vbucket_state_active, stats, config, NULL, ht, 0, 0, 0, NULL,
                     cb);
 
     const size_t one_minute = 60 * 1000;

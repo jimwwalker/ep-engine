@@ -1284,10 +1284,13 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setVBucketState(uint16_t vbid,
     } else if (vbid < vbMap.getSize()) {
         FailoverTable* ft = new FailoverTable(engine.getMaxFailoverEntries());
         KVShard* shard = vbMap.getShard(vbid);
+        HashTable& hashTable = engine.getStoragePool().createHashTable(engine, vbid);
         shared_ptr<Callback<uint16_t> > cb(new NotifyFlusherCB(shard));
         RCPtr<VBucket> newvb(new VBucket(vbid, to, stats,
                                          engine.getCheckpointConfig(),
-                                         shard, 0, 0, 0, ft, cb));
+                                         shard,
+                                         hashTable,
+                                         0, 0, 0, ft, cb));
         // The first checkpoint for active vbucket should start with id 2.
         uint64_t start_chk_id = (to == vbucket_state_active) ? 2 : 0;
         newvb->checkpointManager.setOpenCheckpointId(start_chk_id);

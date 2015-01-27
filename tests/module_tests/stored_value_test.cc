@@ -66,7 +66,8 @@ int main() {
     putenv(allow_no_stats_env);
     const int keys = 255;
     StoredValueFactory factory(stats);
-    HashTable hashTable(stats);
+    HashTableStorage storage(5, 1);
+    HashTable hashTable(0, &storage, stats);
     const int dataSize = 100;
     char data[dataSize];
 

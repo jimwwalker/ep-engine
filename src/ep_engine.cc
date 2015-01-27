@@ -48,6 +48,7 @@
 #include "dcp/consumer.h"
 #include "dcp/producer.h"
 #include "warmup.h"
+#include "storagepool.h"
 
 static ALLOCATOR_HOOKS_API *hooksApi;
 static SERVER_LOG_API *loggerApi;
@@ -1948,7 +1949,8 @@ EventuallyPersistentEngine::EventuallyPersistentEngine(
     tapConnMap(NULL) ,
     tapConfig(NULL), checkpointConfig(NULL),
     trafficEnabled(false), flushAllEnabled(false), startupTime(0),
-    taskable(this)
+    taskable(this),
+    storagePool(StoragePool::getStoragePool())
 {
     // TYNSET TODO: memcache API will change to push this value via create_instance.
     // currently initialised to non-zero to aid debug.
@@ -2076,14 +2078,13 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::initialize(const char* config) {
         if (!configuration.parseConfiguration(config, serverApi)) {
             return ENGINE_FAILED;
         }
+        // warning: StoragePool is using the config of the first bucket created
+        StoragePool::getStoragePool().configure(config, serverApi);
     }
 
     name = configuration.getCouchBucket();
     maxFailoverEntries = configuration.getMaxFailoverEntries();
 
-    // Start updating the variables from the config!
-    HashTable::setDefaultNumBuckets(configuration.getHtSize());
-    HashTable::setDefaultNumLocks(configuration.getHtLocks());
     StoredValue::setMutationMemoryThreshold(
                                       configuration.getMutationMemThreshold());
 

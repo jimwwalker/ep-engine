@@ -41,6 +41,8 @@
 #include "workload.h"
 #include "taskable.h"
 #include "dcp/flow-control-manager.h"
+#include "vbucket.h"
+#include "storagepool.h"
 
 #include <JSON_checker.h>
 
@@ -865,6 +867,10 @@ public:
         return bucketId;
     }
 
+    StoragePool& getStoragePool() {
+        return storagePool;
+    }
+
 protected:
     friend class EpEngineValueChangeListener;
 
@@ -1054,6 +1060,7 @@ private:
     EpEngineTaskable taskable;
 
     bucket_id_t bucketId;
+    StoragePool& storagePool;
 };
 
-#endif  // SRC_EP_ENGINE_H_
+#endif

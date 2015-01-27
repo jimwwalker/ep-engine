@@ -168,6 +168,7 @@ ADD_LIBRARY(ep SHARED
             src/vbucket.cc
             src/vbucketmap.cc
             src/warmup.cc
+            src/storagepool.cc
             ${KVSTORE_SOURCE} ${COUCH_KVSTORE_SOURCE}
             ${FOREST_KVSTORE_SOURCE} ${OBJECTREGISTRY_SOURCE}
             ${CONFIG_SOURCE})
@@ -218,6 +219,8 @@ ADD_EXECUTABLE(ep-engine_checkpoint_test
   src/stored-value.cc
   src/testlogger.cc
   src/vbucket.cc
+  src/vbucket.cc
+  src/storagepool.cc
   tests/module_tests/test_memory_tracker.cc
   ${OBJECTREGISTRY_SOURCE} ${CONFIG_SOURCE})
 TARGET_LINK_LIBRARIES(ep-engine_checkpoint_test ${SNAPPY_LIBRARIES} cJSON platform)
@@ -317,6 +320,7 @@ ADD_EXECUTABLE(ep-engine_defragmenter_test
                src/stored-value.cc
                src/testlogger.cc
                src/vbucket.cc
+               src/storagepool.cc
                ${OBJECTREGISTRY_SOURCE})
 TARGET_LINK_LIBRARIES(ep-engine_defragmenter_test cJSON platform ${SNAPPY_LIBRARIES})
 

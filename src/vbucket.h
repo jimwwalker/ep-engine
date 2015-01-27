@@ -35,6 +35,7 @@
 #include "common.h"
 #include "kvstore.h"
 #include "stored-value.h"
+#include "storagepool.h"
 
 const size_t MIN_CHK_FLUSH_TIMEOUT = 10; // 10 sec.
 const size_t MAX_CHK_FLUSH_TIMEOUT = 30; // 30 sec.
@@ -131,7 +132,6 @@ private:
     std::set<uint16_t> acceptable;
 };
 
-class EventuallyPersistentEngine;
 class FailoverTable;
 class KVShard;
 
@@ -143,13 +143,14 @@ public:
 
     VBucket(int i, vbucket_state_t newState, EPStats &st,
             CheckpointConfig &chkConfig, KVShard *kvshard,
+            HashTable &hashTable,
             int64_t lastSeqno, uint64_t lastSnapStart,
             uint64_t lastSnapEnd, FailoverTable *table,
             shared_ptr<Callback<uint16_t> > cb,
             vbucket_state_t initState = vbucket_state_dead,
             uint64_t chkId = 1, uint64_t purgeSeqno = 0,
             uint64_t maxCas = 0, int64_t driftCounter = INITIAL_DRIFT):
-        ht(st),
+        ht(hashTable),
         checkpointManager(st, i, chkConfig, lastSeqno, lastSnapStart,
                           lastSnapEnd, cb, chkId),
         failovers(table),
@@ -460,7 +461,7 @@ public:
     static const vbucket_state_t PENDING;
     static const vbucket_state_t DEAD;
 
-    HashTable         ht;
+    HashTable         &ht;
     CheckpointManager checkpointManager;
     struct {
         Mutex mutex;
