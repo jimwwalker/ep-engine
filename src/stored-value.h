@@ -38,6 +38,93 @@ class HashTable;
 class StoredValueFactory;
 
 /**
+    Representation of a key
+    A key is now viewed in 2 ways.
+
+    1. Hashable key
+    2. Client key
+
+    Hashable key is what is used when accessing the hashtable.
+    Client key is what client's of the server care about.
+
+    The two could be the same or we can do things to make the hashable key different.
+**/
+class StoredValueKey {
+    class HashableKey {
+    public:
+        HashableKey() : bucket_index(0) {}
+        bucket_id_t bucket_index;
+        char keybytes[1];
+    };
+
+public:
+
+    StoredValueKey() : keylen(0)  {
+
+    }
+
+    void setBucketId(bucket_id_t b) {
+        key.bucket_index = b;
+    }
+
+    void setKeyLen(size_t len) {
+        // drop 1 byte off the len because 1 byte is always reserved by
+        // the HashableKey struct
+        keylen = sizeof(HashableKey) + (len - 1);
+    }
+
+    const char* getClientKey() const {
+        return key.keybytes;
+    }
+
+    size_t getClientKeyLen() const {
+        return keylen - sizeof(HashableKey) + 1;
+    }
+
+    size_t getTrailingBytesLen() const {
+        return keylen - sizeof(HashableKey);
+    }
+
+    const char* getHashKey() const {
+        return reinterpret_cast<const char*>(&key);
+    }
+
+    size_t getHashKeyLen() const {
+        return keylen;
+    }
+
+    void setKey(const char* k, size_t klen) {
+        std::memcpy(key.keybytes, k, klen);
+    }
+
+    void setKey(const std::string& k) {
+        setKey(k.data(), k.length());
+    }
+
+    /**
+        Factory method: returns a StoredValueKey for t
+    **/
+    static StoredValueKey* create(const char* k, size_t klen, bucket_id_t id) {
+        // a key is bigger than the class
+        int len = sizeof(StoredValueKey) + (klen - 1); // -1 as HashableKey has 1 byte already for the key
+        StoredValueKey *newKey = new (::operator new(len))StoredValueKey(k, klen, id);
+        return newKey;
+    }
+
+private:
+
+    StoredValueKey(const char* k, size_t klen, bucket_id_t id) {
+        setBucketId(id);
+        setKeyLen(klen);
+        setKey(k, klen);
+    }
+
+    size_t keylen; // length of entire hashable key
+    HashableKey key;
+};
+
+
+/**
  * In-memory storage for an item.
  */
 class StoredValue {
@@ -133,14 +220,14 @@ public:
      * Get the pointer to the beginning of the key.
      */
     const char* getKeyBytes() const {
-        return keybytes;
+        return key.getClientKey();
     }
 
     /**
      * Get the length of the key.
      */
     uint8_t getKeyLen() const {
-        return keylen;
+        return key.getClientKeyLen();
     }
 
     /**
@@ -487,7 +574,7 @@ public:
     }
 
     size_t getObjectSize() const {
-        return (sizeof(StoredValue) - sizeof(keybytes)) + keylen;
+        return sizeof(StoredValue) + key.getTrailingBytesLen();
     }
 
     /**
@@ -508,7 +595,6 @@ private:
         newCacheItem = true;
         nru = INITIAL_NRU_VALUE;
         lock_expiry = 0;
-        keylen = itm.getNKey();
         revSeqno = itm.getRevSeqno();
         conflictResMode = revision_seqno;
 
@@ -522,6 +608,12 @@ private:
         increaseCacheSize(ht, size());
 
         ObjectRegistry::onCreateStoredValue(this);
+    }
+
+    void setKey(const Item& itm) {
+        key.setBucketId(0);
+        key.setKeyLen(itm.getNKey());
+        key.setKey(itm.getKey());
     }
 
     friend class HashTable;
@@ -540,8 +632,7 @@ private:
     bool               newCacheItem : 1;
     uint8_t            conflictResMode : 2;
     uint8_t            nru       :  2; //!< True if referenced since last sweep
-    uint8_t            keylen;
-    char               keybytes[1];    //!< The key itself.
+    StoredValueKey     key; //!< The key itself.
 
     static void increaseMetaDataSize(HashTable &ht, EPStats &st, size_t by);
     static void reduceMetaDataSize(HashTable &ht, EPStats &st, size_t by);
@@ -706,6 +797,7 @@ private:
     AtomicValue<size_t> *counter;
 };
 
+
 /**
  * Creator of StoredValue instances.
  */
@@ -745,7 +837,7 @@ private:
 
         StoredValue *t = new (::operator new(len))
                          StoredValue(itm, n, *stats, ht, setDirty);
-        std::memcpy(t->keybytes, key.data(), key.length());
+        t->setKey(itm);
         return t;
     }
 
