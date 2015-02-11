@@ -32,6 +32,9 @@
 #include "mutex.h"
 #include "objectregistry.h"
 #include "stats.h"
+#include "itemkey.h"
+
+
 
 enum queue_operation {
     queue_op_set,
@@ -327,7 +330,7 @@ public:
      * Used when a value already exists, and the Item should refer to that
      * value.
      */
-    Item(const std::string &k, const uint32_t fl, const time_t exp,
+    Item(const ItemKey &k, const uint32_t fl, const time_t exp,
          const value_t &val, uint64_t theCas = 0,  int64_t i = -1,
          uint16_t vbid = 0, uint64_t sno = 1, uint8_t nru_value = INITIAL_NRU_VALUE,
          uint8_t conflict_res_value = revision_seqno) :
@@ -346,8 +349,7 @@ public:
     }
 
     /* Constructor (new value).
-     * {k, nk}   specify the item's key, k must be non-null and point to an
-     *           array of bytes of length nk, where nk must be >0.
+     * key       specify the item's key (as an ItemKey)
      * fl        Item flags.
      * exp       Item expiry.
      * {dta, nb} specify the item's value. nb specifies how much memory will be
@@ -356,13 +358,13 @@ public:
      *           then no data is copied in.
      *  The remaining arguments specify various optional attributes.
      */
-    Item(const void *k, uint16_t nk, const uint32_t fl, const time_t exp,
+    Item(const ItemKey& key, const uint32_t fl, const time_t exp,
          const void *dta, const size_t nb, uint8_t* ext_meta = NULL,
          uint8_t ext_len = 0, uint64_t theCas = 0, int64_t i = -1,
          uint16_t vbid = 0, uint64_t sno = 1, uint8_t nru_value = INITIAL_NRU_VALUE,
          uint8_t conflict_res_value = revision_seqno) :
         metaData(theCas, sno, fl, exp),
-        key(static_cast<const char*>(k), nk),
+        key(key),
         bySeqno(i),
         queuedTime(ep_current_time()),
         vbucketId(vbid),
@@ -375,12 +377,12 @@ public:
         ObjectRegistry::onCreateItem(this);
     }
 
-   Item(const std::string &k, const uint16_t vb,
+   Item(const ItemKey& key, const uint16_t vb,
         enum queue_operation o, const uint64_t revSeq,
         const int64_t bySeq, uint8_t nru_value = INITIAL_NRU_VALUE,
         uint8_t conflict_res_value = revision_seqno) :
        metaData(),
-       key(k),
+       key(key),
        bySeqno(bySeq),
        queuedTime(ep_current_time()),
        vbucketId(vb),
@@ -424,7 +426,19 @@ public:
         return value;
     }
 
-    const std::string &getKey() const {
+    const char* getKey() const {
+        return key.getKey();
+    }
+
+    size_t getKeyLen() const {
+        return key.getKeyLen();
+    }
+
+    const char* getHashKey() const {
+        return key.getHashKey();
+    }
+
+    const ItemKey& getItemKey() const {
         return key;
     }
 
@@ -437,7 +451,7 @@ public:
     }
 
     int getNKey() const {
-        return static_cast<int>(key.length());
+        return static_cast<int>(key.getKeyLen());
     }
 
     uint32_t getNBytes() const {
@@ -497,6 +511,10 @@ public:
         metaData.exptime = exp_time;
     }
 
+    bool compareKey(Item* item) {
+        return getKeyLen() == item->getKeyLen() && (memcmp(getKey(), item->getKey(), getKeyLen()) == 0);
+    }
+
     /**
      * Append another item to this item
      *
@@ -537,7 +555,7 @@ public:
     }
 
     size_t size(void) const {
-        return sizeof(Item) + key.size() + getValMemSize();
+        return sizeof(Item) + key.getKeyLen() + getValMemSize();
     }
 
     uint64_t getRevSeqno() const {
@@ -620,7 +638,7 @@ private:
 
     ItemMetaData metaData;
     value_t value;
-    std::string key;
+    ItemKey key;
     int64_t bySeqno;
     uint32_t queuedTime;
     uint16_t vbucketId;

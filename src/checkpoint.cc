@@ -907,7 +907,7 @@ queued_item CheckpointManager::nextItem(const std::string &name,
         LOG(EXTENSION_LOG_WARNING,
         "The cursor with name \"%s\" is not found in the checkpoint of vbucket"
         "%d.\n", name.c_str(), vbucketId);
-        queued_item qi(new Item(std::string(""), 0xffff,
+        queued_item qi(new Item(ItemKey("", 0, 0), 0xffff,
                                 queue_op_empty, 0, 0));
         return qi;
     }
@@ -916,7 +916,7 @@ queued_item CheckpointManager::nextItem(const std::string &name,
             "VBucket %d is still in backfill phase that doesn't allow "
             " the tap cursor to fetch an item from it's current checkpoint",
             vbucketId);
-        queued_item qi(new Item(std::string(""), 0xffff,
+        queued_item qi(new Item(ItemKey("", 0, 0), 0xffff,
                                 queue_op_empty, 0, 0));
         return qi;
     }
@@ -927,7 +927,7 @@ queued_item CheckpointManager::nextItem(const std::string &name,
         return *(cursor.currentPos);
     } else {
         isLastMutationItem = false;
-        queued_item qi(new Item(std::string(""), 0xffff,
+        queued_item qi(new Item(ItemKey("", 0, 0), 0xffff,
                                 queue_op_empty, 0, 0));
         return qi;
     }
@@ -1394,18 +1394,19 @@ queued_item CheckpointManager::createCheckpointItem(uint64_t id, uint16_t vbid,
            checkpoint_op == queue_op_empty);
 
     uint64_t bySeqno;
-    std::stringstream key;
+    std::string key;
     if (checkpoint_op == queue_op_checkpoint_start) {
-        key << "checkpoint_start";
+        key = "checkpoint_start";
         bySeqno = lastBySeqno + 1;
     } else if (checkpoint_op == queue_op_empty) {
-        key << "dummy_key";
+        key = "dummy_key";
         bySeqno = lastBySeqno;
     } else {
-        key << "checkpoint_end";
+        key = "checkpoint_end";
         bySeqno = lastBySeqno;
     }
-    queued_item qi(new Item(key.str(), vbid, checkpoint_op, id, bySeqno));
+    queued_item qi(new Item(ItemKey(key.c_str(), key.length(), 0),
+                            vbid, checkpoint_op, id, bySeqno));
     return qi;
 }
 

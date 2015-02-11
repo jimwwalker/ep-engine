@@ -46,8 +46,8 @@ public:
     bool metaDataOnly;
 };
 
-typedef unordered_map<std::string, std::list<VBucketBGFetchItem *> > vb_bgfetch_queue_t;
-typedef std::pair<std::string, VBucketBGFetchItem *> bgfetched_item_t;
+typedef unordered_map<ItemKey, std::list<VBucketBGFetchItem *>, ItemKeyHash > vb_bgfetch_queue_t;
+typedef std::pair<ItemKey, VBucketBGFetchItem *> bgfetched_item_t;
 
 // Forward declarations.
 class EventuallyPersistentStore;

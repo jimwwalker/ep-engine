@@ -112,7 +112,7 @@ bool ConflictResolution::resolve(RCPtr<VBucket> &vb , StoredValue *v,
                    LOG(EXTENSION_LOG_WARNING,
                        "Resolving conflict by comparing rev seqno: key: %s,"
                        "source conflict resolution mode: %s, target conflict resolution"
-                       "mode: %s", v->getKey().c_str(),
+                       "mode: %s", v->getKey(),
                        getConflictResModeStr(itmConfResMode),
                        getConflictResModeStr(v->getConflictResMode()));
         }

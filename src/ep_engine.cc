@@ -569,6 +569,7 @@ extern "C" {
 
     static protocol_binary_response_status evictKey(
                                                  EventuallyPersistentEngine *e,
+                                                 const void* cookie,
                                                  protocol_binary_request_header
                                                                       *request,
                                                  const char **msg,
@@ -589,7 +590,7 @@ extern "C" {
 
         uint16_t vbucket = ntohs(request->request.vbucket);
 
-        std::string key(keyz, keylen);
+        ItemKey key(keyz, keylen, e->getBucketId());
 
         LOG(EXTENSION_LOG_DEBUG, "Manually evicting object with key %s\n",
                 keyz);
@@ -626,7 +627,8 @@ extern "C" {
 
         const char *keyp = reinterpret_cast<const char*>(req->bytes);
         keyp += sizeof(req->bytes) + extlen;
-        std::string key(keyp, ntohs(req->request.keylen));
+
+        ItemKey key(keyp, ntohs(req->request.keylen), e->getBucketId());
         uint16_t vbucket = ntohs(req->request.vbucket);
 
         RememberingCallback<GetValue> getCb;
@@ -683,6 +685,7 @@ extern "C" {
 
     static protocol_binary_response_status unlockKey(
                                                  EventuallyPersistentEngine *e,
+                                                 const void* cookie,
                                                  protocol_binary_request_header
                                                                       *request,
                                                  const char **msg,
@@ -705,7 +708,7 @@ extern "C" {
         keyz[keylen] = 0x00;
 
         uint16_t vbucket = ntohs(request->request.vbucket);
-        std::string key(keyz, keylen);
+        ItemKey key(keyz, keylen, e->getBucketId());
 
         LOG(EXTENSION_LOG_DEBUG, "Executing unl for key %s\n", keyz);
 
@@ -972,10 +975,8 @@ extern "C" {
         int keylen = ntohs(req->message.header.request.keylen);
         uint16_t vbucket = ntohs(req->message.header.request.vbucket);
         ENGINE_ERROR_CODE error_code;
-        std::string keystr(((char *)request) + sizeof(req->message.header),
-                            keylen);
-
-        GetValue rv(eps->getReplica(keystr, vbucket, cookie, true));
+        ItemKey itemKey(((char *)request) + sizeof(req->message.header), keylen, e->getBucketId());
+        GetValue rv(eps->getReplica(itemKey, vbucket, cookie, true));
 
         if ((error_code = rv.getStatus()) != ENGINE_SUCCESS) {
             if (error_code == ENGINE_NOT_MY_VBUCKET) {
@@ -1174,7 +1175,7 @@ extern "C" {
             h->decrementSessionCtr();
             break;
         case PROTOCOL_BINARY_CMD_EVICT_KEY:
-            res = evictKey(h, request, &msg, &msg_size);
+            res = evictKey(h, cookie, request, &msg, &msg_size);
             break;
         case PROTOCOL_BINARY_CMD_GET_LOCKED:
             rv = getLocked(h, request, cookie, &itm, &msg, &msg_size, &res);
@@ -1184,7 +1185,7 @@ extern "C" {
             }
             break;
         case PROTOCOL_BINARY_CMD_UNLOCK_KEY:
-            res = unlockKey(h, request, &msg, &msg_size);
+            res = unlockKey(h, cookie, request, &msg, &msg_size);
             break;
         case PROTOCOL_BINARY_CMD_OBSERVE:
             return h->observe(cookie, request, response);
@@ -1605,8 +1606,9 @@ extern "C" {
         }
         ENGINE_ERROR_CODE errCode = ENGINE_DISCONNECT;
         ConnHandler* conn = getHandle(handle)->getConnHandler(cookie);
+        ItemKey itemKey(static_cast<const char*>(key), nkey, getHandle(handle)->getBucketId());
         if (conn) {
-            errCode = conn->mutation(opaque, key, nkey, value, nvalue, cas,
+            errCode = conn->mutation(opaque, itemKey, value, nvalue, cas,
                                      vbucket, flags, datatype, lockTime,
                                      bySeqno, revSeqno, expiration,
                                      nru, meta, nmeta);
@@ -1629,8 +1631,9 @@ extern "C" {
     {
         ENGINE_ERROR_CODE errCode = ENGINE_DISCONNECT;
         ConnHandler* conn = getHandle(handle)->getConnHandler(cookie);
+        ItemKey itemKey(static_cast<const char*>(key), nkey, getHandle(handle)->getBucketId());
         if (conn) {
-            errCode = conn->deletion(opaque, key, nkey, cas, vbucket, bySeqno,
+            errCode = conn->deletion(opaque, itemKey, cas, vbucket, bySeqno,
                                      revSeqno, meta, nmeta);
         }
         releaseHandle(handle);
@@ -1651,8 +1654,9 @@ extern "C" {
     {
         ENGINE_ERROR_CODE errCode = ENGINE_DISCONNECT;
         ConnHandler* conn = getHandle(handle)->getConnHandler(cookie);
+        ItemKey itemKey(static_cast<const char*>(key), nkey, getHandle(handle)->getBucketId());
         if (conn) {
-            errCode = conn->expiration(opaque, key, nkey, cas, vbucket, bySeqno,
+            errCode = conn->expiration(opaque, itemKey, cas, vbucket, bySeqno,
                                        revSeqno, meta, nmeta);
         }
         releaseHandle(handle);
@@ -1843,7 +1847,7 @@ extern "C" {
         itm_info->clsid = 0;
         itm_info->nkey = static_cast<uint16_t>(it->getNKey());
         itm_info->nvalue = 1;
-        itm_info->key = it->getKey().c_str();
+        itm_info->key = it->getKey();
         itm_info->value[0].iov_base = const_cast<char*>(it->getData());
         itm_info->value[0].iov_len = it->getNBytes();
         return true;
@@ -1961,6 +1965,11 @@ EventuallyPersistentEngine::EventuallyPersistentEngine(
                                              ENGINE_FEATURE_PERSISTENT_STORAGE;
     info.info.features[info.info.num_features++].feature = ENGINE_FEATURE_LRU;
     info.info.features[info.info.num_features++].feature = ENGINE_FEATURE_DATATYPE;
+
+
+    // TYNSET: temp code for bucketId, memcache API will pass this.
+    static bucket_id_t static_id = 0xcafeface;
+    bucketId = ++static_id;
 }
 
 ENGINE_ERROR_CODE EventuallyPersistentEngine::reserveCookie(const void *cookie)
@@ -2226,7 +2235,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::store(const void *cookie,
     case OPERATION_APPEND:
     case OPERATION_PREPEND:
         do {
-            if ((ret = get(cookie, &i, it->getKey().c_str(),
+            if ((ret = get(cookie, &i, it->getKey(),
                            it->getNKey(), vbucket)) == ENGINE_SUCCESS) {
                 Item *old = reinterpret_cast<Item*>(i);
 
@@ -2631,7 +2640,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::tapNotify(const void *cookie,
         connection = reinterpret_cast<ConnHandler *>(specific);
     }
 
-    std::string k(static_cast<const char*>(key), nkey);
+    ItemKey k(static_cast<const char*>(key), nkey, getBucketId());
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
 
     if (tap_event == TAP_MUTATION || tap_event == TAP_DELETION) {
@@ -2651,7 +2660,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::tapNotify(const void *cookie,
 
     switch (tap_event) {
     case TAP_ACK:
-        ret = processTapAck(cookie, tap_seqno, tap_flags, k);
+        ret = processTapAck(cookie, tap_seqno, tap_flags, std::string(static_cast<const char*>(key), nkey));
         break;
     case TAP_FLUSH:
         ret = flush(cookie, 0);
@@ -2664,7 +2673,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::tapNotify(const void *cookie,
             TapEngineSpecific::readSpecificData(tap_event, engine_specific,
                                                 nengine, &revSeqno);
 
-            ret = connection->deletion(0, key, nkey, cas, vbucket, 0, revSeqno,
+            ret = connection->deletion(0, k, cas, vbucket, 0, revSeqno,
                                        NULL, 0);
         }
         break;
@@ -2729,7 +2738,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::tapNotify(const void *cookie,
                     datatype = PROTOCOL_BINARY_DATATYPE_JSON;
                 }
             }
-            ret = connection->mutation(0, key, nkey, data, ndata, cas, vbucket,
+            ret = connection->mutation(0, k, data, ndata, cas, vbucket,
                                        flags, datatype, 0, 0, revSeqno, exptime,
                                        nru, NULL, 0);
         }
@@ -4047,7 +4056,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doDcpStats(const void *cookie,
 ENGINE_ERROR_CODE EventuallyPersistentEngine::doKeyStats(const void *cookie,
                                                          ADD_STAT add_stat,
                                                          uint16_t vbid,
-                                                         std::string &key,
+                                                         ItemKey &key,
                                                          bool validate) {
     ENGINE_ERROR_CODE rv = ENGINE_FAILED;
 
@@ -4084,7 +4093,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doKeyStats(const void *cookie,
             } else {
                 valid.assign("ram_but_not_disk");
             }
-            LOG(EXTENSION_LOG_DEBUG, "Key '%s' is %s\n", key.c_str(),
+            LOG(EXTENSION_LOG_DEBUG, "Key '%s' is %s\n", key.getKey(),
                 valid.c_str());
         }
         add_casted_stat("key_is_dirty", kstats.dirty, add_stat, cookie);
@@ -4468,10 +4477,11 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getStats(const void* cookie,
         if (key.length() == 0) {
             return rv;
         }
+        ItemKey itemKey(key.c_str(), key.length(), getBucketId());
         uint16_t vbucket_id(0);
         parseUint16(vbid.c_str(), &vbucket_id);
         // Non-validating, non-blocking version
-        rv = doKeyStats(cookie, add_stat, vbucket_id, key, false);
+        rv = doKeyStats(cookie, add_stat, vbucket_id, itemKey, false);
     } else if (nkey > 5 && strncmp(stat_key, "vkey ", 5) == 0) {
         std::string key;
         std::string vbid;
@@ -4483,10 +4493,11 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getStats(const void* cookie,
         if (key.length() == 0) {
             return rv;
         }
+        ItemKey itemKey(key.c_str(), key.length(), getBucketId());
         uint16_t vbucket_id(0);
         parseUint16(vbid.c_str(), &vbucket_id);
         // Validating version; blocks
-        rv = doKeyStats(cookie, add_stat, vbucket_id, key, true);
+        rv = doKeyStats(cookie, add_stat, vbucket_id, itemKey, true);
     } else if (nkey == 9 && strncmp(stat_key, "kvtimings", 9) == 0) {
         getEpStore()->addKVStoreTimingStats(add_stat, cookie);
         rv = ENGINE_SUCCESS;
@@ -4595,11 +4606,11 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::observe(
                                 cookie);
         }
 
-        const std::string key(data + offset, keylen);
+        ItemKey key(data + offset, keylen, getBucketId());
         offset += keylen;
 
         LOG(EXTENSION_LOG_DEBUG, "Observing key: %s, in vbucket %d.",
-            key.c_str(), vb_id);
+            key.getKey(), vb_id);
 
         // Get key stats
         uint16_t keystatus = 0;
@@ -4642,7 +4653,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::observe(
         uint64_t cas = htonll(kstats.cas);
         result.write((char*) &vb_id, sizeof(uint16_t));
         result.write((char*) &keylen, sizeof(uint16_t));
-        result.write(key.c_str(), ntohs(keylen));
+        result.write(key.getKey(), ntohs(keylen));
         result.write((char*) &keystatus, sizeof(uint8_t));
         result.write((char*) &cas, sizeof(uint64_t));
     }
@@ -4765,7 +4776,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::touch(const void *cookie,
     uint16_t vbucket = ntohs(request->request.vbucket);
 
     // try to get the object
-    std::string k(static_cast<const char*>(key), nkey);
+    ItemKey k(static_cast<const char*>(key), nkey, getBucketId());
 
     if (exptime != 0) {
         exptime = serverApi->core->abstime(serverApi->core->realtime(exptime));
@@ -5079,10 +5090,11 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getMeta(const void* cookie,
     }
 
     uint8_t extlen = request->message.header.request.extlen;
-    std::string key((char *)(request->bytes + sizeof(request->bytes) + extlen),
-                    (size_t)ntohs(request->message.header.request.keylen));
-    uint16_t vbucket = ntohs(request->message.header.request.vbucket);
+    ItemKey key((char *)(request->bytes + sizeof(request->bytes) + extlen),
+               (size_t)ntohs(request->message.header.request.keylen),
+               getBucketId());
 
+    uint16_t vbucket = ntohs(request->message.header.request.vbucket);
 
     bool sendConfResMode = false;
     uint8_t confResMode;
@@ -5240,7 +5252,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::setWithMeta(const void* cookie,
     uint8_t ext_meta[1];
     uint8_t ext_len = EXT_META_LEN;
     *(ext_meta) = datatype;
-    Item *itm = new Item(key, keylen, flags, expiration, dta, vallen,
+    Item *itm = new Item(ItemKey(reinterpret_cast<const char*>(key), keylen, getBucketId()),
+                         flags, expiration, dta, vallen,
                          ext_meta, ext_len, cas, -1, vbucket);
 
     if (itm == NULL) {
@@ -5409,8 +5422,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::deleteWithMeta(
         }
     }
 
-    std::string key(key_ptr, nkey);
-
+    ItemKey key(key_ptr, nkey, getBucketId());
     ItemMetaData itm_meta(metacas, seqno, flags, expiration);
 
     uint8_t meta[16];
@@ -5694,7 +5706,8 @@ EventuallyPersistentEngine::returnMeta(const void* cookie,
         uint8_t ext_meta[1];
         uint8_t ext_len = EXT_META_LEN;
         *(ext_meta) = datatype;
-        Item *itm = new Item(key, keylen, flags, exp, dta, vallen, ext_meta,
+        Item *itm = new Item(ItemKey(reinterpret_cast<const char*>(key), keylen, getBucketId()),
+                             flags, exp, dta, vallen, ext_meta,
                              ext_len, cas, -1, vbucket);
 
         if (!itm) {
@@ -5717,9 +5730,11 @@ EventuallyPersistentEngine::returnMeta(const void* cookie,
     } else if (mutate_type == DEL_RET_META) {
         ItemMetaData itm_meta;
         mutation_descr_t mut_info;
-        std::string key_str(reinterpret_cast<char*>(key), keylen);
-        ret = epstore->deleteItem(key_str, &cas, vbucket, cookie, false,
+
+        ItemKey item_key(reinterpret_cast<const char*>(key), keylen, getBucketId());
+        ret = epstore->deleteItem(item_key, &cas, vbucket, cookie, false,
                                   &itm_meta, &mut_info);
+
         if (ret == ENGINE_SUCCESS) {
             ++stats.numOpsDelRetMeta;
         }

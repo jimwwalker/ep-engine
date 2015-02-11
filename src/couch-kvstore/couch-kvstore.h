@@ -354,10 +354,10 @@ public:
      * @param fetchDelete True if we want to retrieve a deleted item if it not
      *        purged yet.
      */
-    void get(const std::string &key, uint16_t vb, Callback<GetValue> &cb,
+    void get(const ItemKey &key, uint16_t vb, Callback<GetValue> &cb,
              bool fetchDelete = false);
 
-    void getWithHeader(void *dbHandle, const std::string &key,
+    void getWithHeader(void *dbHandle, const ItemKey &key,
                        uint16_t vb, Callback<GetValue> &cb,
                        bool fetchDelete = false);
 

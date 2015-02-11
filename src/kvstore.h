@@ -267,10 +267,10 @@ public:
     /**
      * Get an item from the kv store.
      */
-    virtual void get(const std::string &key, uint16_t vb,
+    virtual void get(const ItemKey &key, uint16_t vb,
                      Callback<GetValue> &cb, bool fetchDelete = false) = 0;
 
-    virtual void getWithHeader(void *dbHandle, const std::string &key,
+    virtual void getWithHeader(void *dbHandle, const ItemKey &key,
                                uint16_t vb, Callback<GetValue> &cb,
                                bool fetchDelete = false) = 0;
 
