@@ -24,6 +24,8 @@
 
 #include "locks.h"
 
+#include "itemkey.h"
+
 class Item;
 
 class CacheLookup {
@@ -35,11 +37,14 @@ public:
 
     std::string& getKey() { return key; }
 
+    ItemKey& getItemKey() {return itemKey;} // TYNSET: All CacheLookup code broken
+
     int64_t getBySeqno() { return bySeqno; }
 
     uint16_t getVBucketId() { return vbid; }
 private:
     std::string key;
+    ItemKey itemKey;
     int64_t bySeqno;
     uint16_t vbid;
 };

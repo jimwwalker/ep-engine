@@ -213,7 +213,8 @@ ENGINE_ERROR_CODE DcpConsumer::mutation(uint32_t opaque, const void* key,
     ENGINE_ERROR_CODE err = ENGINE_KEY_ENOENT;
     passive_stream_t stream = streams[vbucket];
     if (stream && stream->getOpaque() == opaque && stream->isActive()) {
-        Item *item = new Item(key, nkey, flags, exptime, value, nvalue,
+        Item *item = new Item(ItemKey(static_cast<const char*>(key), nkey), // TYNSET: need bucket id
+                              flags, exptime, value, nvalue,
                               &datatype, EXT_META_LEN, cas, bySeqno,
                               vbucket, revSeqno);
         MutationResponse* response = new MutationResponse(item, opaque);
@@ -247,7 +248,8 @@ ENGINE_ERROR_CODE DcpConsumer::deletion(uint32_t opaque, const void* key,
     ENGINE_ERROR_CODE err = ENGINE_KEY_ENOENT;
     passive_stream_t stream = streams[vbucket];
     if (stream && stream->getOpaque() == opaque && stream->isActive()) {
-        Item* item = new Item(key, nkey, 0, 0, NULL, 0, NULL, 0, cas, bySeqno,
+        Item* item = new Item(ItemKey(static_cast<const char*>(key), nkey), // TYNSET: need the bucket-id
+                              0, 0, NULL, 0, NULL, 0, cas, bySeqno,
                               vbucket, revSeqno);
         item->setDeleted();
         MutationResponse* response = new MutationResponse(item, opaque);

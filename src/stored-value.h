@@ -37,97 +37,102 @@
 class HashTable;
 class StoredValueFactory;
 
-/**
-    Representation of a key
-    A key is now viewed in 2 ways.
-
-    1. Hashable key
-    2. Client key
-
-    Hashable key is what is used when accessing the hashtable.
-    Client key is what client's of the server care about.
-
-    The two could be the same or we can do things to make the hashable key different.
-**/
-class StoredValueKey {
-    class HashableKey {
-    public:
-        HashableKey() : bucket_index(0) {}
-        bucket_id_t bucket_index;
-        char keybytes[1];
-    };
-
-public:
-
-    StoredValueKey() : keylen(0)  {
-
-    }
-
-    void setBucketId(bucket_id_t b) {
-        key.bucket_index = b;
-    }
-
-    void setKeyLen(size_t len) {
-        // drop 1 byte off the len because 1 byte is always reserved by
-        // the HashableKey struct
-        keylen = sizeof(HashableKey) + (len - 1);
-    }
-
-    const char* getClientKey() const {
-        return key.keybytes;
-    }
-
-    size_t getClientKeyLen() const {
-        return keylen - sizeof(HashableKey) + 1;
-    }
-
-    size_t getTrailingBytesLen() const {
-        return keylen - sizeof(HashableKey);
-    }
-
-    const char* getHashKey() const {
-        return reinterpret_cast<const char*>(&key);
-    }
-
-    size_t getHashKeyLen() const {
-        return keylen;
-    }
-
-    void setKey(const char* k, size_t klen) {
-        std::memcpy(key.keybytes, k, klen);
-    }
-
-    void setKey(const std::string& k) {
-        setKey(k.data(), k.length());
-    }
-
-    /**
-        Factory method: returns a StoredValueKey for t
-    **/
-    static StoredValueKey* create(const char* k, size_t klen, bucket_id_t id) {
-        // a key is bigger than the class
-        int len = sizeof(StoredValueKey) + (klen - 1); // -1 as HashableKey has 1 byte already for the key
-        StoredValueKey *newKey = new (::operator new(len))StoredValueKey(k, klen, id);
-        return newKey;
-    }
-
-private:
-
-    StoredValueKey(const char* k, size_t klen, bucket_id_t id) {
-        setBucketId(id);
-        setKeyLen(klen);
-        setKey(k, klen);
-    }
-
-    size_t keylen; // length of entire hashable key
-    HashableKey key;
-};
-
 
 /**
  * In-memory storage for an item.
  */
 class StoredValue {
+
+    /**
+        Representation of a StoredValue's key.
+
+        A key is now viewed in 2 ways.
+
+        1. Hashable key
+        2. Client key
+
+        Hashable key is what is used when accessing the hashtable.
+        Client key is what client's of the server care about.
+
+        The two could be the same or we can do things to make the hashable key different.
+
+        This object must only be used in conjunction with StoredValue and requires special construction
+        to ensure the correct memory is allocated for the object and the trailing key.
+    **/
+    class StoredValueKey {
+        class HashableKey {
+        public:
+            HashableKey() : bucket_index(0) {}
+
+            static size_t getObjectSize() {
+                // ignore the padding the compiler would add which sizeof() would account for
+                return sizeof(bucket_index) + sizeof(keybytes);
+            }
+
+            bucket_id_t bucket_index;
+            char keybytes[1];
+        };
+
+    public:
+
+        StoredValueKey(const ItemKey& itemKey) : keylen(0)  {
+            setBucketId(itemKey.getBucketId());
+            setKey(itemKey.getKey(), itemKey.getKeyLen());
+        }
+
+        const char* getKey() const {
+            return key.keybytes;
+        }
+
+        size_t getKeyLen() const {
+            return (keylen - HashableKey::getObjectSize()) + 1;
+        }
+
+        /**
+            The number of bytes allocated past the end of this object
+        **/
+        size_t getTrailingBytesLen() const {
+            return keylen - sizeof(StoredValueKey);
+        }
+
+        const char* getHashKey() const {
+            return reinterpret_cast<const char*>(&key);
+        }
+
+        size_t getHashKeyLen() const {
+            return keylen;
+        }
+
+        bucket_id_t getBucketId() const {
+            return key.bucket_index;
+        }
+
+        bool compare(const ItemKey& itemKey) const {
+            return getHashKeyLen() == itemKey.getHashKeyLen() &&
+                (std::memcmp(getHashKey(), itemKey.getHashKey(), getHashKeyLen()) == 0);
+        }
+
+    private:
+
+        void setBucketId(bucket_id_t b) {
+            key.bucket_index = b;
+        }
+
+        void setKey(const char* k, size_t klen) {
+            std::memcpy(key.keybytes, k, klen);
+            setKeyLen(klen);
+        }
+
+        void setKeyLen(size_t len) {
+            // drop 1 byte off the len because 1 byte is always reserved by
+            // the HashableKey struct
+            keylen = HashableKey::getObjectSize() + (len - 1);
+        }
+
+        size_t keylen; // length of entire hashable key
+        HashableKey key;
+    }; // end StoredValueKey
+
 public:
 
     void operator delete(void* p) {
@@ -210,16 +215,29 @@ public:
     /**
      * Get the pointer to the beginning of the key.
      */
-    const char* getKeyBytes() const {
-        return key.getClientKey();
+    const char* getKey() const {
+        return key.getKey();
     }
 
     /**
      * Get the length of the key.
      */
     uint8_t getKeyLen() const {
-        return key.getClientKeyLen();
+        return key.getKeyLen();
     }
+
+    const char* getHashKey() const {
+        return key.getHashKey();
+    }
+
+    size_t getHashKeyLen() const {
+        return key.getHashKeyLen();
+    }
+
+    bucket_id_t getBucketId() const {
+        return key.getBucketId();
+    }
+
 
     /**
      * True of this item is for the given key.
@@ -227,16 +245,8 @@ public:
      * @param k the key we're checking
      * @return true if this item's key is equal to k
      */
-    bool hasKey(const std::string &k) const {
-        return k.length() == getKeyLen()
-            && (std::memcmp(k.data(), getKeyBytes(), getKeyLen()) == 0);
-    }
-
-    /**
-     * Get this item's key.
-     */
-    const std::string getKey() const {
-        return std::string(getKeyBytes(), getKeyLen());
+    bool hasKey(const ItemKey& itemKey) const {
+        return key.compare(itemKey);
     }
 
     /**
@@ -579,7 +589,7 @@ private:
     StoredValue(const Item &itm, StoredValue *n, EPStats &stats, HashTable &ht,
                 bool setDirty = true) :
         value(itm.getValue()), next(n), bySeqno(itm.getBySeqno()),
-        flags(itm.getFlags()) {
+        flags(itm.getFlags()), key(itm.getItemKey()) {
         cas = itm.getCas();
         exptime = itm.getExptime();
         deleted = false;
@@ -598,12 +608,6 @@ private:
         increaseCacheSize(ht, size());
 
         ObjectRegistry::onCreateStoredValue(this);
-    }
-
-    void setKey(const Item& itm) {
-        key.setBucketId(0);
-        key.setKeyLen(itm.getNKey());
-        key.setKey(itm.getKey());
     }
 
     friend class HashTable;
@@ -815,14 +819,11 @@ private:
     StoredValue* newStoredValue(const Item &itm, StoredValue *n, HashTable &ht,
                                 bool setDirty) {
         size_t base = sizeof(StoredValue);
-
-        const std::string &key = itm.getKey();
-        cb_assert(key.length() < 256);
-        size_t len = key.length() + base;
+        cb_assert(itm.getKeyLen() < 256);
+        size_t len = itm.getKeyLen() + base;
 
         StoredValue *t = new (::operator new(len))
                          StoredValue(itm, n, *stats, ht, setDirty);
-        t->setKey(itm);
         return t;
     }
 
@@ -994,7 +995,7 @@ public:
      * @param key the key to find
      * @return a pointer to a StoredValue -- NULL if not found
      */
-    StoredValue *find(std::string &key, bool trackReference=true) {
+    StoredValue *find(const ItemKey &key, bool trackReference=true) {
         cb_assert(isActive());
         int bucket_num(0);
         LockHolder lh = getLockedBucket(key, &bucket_num);
@@ -1042,8 +1043,8 @@ public:
                         item_eviction_policy_t policy = VALUE_ONLY,
                         uint8_t nru=0xff) {
         int bucket_num(0);
-        LockHolder lh = getLockedBucket(val.getKey(), &bucket_num);
-        StoredValue *v = unlocked_find(val.getKey(), bucket_num, true, false);
+        LockHolder lh = getLockedBucket(val.getItemKey(), &bucket_num);
+        StoredValue *v = unlocked_find(val.getItemKey(), bucket_num, true, false);
         return unlocked_set(v, val, cas, allowExisting, hasMetaData, policy, nru);
     }
 
@@ -1128,7 +1129,7 @@ public:
             if (!hasMetaData) {
                 itm.setCas();
             }
-            int bucket_num = getBucketForHash(hash(itm.getKey()));
+            int bucket_num = getBucketForHash(hash(itm));
             v = valFact(itm, values[bucket_num], *this);
             values[bucket_num] = v;
             ++numItems;
@@ -1177,12 +1178,12 @@ public:
      * @param storeVal true if the value should be stored (paged-in)
      * @return an indication of what happened
      */
-    add_type_t add(const Item &val, item_eviction_policy_t policy,
+     add_type_t add(const Item &val, item_eviction_policy_t policy,
                    bool isDirty = true, bool storeVal = true) {
         cb_assert(isActive());
         int bucket_num(0);
-        LockHolder lh = getLockedBucket(val.getKey(), &bucket_num);
-        StoredValue *v = unlocked_find(val.getKey(), bucket_num, true, false);
+        LockHolder lh = getLockedBucket(val.getItemKey(), &bucket_num);
+        StoredValue *v = unlocked_find(val.getItemKey(), bucket_num, true, false);
         return unlocked_add(bucket_num, v, val, policy, isDirty, storeVal);
     }
 
@@ -1216,8 +1217,9 @@ public:
      * @param policy item eviction policy
      * @return an indication of what happened
      */
-    add_type_t unlocked_addTempItem(int &bucket_num,
-                                    const std::string &key,
+    add_type_t
+    unlocked_addTempItem(int &bucket_num,
+                                    const ItemKey& key,
                                     item_eviction_policy_t policy);
 
     /**
@@ -1228,7 +1230,7 @@ public:
      * @param policy item eviction policy
      * @return an indicator of what the deletion did
      */
-    mutation_type_t softDelete(const std::string &key, uint64_t cas,
+    mutation_type_t softDelete(const ItemKey &key, uint64_t cas,
                                item_eviction_policy_t policy = VALUE_ONLY) {
         cb_assert(isActive());
         int bucket_num(0);
@@ -1319,7 +1321,7 @@ public:
      *
      * @return a pointer to a StoredValue -- NULL if not found
      */
-    StoredValue *unlocked_find(const std::string &key, int bucket_num,
+    StoredValue *unlocked_find(const ItemKey& key, int bucket_num,
                                bool wantsDeleted=false, bool trackReference=true) {
         StoredValue *v = values[bucket_num];
         while (v) {
@@ -1363,8 +1365,12 @@ public:
      * @param s the string
      * @return the hash value
      */
-    inline int hash(const std::string &s) {
-        return hash(s.data(), s.length());
+    inline int hash(const Item &item) {
+        return hash(item.getItemKey().getHashKey(), item.getItemKey().getHashKeyLen());
+    }
+
+    inline int hash(const StoredValue* sv) {
+        return hash(sv->getHashKey(), sv->getHashKeyLen());
     }
 
     /**
@@ -1414,12 +1420,12 @@ public:
      * Get a lock holder holding a lock for the bucket for the hash of
      * the given key.
      *
-     * @param s the key
+     * @param key the key
      * @param bucket output parameter to receive a bucket
      * @return a locked LockHolder
      */
-    inline LockHolder getLockedBucket(const std::string &s, int *bucket) {
-        return getLockedBucket(hash(s.data(), s.size()), bucket);
+    inline LockHolder getLockedBucket(const ItemKey& key, int *bucket) {
+        return getLockedBucket(hash(key.getHashKey(), key.getHashKeyLen()), bucket);
     }
 
     /**
@@ -1431,7 +1437,7 @@ public:
      * @param bucket_num the bucket to look in (must already be locked)
      * @return true if an object was deleted, false otherwise
      */
-    bool unlocked_del(const std::string &key, int bucket_num) {
+    bool unlocked_del(const ItemKey& key, int bucket_num) {
         cb_assert(isActive());
         StoredValue *v = values[bucket_num];
 
@@ -1491,7 +1497,7 @@ public:
      * @param key the key to delete
      * @return true if the item existed before this call
      */
-    bool del(const std::string &key) {
+    bool del(const ItemKey &key) {
         cb_assert(isActive());
         int bucket_num(0);
         LockHolder lh = getLockedBucket(key, &bucket_num);
@@ -1612,7 +1618,7 @@ private:
     size_t               n_locks;
     StoredValue        **values;
     Mutex               *mutexes;
-    EPStats              stats; // TYNSET: Delete me.
+    static EPStats              stats; // TYNSET: Delete me.
     StoredValueFactory   valFact;
     AtomicValue<size_t>       visitors;
     AtomicValue<size_t>       numItems;

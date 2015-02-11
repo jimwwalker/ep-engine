@@ -1474,7 +1474,7 @@ couchstore_error_t CouchKVStore::fetchDoc(Db *db, DocInfo *docinfo,
     exptime = ntohl(exptime);
 
     if (metaOnly || (fetchDelete && docinfo->deleted)) {
-        Item *it = new Item(docinfo->id.buf, (size_t)docinfo->id.size,
+        Item *it = new Item(ItemKey(docinfo->id.buf, (size_t)docinfo->id.size), // TYNSET: bucket-id
                             itemFlags, (time_t)exptime, NULL, docinfo->size,
                             ext_meta, ext_len, cas, docinfo->db_seq, vbId);
         if (docinfo->deleted) {
@@ -1510,7 +1510,7 @@ couchstore_error_t CouchKVStore::fetchDoc(Db *db, DocInfo *docinfo,
                                                      valuelen);
                 }
 
-                Item *it = new Item(docinfo->id.buf, (size_t)docinfo->id.size,
+                Item *it = new Item(ItemKey(docinfo->id.buf, (size_t)docinfo->id.size), // TYNSET: BucketID
                                     itemFlags, (time_t)exptime, valuePtr, valuelen,
                                     ext_meta, ext_len, cas, docinfo->db_seq, vbId,
                                     docinfo->rev_seq);
@@ -1606,8 +1606,7 @@ int CouchKVStore::recordDbDump(Db *db, DocInfo *docinfo, void *ctx) {
         }
     }
 
-    Item *it = new Item((void *)key.buf,
-                        key.size,
+    Item *it = new Item(ItemKey(key.buf, key.size, 0), // TYNSET: Need to obtain the bucketid
                         itemflags,
                         (time_t)exptime,
                         valuePtr, valuelen,

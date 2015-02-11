@@ -444,10 +444,10 @@ void VBucket::initTempFilter(size_t key_count, double probability) {
     }
 }
 
-void VBucket::addToFilter(const std::string &key) {
+void VBucket::addToFilter(const ItemKey& key) {
     LockHolder lh(bfMutex);
     if (bFilter) {
-        bFilter->addKey(key.c_str(), key.length());
+        bFilter->addKey(key.getKey(), key.getKeyLen());
     }
 
     // If the temp bloom filter is not found to be NULL,
@@ -456,14 +456,14 @@ void VBucket::addToFilter(const std::string &key) {
     // well, as once compaction completes the temp filter
     // will replace the main bloom filter.
     if (tempFilter) {
-        tempFilter->addKey(key.c_str(), key.length());
+        tempFilter->addKey(key.getKey(), key.getKeyLen());
     }
 }
 
-bool VBucket::maybeKeyExistsInFilter(const std::string &key) {
+bool VBucket::maybeKeyExistsInFilter(const ItemKey& key) {
     LockHolder lh(bfMutex);
     if (bFilter) {
-        return bFilter->maybeKeyExists(key.c_str(), key.length());
+        return bFilter->maybeKeyExists(key.getKey(), key.getKeyLen());
     } else {
         // If filter doesn't exist, allow the BgFetch to go through.
         return true;
@@ -481,12 +481,12 @@ bool VBucket::isTempFilterAvailable() {
     }
 }
 
-void VBucket::addToTempFilter(const std::string &key) {
+void VBucket::addToTempFilter(const ItemKey &key) {
     // Keys will be added to only the temp filter during
     // compaction.
     LockHolder lh(bfMutex);
     if (tempFilter) {
-        tempFilter->addKey(key.c_str(), key.length());
+        tempFilter->addKey(key.getKey(), key.getKeyLen());
     }
 }
 

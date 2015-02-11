@@ -873,6 +873,7 @@ static enum test_result test_append(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
           == ENGINE_SUCCESS,
           "Failed append.");
 
+    info.nvalue = 1;
     h1->get_item_info(h, NULL, i, &info);
 
     check(vb_uuid == info.vbucket_uuid, "Expected valid vbucket uuid");
@@ -942,6 +943,7 @@ static enum test_result test_prepend(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
           == ENGINE_SUCCESS,
           "Failed prepend.");
 
+    info.nvalue = 1;
     h1->get_item_info(h, NULL, i, &info);
 
     check(vb_uuid == info.vbucket_uuid, "Expected valid vbucket uuid");

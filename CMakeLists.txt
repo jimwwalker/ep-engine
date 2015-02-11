@@ -146,6 +146,10 @@ ADD_LIBRARY(ep SHARED
 SET_TARGET_PROPERTIES(ep PROPERTIES PREFIX "")
 TARGET_LINK_LIBRARIES(ep cJSON JSON_checker couchstore dirutils platform ${LIBEVENT_LIBRARIES})
 
+ADD_EXECUTABLE(ep-engine_itemkey_test
+  tests/module_tests/itemkey_test.cc)
+TARGET_LINK_LIBRARIES(ep-engine_itemkey_test platform)
+
 ADD_EXECUTABLE(ep-engine_atomic_ptr_test
   tests/module_tests/atomic_ptr_test.cc
   src/atomic.cc

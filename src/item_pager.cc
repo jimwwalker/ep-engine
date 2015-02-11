@@ -197,7 +197,6 @@ private:
 
     void doEviction(StoredValue *v) {
         item_eviction_policy_t policy = store.getItemEvictionPolicy();
-        std::string key = v->getKey();
 
         if (currentBucket->ht.unlocked_ejectItem(v, policy)) {
             ++ejected;
@@ -207,7 +206,7 @@ private:
              * evicted to the corresponding bloomfilter.
              */
             if (policy == FULL_EVICTION) {
-                currentBucket->addToFilter(key);
+                currentBucket->addToFilter(ItemKey(v->getKey(), v->getKeyLen(), v->getBucketId()));
             }
         }
     }

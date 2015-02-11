@@ -273,7 +273,7 @@ ENGINE_ERROR_CODE DcpProducer::step(struct dcp_message_producers* producers) {
         {
             MutationResponse *m = static_cast<MutationResponse*>(resp);
             ret = producers->deletion(getCookie(), m->getOpaque(),
-                                      m->getItem()->getKey().c_str(),
+                                      m->getItem()->getKey(),
                                       m->getItem()->getNKey(),
                                       m->getItem()->getCas(),
                                       m->getVBucket(), m->getBySeqno(),

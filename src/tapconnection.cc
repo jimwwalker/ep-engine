@@ -1797,7 +1797,7 @@ Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
         *vbucket = checkpoint_msg->getVBucketId();
         uint64_t cid = htonll(checkpoint_msg->getRevSeqno());
         const std::string& key = checkpoint_msg->getKey();
-        itm = new Item(key.data(), key.length(), /*flags*/0, /*exp*/0,
+        itm = new Item(ItemKey(key.data(), key.length()), /*flags*/0, /*exp*/0,
                        &cid, sizeof(cid), /*ext_meta*/NULL, /*ext_len*/0,
                        /*cas*/0, /*seqno*/-1,
                        checkpoint_msg->getVBucketId());
@@ -1825,7 +1825,7 @@ Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
 
         // If there's a better version in memory, grab it,
         // else go with what we pulled from disk.
-        GetValue gv(engine_.getEpStore()->get(itm->getKey(), itm->getVBucketId(),
+        GetValue gv(engine_.getEpStore()->get(itm->getItemKey(), itm->getVBucketId(),
                                               c, false, false, false));
         if (gv.getStatus() == ENGINE_SUCCESS) {
             delete itm;
@@ -1838,7 +1838,7 @@ Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
         nru = gv.getNRUValue();
 
         ++stats.numTapBGFetched;
-        qi = queued_item(new Item(itm->getKey(), itm->getVBucketId(),
+        qi = queued_item(new Item(itm->getItemKey(), itm->getVBucketId(),
                                   ret == TAP_MUTATION ? queue_op_set : queue_op_del,
                                   itm->getRevSeqno(), itm->getBySeqno()));
     } else if (hasItemFromVBHashtable_UNLOCKED()) { // Item from memory backfill or checkpoints
@@ -1862,7 +1862,7 @@ Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
         }
 
         if (qi->getOperation() == queue_op_set) {
-            GetValue gv(engine_.getEpStore()->get(qi->getKey(), qi->getVBucketId(),
+            GetValue gv(engine_.getEpStore()->get(qi->getItemKey(), qi->getVBucketId(),
                                                   c, false, false, false));
             ENGINE_ERROR_CODE r = gv.getStatus();
             if (r == ENGINE_SUCCESS) {
@@ -1872,7 +1872,7 @@ Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
                 ret = TAP_MUTATION;
             } else if (r == ENGINE_KEY_ENOENT) {
                 // Item was deleted and set a message type to tap_deletion.
-                itm = new Item(qi->getKey().c_str(), qi->getNKey(),
+                itm = new Item(qi->getItemKey(),
                                /*flags*/0, /*exp*/0,
                                /*data*/NULL, /*size*/0,
                                /*ext_meta*/NULL, /*ext_len*/0,
@@ -1905,7 +1905,7 @@ Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
             }
             ++stats.numTapFGFetched;
         } else if (qi->getOperation() == queue_op_del) {
-            itm = new Item(qi->getKey().c_str(), qi->getNKey(),
+            itm = new Item(qi->getItemKey(),
                            /*flags*/0, /*exp*/0,
                            /*data*/NULL, /*size*/0,
                            /*ext_meta*/NULL, /*ext_len*/0,
@@ -2162,7 +2162,8 @@ ENGINE_ERROR_CODE TapConsumer::mutation(uint32_t opaque, const void* key,
                                         const void* meta, uint16_t nmeta) {
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
 
-    Item *item = new Item(key, nkey, flags, exptime, value, nvalue,
+    Item *item = new Item(ItemKey(static_cast<const char*>(key), nkey),
+                          flags, exptime, value, nvalue,
                           &datatype, EXT_META_LEN, cas, -1,
                           vbucket, revSeqno);
 
@@ -2205,7 +2206,7 @@ ENGINE_ERROR_CODE TapConsumer::deletion(uint32_t opaque, const void* key,
                                         uint64_t revSeqno, const void* meta,
                                         uint16_t nmeta) {
     uint64_t delCas = 0;
-    std::string key_str(static_cast<const char*>(key), nkey);
+    ItemKey itemKey(static_cast<const char*>(key), nkey, 0); // TYNSET FIX ME bucketId
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
     EventuallyPersistentStore* epstore = engine_.getEpStore();
 
@@ -2218,7 +2219,7 @@ ENGINE_ERROR_CODE TapConsumer::deletion(uint32_t opaque, const void* key,
     }
 
     ItemMetaData itemMeta(cas, revSeqno, 0, 0);
-    ret = epstore->deleteWithMeta(key_str, &delCas, NULL, vbucket, this, true,
+    ret = epstore->deleteWithMeta(itemKey, &delCas, NULL, vbucket, this, true,
                                   &itemMeta, isBackfillPhase(vbucket));
 
     if (ret == ENGINE_KEY_ENOENT) {

@@ -249,11 +249,11 @@ void LoadStorageKVPairCallback::callback(GetValue &val) {
                 if (vb->getShard()->getROUnderlying()->isKeyDumpSupported()) {
                     LOG(EXTENSION_LOG_DEBUG,
                         "Value changed in memory before restore from disk. "
-                        "Ignored disk value for: %s.", i->getKey().c_str());
+                        "Ignored disk value for: %s.", i->getKey());
                 } else {
                     LOG(EXTENSION_LOG_WARNING,
                         "Warmup dataload error: Duplicate key: %s.",
-                        i->getKey().c_str());
+                        i->getKey());
                 }
                 ++stats.warmDups;
                 succeeded = true;
@@ -348,9 +348,9 @@ void LoadValueCallback::callback(CacheLookup &lookup)
         }
 
         int bucket_num(0);
-        LockHolder lh = vb->ht.getLockedBucket(lookup.getKey(), &bucket_num);
+        LockHolder lh = vb->ht.getLockedBucket(lookup.getItemKey(), &bucket_num);
 
-        StoredValue *v = vb->ht.unlocked_find(lookup.getKey(), bucket_num);
+        StoredValue *v = vb->ht.unlocked_find(lookup.getItemKey(), bucket_num);
         if (v && v->isResident()) {
             setStatus(ENGINE_KEY_EEXISTS);
             return;

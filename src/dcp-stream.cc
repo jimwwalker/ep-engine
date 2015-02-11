@@ -1023,7 +1023,7 @@ ENGINE_ERROR_CODE PassiveStream::commitDeletion(MutationResponse* deletion,
                                                 bool backfillPhase) {
     uint64_t delCas = 0;
     ItemMetaData meta = deletion->getItem()->getMetaData();
-    return engine->getEpStore()->deleteWithMeta(deletion->getItem()->getKey(),
+    return engine->getEpStore()->deleteWithMeta(deletion->getItem()->getItemKey(),
                                                 &delCas, NULL, deletion->getVBucket(),
                                                 consumer->getCookie(), true,
                                                 &meta, backfillPhase, false,

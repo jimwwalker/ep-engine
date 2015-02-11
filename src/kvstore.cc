@@ -61,9 +61,9 @@ void RollbackCB::callback(GetValue &val) {
     if (gcb.val.getStatus() == ENGINE_SUCCESS) {
         Item *it = gcb.val.getValue();
         if (it->isDeleted()) {
-            LockHolder lh = vb->ht.getLockedBucket(it->getKey(),
+            LockHolder lh = vb->ht.getLockedBucket(it->getItemKey(),
                     &bucket_num);
-            bool ret = vb->ht.unlocked_del(it->getKey(), bucket_num);
+            bool ret = vb->ht.unlocked_del(it->getItemKey(), bucket_num);
             if(!ret) {
                 setStatus(ENGINE_KEY_ENOENT);
             } else {
@@ -81,8 +81,8 @@ void RollbackCB::callback(GetValue &val) {
         }
         delete it;
     } else if (gcb.val.getStatus() == ENGINE_KEY_ENOENT) {
-        LockHolder lh = vb->ht.getLockedBucket(itm->getKey(), &bucket_num);
-        bool ret = vb->ht.unlocked_del(itm->getKey(), bucket_num);
+        LockHolder lh = vb->ht.getLockedBucket(itm->getItemKey(), &bucket_num);
+        bool ret = vb->ht.unlocked_del(itm->getItemKey(), bucket_num);
         if (!ret) {
             setStatus(ENGINE_KEY_ENOENT);
         } else {
@@ -106,7 +106,7 @@ void BfilterCB::addKeyToFilter(const char *key, size_t keylen, bool isDeleted) {
                  * Consider deleted items only.
                  */
                 if (isDeleted) {
-                    std::string theKey(key, keylen);
+                    ItemKey theKey(key, keylen, 0); //TYNSET: Need bucketId
                     vb->addToTempFilter(theKey);
                 }
             } else {
@@ -116,7 +116,7 @@ void BfilterCB::addKeyToFilter(const char *key, size_t keylen, bool isDeleted) {
                  * the residency threshold, consider all items, otherwise
                  * consider deleted and non-resident items only.
                  */
-                std::string theKey(key, keylen);
+                ItemKey theKey(key, keylen, 0); //TYNSET: Need bucketId
                 if (residentRatioLessThanThreshold) {
                     vb->addToTempFilter(theKey);
                 } else {

@@ -100,8 +100,9 @@ bool VKeyStatBGFetchTask::run() {
 
 
 bool BGFetchTask::run() {
-    engine->getEpStore()->completeBGFetch(key, vbucket, cookie, init,
-                                          metaFetch);
+    // TYNSET: bgFetch off at the moment
+  //  engine->getEpStore()->completeBGFetch(key, vbucket, cookie, init,
+     //                                     metaFetch);
     return false;
 }
 
