@@ -63,14 +63,14 @@ void RollbackCB::callback(GetValue &val) {
         if (it->isDeleted()) {
             LockHolder lh = vb->ht.getLockedBucket(it->getItemKey(),
                     &bucket_num);
-            bool ret = vb->ht.unlocked_del(it->getItemKey(), bucket_num);
+            bool ret = vb->ht.unlocked_del(it->getItemKey(), engine_.getEpStats(), bucket_num);
             if(!ret) {
                 setStatus(ENGINE_KEY_ENOENT);
             } else {
                 setStatus(ENGINE_SUCCESS);
             }
         } else {
-            mutation_type_t mtype = vb->ht.set(*it, it->getCas(),
+            mutation_type_t mtype = vb->ht.set(*it, engine_.getEpStats(), it->getCas(),
                                                true, true,
                                                engine_.getEpStore()->
                                                     getItemEvictionPolicy(),
@@ -82,7 +82,7 @@ void RollbackCB::callback(GetValue &val) {
         delete it;
     } else if (gcb.val.getStatus() == ENGINE_KEY_ENOENT) {
         LockHolder lh = vb->ht.getLockedBucket(itm->getItemKey(), &bucket_num);
-        bool ret = vb->ht.unlocked_del(itm->getItemKey(), bucket_num);
+        bool ret = vb->ht.unlocked_del(itm->getItemKey(), engine_.getEpStats(), bucket_num);
         if (!ret) {
             setStatus(ENGINE_KEY_ENOENT);
         } else {

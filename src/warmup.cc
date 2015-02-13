@@ -226,7 +226,7 @@ void LoadStorageKVPairCallback::callback(GetValue &val) {
         item_eviction_policy_t policy = epstore->getItemEvictionPolicy();
         do {
             switch (vb->ht.insert(*i, policy, shouldEject(),
-                    val.isPartial())) {
+                    val.isPartial(), epstore->getEPEngine().getEpStats())) {
             case NOMEM:
                 if (retry == 2) {
                     if (hasPurged) {
@@ -320,7 +320,7 @@ void LoadStorageKVPairCallback::purge() {
 
         void visit(StoredValue *v) {
             currentBucket->ht.unlocked_ejectItem(v,
-                                             epstore->getItemEvictionPolicy());
+                                             epstore->getItemEvictionPolicy(), epstore->getEPEngine().getEpStats());
         }
     private:
         EventuallyPersistentStore *epstore;

@@ -33,6 +33,9 @@
 
 time_t time_offset;
 
+/* HashTable requires the callers stats */
+EPStats epstats;
+
 extern "C" {
     static rel_time_t basic_current_time(void) {
         return 0;
@@ -80,7 +83,7 @@ static int count(HashTable &h, bool verify=true) {
 
 static void store(HashTable &h, ItemKey &k) {
     Item i(k, 0, 0, k.getKey(), k.getKeyLen());
-    cb_assert(h.set(i) == WAS_CLEAN);
+    cb_assert(h.set(i, epstats) == WAS_CLEAN);
 }
 
 static void storeMany(HashTable &h, std::vector<ItemKey> &keys) {
@@ -98,7 +101,7 @@ static void addMany(HashTable &h, std::vector<ItemKey> &keys,
     for (it = keys.begin(); it != keys.end(); ++it) {
         ItemKey k = *it;
         Item i(k, 0, 0, k.getKey(), k.getKeyLen());
-        add_type_t v = h.add(i, policy);
+        add_type_t v = h.add(i, policy, epstats);
         cb_assert(expect == v);
     }
 }
@@ -130,7 +133,7 @@ static void add(HashTable &h, const ItemKey &k, add_type_t expect,
                 int expiry=0) {
     Item i(k, 0, expiry, k.getKey(), k.getKeyLen());
     item_eviction_policy_t policy = VALUE_ONLY;
-    add_type_t v = h.add(i, policy);
+    add_type_t v = h.add(i, policy, epstats);
     assertEquals(expect, v);
 }
 
@@ -189,7 +192,7 @@ static void testReverseDeletions() {
     std::vector<ItemKey>::iterator it;
     for (it = keys.begin(); it != keys.end(); ++it) {
         ItemKey key = *it;
-        h.del(key);
+        h.del(key, epstats);
     }
 
     cb_assert(count(h) == 0);
@@ -212,7 +215,7 @@ static void testForwardDeletions() {
     std::vector<ItemKey>::iterator it;
     for (it = keys.begin(); it != keys.end(); ++it) {
         ItemKey key = *it;
-        h.del(key);
+        h.del(key, epstats);
     }
 
     cb_assert(count(h) == 0);
@@ -303,7 +306,7 @@ public:
             if (rand() % 111 == 0) {
                 resize();
             }
-            ht.del(*it);
+            ht.del(*it, epstats);
         }
         return true;
     }
@@ -377,7 +380,7 @@ static void testAdd() {
 
     Item i(keys[0], 0, 0, "newtest", 7);
     item_eviction_policy_t policy = VALUE_ONLY;
-    cb_assert(h.add(i, policy) == ADD_UNDEL);
+    cb_assert(h.add(i, policy, epstats) == ADD_UNDEL);
     cb_assert(count(h, false) == nkeys);
 }
 
@@ -418,9 +421,9 @@ static void testSizeStats() {
 
     Item i(k, 0, 0, someval, itemSize);
 
-    cb_assert(ht.set(i) == WAS_CLEAN);
+    cb_assert(ht.set(i, epstats) == WAS_CLEAN);
 
-    ht.del(k);
+    ht.del(k, epstats);
 
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
@@ -443,7 +446,7 @@ static void testSizeStatsFlush() {
 
     Item i(k, 0, 0, someval, itemSize);
 
-    cb_assert(ht.set(i) == WAS_CLEAN);
+    cb_assert(ht.set(i, epstats) == WAS_CLEAN);
 
     ht.clear();
 
@@ -468,10 +471,10 @@ static void testSizeStatsSoftDel() {
 
     Item i(k, 0, 0, someval, itemSize);
 
-    cb_assert(ht.set(i) == WAS_CLEAN);
+    cb_assert(ht.set(i, epstats) == WAS_CLEAN);
 
     cb_assert(ht.softDelete(k, 0) == WAS_DIRTY);
-    ht.del(k);
+    ht.del(k, epstats);
 
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
@@ -494,7 +497,7 @@ static void testSizeStatsSoftDelFlush() {
 
     Item i(k, 0, 0, someval, itemSize);
 
-    cb_assert(ht.set(i) == WAS_CLEAN);
+    cb_assert(ht.set(i, epstats) == WAS_CLEAN);
 
     cb_assert(ht.softDelete(k, 0) == WAS_DIRTY);
     ht.clear();
@@ -521,15 +524,15 @@ static void testSizeStatsEject() {
 
     Item i(k, 0, 0, someval, itemSize);
 
-    cb_assert(ht.set(i) == WAS_CLEAN);
+    cb_assert(ht.set(i, epstats) == WAS_CLEAN);
 
     item_eviction_policy_t policy = VALUE_ONLY;
     StoredValue *v(ht.find(kstring));
     cb_assert(v);
     v->markClean();
-    cb_assert(ht.unlocked_ejectItem(v, policy));
+    cb_assert(ht.unlocked_ejectItem(v, policy, epstats));
 
-    ht.del(k);
+    ht.del(k, epstats);
 
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
@@ -553,13 +556,13 @@ static void testSizeStatsEjectFlush() {
 
     Item i(k, 0, 0, someval, itemSize);
 
-    cb_assert(ht.set(i) == WAS_CLEAN);
+    cb_assert(ht.set(i, epstats) == WAS_CLEAN);
 
     item_eviction_policy_t policy = VALUE_ONLY;
     StoredValue *v(ht.find(k));
     cb_assert(v);
     v->markClean();
-    cb_assert(ht.unlocked_ejectItem(v, policy));
+    cb_assert(ht.unlocked_ejectItem(v, policy, epstats));
 
     ht.clear();
 
@@ -575,7 +578,7 @@ static void testItemAge() {
     HashTable ht(5, 1);
     ItemKey key("key", 3, 0);
     Item item(key, 0, 0, "value", strlen("value"));
-    cb_assert(ht.set(item) == WAS_CLEAN);
+    cb_assert(ht.set(item, epstats) == WAS_CLEAN);
 
     // Test
     StoredValue* v(ht.find(key));
@@ -610,7 +613,7 @@ static void testBucketIdSeparation() {
         std::stringstream document;
         document << "bucket" << i;
         Item item(ItemKey(key, sizeof(key) -1, i), 0, 0, document.str().c_str(), document.str().length());
-        cb_assert(ht.set(item) == WAS_CLEAN);
+        cb_assert(ht.set(item, epstats) == WAS_CLEAN);
     }
 
     for (int i = 0; i < 10; i++) {

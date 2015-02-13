@@ -141,23 +141,23 @@ bool StoredValue::unlocked_restoreMeta(Item *itm, ENGINE_ERROR_CODE status,
 }
 
 bool HashTable::unlocked_ejectItem(StoredValue*& vptr,
-                                   item_eviction_policy_t policy) {
+                                   item_eviction_policy_t policy, EPStats &epstats) {
     cb_assert(vptr);
 
     if (policy == VALUE_ONLY) {
         bool rv = vptr->ejectValue(*this, policy);
         if (rv) {
-            ++stats.numValueEjects;
+            ++epstats.numValueEjects;
             ++numNonResidentItems;
             ++numEjects;
             return true;
         } else {
-            ++stats.numFailedEjects;
+            ++epstats.numFailedEjects;
             return false;
         }
     } else { // full eviction.
         if (vptr->eligibleForEviction(policy)) {
-            StoredValue::reduceMetaDataSize(*this, stats,
+            StoredValue::reduceMetaDataSize(*this, epstats,
                                             vptr->metaDataSize());
             StoredValue::reduceCacheSize(*this, vptr->size());
 
@@ -178,7 +178,7 @@ bool HashTable::unlocked_ejectItem(StoredValue*& vptr,
             }
 
             if (vptr->isResident()) {
-                ++stats.numValueEjects;
+                ++epstats.numValueEjects;
             }
             if (!vptr->isResident() && !v->isTempItem()) {
                 --numNonResidentItems; // Decrement because the item is
@@ -192,18 +192,16 @@ bool HashTable::unlocked_ejectItem(StoredValue*& vptr,
             vptr = NULL;
             return true;
         } else {
-            ++stats.numFailedEjects;
+            ++epstats.numFailedEjects;
             return false;
         }
     }
 }
 
-EPStats HashTable::stats;
-
 mutation_type_t HashTable::insert(Item &itm, item_eviction_policy_t policy,
-                                  bool eject, bool partial) {
+                                  bool eject, bool partial, EPStats& epstats) {
     cb_assert(isActive());
-    if (!StoredValue::hasAvailableSpace(stats, itm)) {
+    if (!StoredValue::hasAvailableSpace(epstats, itm)) {
         return NOMEM;
     }
 
@@ -220,7 +218,7 @@ mutation_type_t HashTable::insert(Item &itm, item_eviction_policy_t policy,
     StoredValue *v = unlocked_find(itm.getItemKey(), bucket_num, true, false);
 
     if (v == NULL) {
-        v = valFact(itm, values[bucket_num], *this);
+        v = valFact(itm, values[bucket_num], *this, epstats);
         v->markClean();
         if (partial) {
             v->markNotResident();
@@ -263,7 +261,7 @@ mutation_type_t HashTable::insert(Item &itm, item_eviction_policy_t policy,
     v->markClean();
 
     if (eject && !partial) {
-        unlocked_ejectItem(v, policy);
+        unlocked_ejectItem(v, policy, epstats);
     }
 
     return NOT_FOUND;
@@ -320,8 +318,8 @@ HashTableStatVisitor HashTable::clear(bool deactivate) {
         }
     }
 
-    stats.currentSize.fetch_sub(rv.memSize - rv.valSize);
-    cb_assert(stats.currentSize.load() < GIGANTOR);
+    // TYNSET: stats.currentSize.fetch_sub(rv.memSize - rv.valSize); destructing, whos stats should we fiddle??
+    // cb_assert(stats.currentSize.load() < GIGANTOR);
 
     numTotalItems.store(0);
     numItems.store(0);
@@ -364,7 +362,6 @@ void HashTable::resize(size_t newSize) {
         return;
     }
 
-    stats.memOverhead.fetch_sub(memorySize());
     ++numResizes;
 
     // Set the new size so all the hashy stuff works.
@@ -388,8 +385,9 @@ void HashTable::resize(size_t newSize) {
     free(values);
     values = newValues;
 
-    stats.memOverhead.fetch_add(memorySize());
-    cb_assert(stats.memOverhead.load() < GIGANTOR);
+    // TYNSET: resize() is not accounting in any stats for memorySize() and the change in memorySize()
+    // As we cannot account the HashTable size to a bucket
+    // Old code would also use VBucket constructor to capture intial ::memorySize in bucket stats.
 }
 
 static size_t distance(size_t a, size_t b) {
@@ -551,6 +549,7 @@ add_type_t HashTable::unlocked_add(int &bucket_num,
                                    StoredValue*& v,
                                    const Item &val,
                                    item_eviction_policy_t policy,
+                                   EPStats& epstats,
                                    bool isDirty,
                                    bool storeVal,
                                    bool maybeKeyExists) {
@@ -560,7 +559,7 @@ add_type_t HashTable::unlocked_add(int &bucket_num,
         rv = ADD_EXISTS;
     } else {
         Item &itm = const_cast<Item&>(val);
-        if (!StoredValue::hasAvailableSpace(stats, itm)) {
+        if (!StoredValue::hasAvailableSpace(epstats, itm)) {
             return ADD_NOMEM;
         }
 
@@ -595,7 +594,7 @@ add_type_t HashTable::unlocked_add(int &bucket_num,
                 }
                 itm.setCas();
             }
-            v = valFact(itm, values[bucket_num], *this, isDirty);
+            v = valFact(itm, values[bucket_num], *this, epstats, isDirty);
             values[bucket_num] = v;
 
             if (v->isTempItem()) {
@@ -621,7 +620,7 @@ add_type_t HashTable::unlocked_add(int &bucket_num,
             itm.setRevSeqno(seqno);
         }
         if (!storeVal) {
-            unlocked_ejectItem(v, policy);
+            unlocked_ejectItem(v, policy, epstats);
         }
         if (v && v->isTempItem()) {
             v->markNotResident();
@@ -634,7 +633,8 @@ add_type_t HashTable::unlocked_add(int &bucket_num,
 
 add_type_t HashTable::unlocked_addTempItem(int &bucket_num,
                                            const ItemKey &key,
-                                           item_eviction_policy_t policy) {
+                                           item_eviction_policy_t policy,
+                                           EPStats &epstats) {
 
     cb_assert(isActive());
     uint8_t ext_meta[1];
@@ -648,7 +648,7 @@ add_type_t HashTable::unlocked_addTempItem(int &bucket_num,
     // the value cuz normally a new item added is considered resident which
     // does not apply for temp item.
     StoredValue* v = NULL;
-    return unlocked_add(bucket_num, v, itm, policy,
+    return unlocked_add(bucket_num, v, itm, policy, epstats,
                         false,  // isDirty
                         true);   // storeVal
 }
