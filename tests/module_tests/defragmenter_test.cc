@@ -22,6 +22,7 @@
 #include <locale>
 
 static time_t start_time;
+static EPStats epstats;
 
 static time_t mock_abstime(const rel_time_t exptime) {
     return start_time + exptime;
@@ -60,7 +61,7 @@ static size_t populateVbucket(VBucket& vbucket, size_t ndocs) {
         ss << "key" << i;
         const std::string key = ss.str();
         Item item(ItemKey(key.c_str(), key.length(), 0), 0, 0, value, sizeof(value));
-        vbucket.ht.add(item, VALUE_ONLY);
+        vbucket.ht.add(item, VALUE_ONLY, epstats);
     }
     hrtime_t end = gethrtime();
 

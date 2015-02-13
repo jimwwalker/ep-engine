@@ -198,7 +198,7 @@ private:
     void doEviction(StoredValue *v) {
         item_eviction_policy_t policy = store.getItemEvictionPolicy();
 
-        if (currentBucket->ht.unlocked_ejectItem(v, policy)) {
+        if (currentBucket->ht.unlocked_ejectItem(v, policy, store.getEPEngine().getEpStats())) {
             ++ejected;
 
             /**

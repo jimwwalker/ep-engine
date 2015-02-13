@@ -524,7 +524,7 @@ EventuallyPersistentStore::deleteExpiredItem(uint16_t vbid, ItemKey& key,
             if (v->isTempNonExistentItem() || v->isTempDeletedItem()) {
                 // This is a temporary item whose background fetch for metadata
                 // has completed.
-                bool deleted = vb->ht.unlocked_del(key, bucket_num);
+                bool deleted = vb->ht.unlocked_del(key, getEPEngine().getEpStats(), bucket_num);
                 cb_assert(deleted);
             } else if (v->isExpired(startTime) && !v->isDeleted()) {
                 vb->ht.unlocked_softDelete(v, 0, getItemEvictionPolicy());
@@ -537,7 +537,8 @@ EventuallyPersistentStore::deleteExpiredItem(uint16_t vbid, ItemKey& key,
                 // predicts that the item may exist on disk.
                 if (vb->maybeKeyExistsInFilter(key)) {
                     add_type_t rv = vb->ht.unlocked_addTempItem(bucket_num, key,
-                                                               eviction_policy);
+                                                                eviction_policy,
+                                                                getEPEngine().getEpStats());
                     if (rv == ADD_NOMEM) {
                         return;
                     }
@@ -625,7 +626,7 @@ protocol_binary_response_status EventuallyPersistentStore::evictKey(
             v->markClean();
         }
         if (v->isResident()) {
-            if (vb->ht.unlocked_ejectItem(v, eviction_policy)) {
+            if (vb->ht.unlocked_ejectItem(v, eviction_policy, getEPEngine().getEpStats())) {
                 *msg = "Ejected.";
 
                 // Add key to bloom filter incase of full eviction mode
@@ -662,7 +663,9 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::addTempItemForBgFetch(
 
     add_type_t rv = vb->ht.unlocked_addTempItem(bucket_num, key,
                                                 eviction_policy,
+                                                getEPEngine().getEpStats(),
                                                 isReplication);
+
     switch(rv) {
         case ADD_NOMEM:
             return ENGINE_ENOMEM;
@@ -718,7 +721,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::set(const Item &itm,
         }
     }
 
-    mutation_type_t mtype = vb->ht.unlocked_set(v, itm, itm.getCas(), true, false,
+    mutation_type_t mtype = vb->ht.unlocked_set(v, itm, getEPEngine().getEpStats(), itm.getCas(), true, false,
                                                 eviction_policy, nru,
                                                 maybeKeyExists);
 
@@ -802,6 +805,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::add(const Item &itm,
 
     add_type_t atype = vb->ht.unlocked_add(bucket_num, v, itm,
                                            eviction_policy,
+                                           getEPEngine().getEpStats(),
                                            true, true,
                                            maybeKeyExists);
 
@@ -858,7 +862,8 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::replace(const Item &itm,
         if (eviction_policy == FULL_EVICTION && v->isTempInitialItem()) {
             mtype = NEED_BG_FETCH;
         } else {
-            mtype = vb->ht.unlocked_set(v, itm, 0, true, false, eviction_policy,
+            mtype = vb->ht.unlocked_set(v, itm, getEPEngine().getEpStats(),
+                                        0, true, false, eviction_policy,
                                         0xff);
         }
 
@@ -939,7 +944,8 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::addTAPBackfillItem(
     if (v && v->isLocked(ep_current_time())) {
         v->unlock();
     }
-    mutation_type_t mtype = vb->ht.unlocked_set(v, itm, 0, true, true,
+    mutation_type_t mtype = vb->ht.unlocked_set(v, itm, getEPEngine().getEpStats(),
+                                                0, true, true,
                                                 eviction_policy, nru);
 
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
@@ -2058,7 +2064,8 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setWithMeta(
         v->unlock();
     }
 
-    mutation_type_t mtype = vb->ht.unlocked_set(v, itm, cas, allowExisting,
+    mutation_type_t mtype = vb->ht.unlocked_set(v, itm, getEPEngine().getEpStats(),
+                                                cas, allowExisting,
                                                 true, eviction_policy, nru,
                                                 maybeKeyExists, isReplication);
 
@@ -2218,7 +2225,7 @@ EventuallyPersistentStore::statsVKey(const ItemKey &key,
             return ENGINE_KEY_ENOENT;
         } else {
             add_type_t rv = vb->ht.unlocked_addTempItem(bucket_num, key,
-                                                        eviction_policy);
+                                                        eviction_policy, getEPEngine().getEpStats());
             switch(rv) {
             case ADD_NOMEM:
                 return ENGINE_ENOMEM;
@@ -2547,7 +2554,8 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::deleteItem(const ItemKey &key,
                         add_type_t rv = vb->ht.unlocked_addTempItem(
                                                                bucket_num,
                                                                key,
-                                                               eviction_policy);
+                                                               eviction_policy,
+                                                               getEPEngine().getEpStats());
                         if (rv == ADD_NOMEM) {
                             return ENGINE_ENOMEM;
                         }
@@ -2682,6 +2690,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::deleteWithMeta(
             if (vb->maybeKeyExistsInFilter(key)) {
                 add_type_t rv = vb->ht.unlocked_addTempItem(bucket_num, key,
                                                             eviction_policy,
+                                                            getEPEngine().getEpStats(),
                                                             isReplication);
                 if (rv == ADD_NOMEM) {
                     return ENGINE_ENOMEM;
@@ -2885,7 +2894,7 @@ public:
                                                     bucket_num, true, false);
             if (v && v->isDeleted()) {
                 bool newCacheItem = v->isNewCacheItem();
-                bool deleted = vbucket->ht.unlocked_del(queuedItem->getItemKey(),
+                bool deleted = vbucket->ht.unlocked_del(queuedItem->getItemKey(), *stats,
                                                         bucket_num);
                 cb_assert(deleted);
                 if (newCacheItem && value > 0) {
