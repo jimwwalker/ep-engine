@@ -31,7 +31,7 @@
 class VBucketBGFetchItem {
 public:
     VBucketBGFetchItem(const void *c, bool meta_only) :
-        cookie(c), initTime(gethrtime()), metaDataOnly(meta_only)
+         initTime(gethrtime()), metaDataOnly(meta_only), cookie(c)
     { }
     ~VBucketBGFetchItem() {}
 
@@ -41,13 +41,16 @@ public:
     }
 
     GetValue value;
-    const void * cookie;
+
     hrtime_t initTime;
     bool metaDataOnly;
+    const void * cookie;
+    // TYNSET: To be improved. the couch-kvstore needs to create Items when fetching the key
+    // it needs the bucket_id, so we stash it in this object. I'd prefer something else to this.
+    bucket_id_t bucketId;
 };
-
-typedef unordered_map<std::string, std::list<VBucketBGFetchItem *> > vb_bgfetch_queue_t;
-typedef std::pair<std::string, VBucketBGFetchItem *> bgfetched_item_t;
+typedef unordered_map<ItemKey, std::list<VBucketBGFetchItem *>, ItemKeyHash> vb_bgfetch_queue_t;
+typedef std::pair<ItemKey, VBucketBGFetchItem *> bgfetched_item_t;
 
 // Forward declarations.
 class EventuallyPersistentStore;
@@ -90,6 +93,14 @@ public:
         pendingVbs.insert(vbId);
     }
 
+ //   void addPendingVB(const EventuallyPersistentEngine& engine, uint16_t vbId) {
+   //     LockHolder lh(queueMutex);
+   ////     if (pending.count(engine) == 0) {
+     //       pending[engine] = std::set<uint16_t>();
+    //    }
+    //    pending[engine].insert(vbId);
+    //}
+
 private:
     size_t doFetch(uint16_t vbId);
     void clearItems(uint16_t vbId);
@@ -103,6 +114,9 @@ private:
 
     AtomicValue<bool> pendingFetch;
     std::set<uint16_t> pendingVbs;
+
+    // pending collects the engines (buckets) and their vbuckets awaiting fetches.
+    //std::unordered_map<std::reference_wrapper<const EventuallyPersistentEngine>, std::set<uint16_t> > pending;
 };
 
 #endif  // SRC_BGFETCHER_H_

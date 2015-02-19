@@ -117,6 +117,7 @@ public:
     const bool onlyKeys;
     const bool noDeletes;
     const bool onlyDeletes;
+    bucket_id_t bucketId; //TYNSET: fudge. static recordDbDumpCb needs bucket_id
 };
 
 /**
@@ -255,10 +256,10 @@ public:
     /**
      * Get an item from the kv store.
      */
-    virtual void get(const std::string &key, uint16_t vb,
+    virtual void get(const ItemKey &key, uint16_t vb,
                      Callback<GetValue> &cb, bool fetchDelete = false) = 0;
 
-    virtual void getWithHeader(void *dbHandle, const std::string &key,
+    virtual void getWithHeader(void *dbHandle, const ItemKey &key,
                                uint16_t vb, Callback<GetValue> &cb,
                                bool fetchDelete = false) = 0;
 
@@ -391,9 +392,10 @@ public:
      *
      * @param stats     instance of ep-engine stats
      * @param config    engine configuration
+     * @param bucketId  identfier of the bucket (for safe Item creation/storage in shared hashtable)
      * @param read_only true if the kvstore instance is for read operations only
      */
-    static KVStore *create(Configuration &config, bool read_only = false);
+    static KVStore *create(Configuration &config, bucket_id_t bucketId, bool read_only = false);
 };
 
 /**

@@ -402,7 +402,7 @@ private:
  */
 class BGFetchTask : public GlobalTask {
 public:
-    BGFetchTask(EventuallyPersistentEngine *e, const std::string &k,
+    BGFetchTask(EventuallyPersistentEngine *e, const ItemKey &k,
             uint16_t vbid, const void *c, bool isMeta,
             const Priority &p, int sleeptime = 0, bool shutdown = false) :
         GlobalTask(e, p, sleeptime, shutdown), key(k), vbucket(vbid),
@@ -412,12 +412,12 @@ public:
 
     std::string getDescription() {
         std::stringstream ss;
-        ss << "Fetching item from disk:  " << key<<" vbucket "<<vbucket;
+        ss << "Fetching item from disk:  " << key.getKey() << " vbucket " << vbucket;
         return ss.str();
     }
 
 private:
-    const std::string          key;
+    const ItemKey              key;
     uint16_t                   vbucket;
     const void                *cookie;
     bool                       metaFetch;

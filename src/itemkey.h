@@ -128,8 +128,24 @@ public:
         return key->bucketId;
     }
 
+    bool operator==(const ItemKey &other) const {
+        return other.getHashKeyLen() == getHashKeyLen() &&
+        (memcmp(other.getHashKey(), getHashKey(), getHashKeyLen()) == 0);
+    }
+
 private:
     size_t hashableKeyLen;
     size_t keyLen;
     std::shared_ptr<HashableKey> key;
+};
+
+struct ItemKeyHash
+{
+    size_t operator()(const ItemKey& k) const {
+        size_t h = 0;
+        for (size_t i = 0; i < k.getHashKeyLen(); i++) {
+            h ^= std::hash<char>()(k.getHashKey()[i]);
+        }
+        return h;
+  }
 };

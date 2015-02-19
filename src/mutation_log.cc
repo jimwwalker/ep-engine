@@ -853,9 +853,7 @@ bool MutationLogHarvester::load() {
             for (std::set<uint16_t>::const_iterator vit = vbid_set.begin();
                  vit != vbid_set.end(); ++vit) {
                 uint16_t vb(*vit);
-
-                unordered_map<std::string, mutation_log_event_t>::iterator
-                              copyit2;
+                ItemKeyLogEventMap::iterator copyit2;
                 for (copyit2 = loading[vb].begin();
                      copyit2 != loading[vb].end();
                      ++copyit2) {
@@ -898,10 +896,9 @@ void MutationLogHarvester::apply(void *arg, mlCallback mlc) {
          it != vbid_set.end(); ++it) {
         uint16_t vb(*it);
 
-        for (unordered_map<std::string, uint64_t>::iterator it2 =
-                                                       committed[vb].begin();
+        for (ItemKeyMap::iterator it2 = committed[vb].begin();
              it2 != committed[vb].end(); ++it2) {
-            const std::string key(it2->first);
+            const ItemKey key(it2->first);
             if (!mlc(arg, vb, key)) { // Stop loading from an access log
                 return;
             }
@@ -911,7 +908,7 @@ void MutationLogHarvester::apply(void *arg, mlCallback mlc) {
 
 void MutationLogHarvester::apply(void *arg, mlCallbackWithQueue mlc) {
     cb_assert(engine);
-    std::vector<std::pair<std::string, uint64_t> > fetches;
+    std::vector<std::pair<ItemKey, uint64_t> > fetches;
     std::set<uint16_t>::const_iterator it = vbid_set.begin();
     for (; it != vbid_set.end(); ++it) {
         uint16_t vb(*it);
@@ -919,15 +916,14 @@ void MutationLogHarvester::apply(void *arg, mlCallbackWithQueue mlc) {
         if (!vbucket) {
             continue;
         }
-        unordered_map<std::string, uint64_t>::iterator it2 =
-                                                         committed[vb].begin();
+        ItemKeyMap::iterator it2 = committed[vb].begin();
         for (; it2 != committed[vb].end(); ++it2) {
             // cannot use rowid from access log, so must read from hashtable
-            std::string key = it2->first;
+            ItemKey key = it2->first;
             StoredValue *v = NULL;
-           //TYNSET FIX ME if ((v = vbucket->ht.find(key, false))) {
-            //    fetches.push_back(std::make_pair(it2->first, v->getBySeqno()));
-            //}
+            if ((v = vbucket->ht.find(key, false))) {
+                fetches.push_back(std::make_pair(it2->first, v->getBySeqno()));
+            }
         }
         if (!mlc(vb, fetches, arg)) {
             return;
@@ -945,7 +941,7 @@ void MutationLogHarvester::getUncommitted(
         mutation_log_uncommitted_t leftover;
         leftover.vbucket = vb;
 
-        unordered_map<std::string, mutation_log_event_t>::iterator copyit2;
+        ItemKeyLogEventMap::iterator copyit2;
         for (copyit2 = loading[vb].begin();
              copyit2 != loading[vb].end();
              ++copyit2) {
@@ -978,6 +974,6 @@ std::ostream& operator <<(std::ostream &out, const MutationLogEntry &mle) {
         << ", magic=0x" << std::hex << static_cast<uint16_t>(mle.magic)
         << std::dec
         << ", type=" << logType(mle.type())
-        << ", key=``" << mle.key() << "''";
+        << ", key=``" << mle.key().getKey() << "''";
     return out;
 }

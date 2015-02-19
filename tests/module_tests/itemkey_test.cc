@@ -18,6 +18,9 @@
 #include "config.h"
 #include "itemkey.h"
 #include <string.h>
+#include <unordered_map>
+
+typedef std::unordered_map<ItemKey, int, ItemKeyHash> ItemKeyMap;
 
 int main() {
 
@@ -39,6 +42,15 @@ int main() {
     cb_assert(k4.getHashKeyLen() == k2.getHashKeyLen());
     cb_assert(memcmp(k4.getKey(), k2.getKey(), 32) == 0);
     cb_assert(memcmp(k4.getHashKey(), k2.getHashKey(), k4.getHashKeyLen()) == 0);
+
+    ItemKeyMap map;
+    map[k1] = 1;
+    map[k2] = 2;
+    map[k3] = 3;
+    cb_assert(map[k1] == 1);
+    cb_assert(map[k2] == 2);
+    cb_assert(map[k3] == 3);
+    cb_assert(map[k4] == 2);
 
 
     return 0;

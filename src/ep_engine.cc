@@ -1762,7 +1762,7 @@ extern "C" {
 
         ObjectRegistry::setStats(inital_tracking);
         EventuallyPersistentEngine *engine;
-        engine = new EventuallyPersistentEngine(get_server_api);
+        engine = StoragePool::getStoragePool().createEngine(get_server_api);
         ObjectRegistry::setStats(NULL);
 
         if (engine == NULL) {
@@ -1886,8 +1886,9 @@ EventuallyPersistentEngine::EventuallyPersistentEngine(
     tapThrottle(NULL), getServerApiFunc(get_server_api),
     tapConnMap(NULL), tapConfig(NULL), checkpointConfig(NULL),
     trafficEnabled(false), flushAllEnabled(false), startupTime(0),
-    storagePool(EventuallyPersistentStoragePool::getStoragePool())
+    storagePool(StoragePool::getStoragePool())
 {
+    static bucket_id_t staticBucketID = 0xcafeface; // TYNSET: memcache API should push this.
     interface.interface = 1;
     ENGINE_HANDLE_V1::get_info = EvpGetInfo;
     ENGINE_HANDLE_V1::initialize = EvpInitialize;
@@ -1938,6 +1939,7 @@ EventuallyPersistentEngine::EventuallyPersistentEngine(
                                              ENGINE_FEATURE_PERSISTENT_STORAGE;
     info.info.features[info.info.num_features++].feature = ENGINE_FEATURE_LRU;
     info.info.features[info.info.num_features++].feature = ENGINE_FEATURE_DATATYPE;
+    bucketId = staticBucketID++;
 
 }
 
@@ -4442,7 +4444,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getStats(const void* cookie,
         if (key.length() == 0) {
             return rv;
         }
-        ItemKey itemKey(key, serverApi->cookie->get_bucket_id(cookie));
+        ItemKey itemKey(key, getBucketId(cookie));
         uint16_t vbucket_id(0);
         parseUint16(vbid.c_str(), &vbucket_id);
         // Non-validating, non-blocking version
@@ -4457,7 +4459,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getStats(const void* cookie,
         if (key.length() == 0) {
             return rv;
         }
-        ItemKey itemKey(key, serverApi->cookie->get_bucket_id(cookie));
+        ItemKey itemKey(key, getBucketId(cookie));
         uint16_t vbucket_id(0);
         parseUint16(vbid.c_str(), &vbucket_id);
         // Validating version; blocks
@@ -4570,7 +4572,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::observe(
                                 cookie);
         }
 
-        ItemKey key(data + offset, keylen, serverApi->cookie->get_bucket_id(cookie));
+        ItemKey key(data + offset, keylen, getBucketId(cookie));
         offset += keylen;
 
         LOG(EXTENSION_LOG_DEBUG, "Observing key: %s, in vbucket %d.",
@@ -4740,7 +4742,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::touch(const void *cookie,
     uint16_t vbucket = ntohs(request->request.vbucket);
 
     // try to get the object
-    ItemKey k(static_cast<const char*>(key), nkey, serverApi->cookie->get_bucket_id(cookie));
+    ItemKey k(static_cast<const char*>(key), nkey, getBucketId(cookie));
 
     if (exptime != 0) {
         exptime = serverApi->core->abstime(serverApi->core->realtime(exptime));
@@ -5056,7 +5058,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getMeta(const void* cookie,
 
     ItemKey key((char *)(request->bytes + sizeof(request->bytes)),
                (size_t)ntohs(request->message.header.request.keylen),
-               serverApi->cookie->get_bucket_id(cookie));
+               getBucketId(cookie));
     uint16_t vbucket = ntohs(request->message.header.request.vbucket);
     ItemMetaData metadata;
     uint32_t deleted;
@@ -5299,7 +5301,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::deleteWithMeta(
         }
     }
 
-    ItemKey key(key_ptr, nkey,  serverApi->cookie->get_bucket_id(cookie));
+    ItemKey key(key_ptr, nkey, getBucketId(cookie));
     ItemMetaData itm_meta(metacas, seqno, flags, expiration);
 
     uint8_t meta[16];
@@ -5602,7 +5604,7 @@ EventuallyPersistentEngine::returnMeta(const void* cookie,
         delete itm;
     } else if (mutate_type == DEL_RET_META) {
         ItemMetaData itm_meta;
-        ItemKey item_key(reinterpret_cast<const char*>(key), keylen, serverApi->cookie->get_bucket_id(cookie));
+        ItemKey item_key(reinterpret_cast<const char*>(key), keylen, getBucketId(cookie));
         ret = epstore->deleteItem(item_key, &cas, vbucket, cookie, false,
                                   &itm_meta);
         if (ret == ENGINE_SUCCESS) {

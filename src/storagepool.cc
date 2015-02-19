@@ -17,14 +17,27 @@
 
 #include "storagepool.h"
 #include "stored-value.h"
+#include "storagepool_shard.h"
+#include "ep_engine.h"
 
 
-EventuallyPersistentStoragePool::EventuallyPersistentStoragePool() : hashTables(1024) /* TYNSET: some config value. */ {
+StoragePool::StoragePool() : hashTables(1024), shards(4) /* TYNSET: use config values. */ {
 
 }
 
-EventuallyPersistentStoragePool::~EventuallyPersistentStoragePool() {
+StoragePool::~StoragePool() {
     hashTables.clear();
+    shards.clear();
+}
+
+/**
+    Create an engine
+**/
+EventuallyPersistentEngine* StoragePool::createEngine(GET_SERVER_API get_server_api) {
+    EventuallyPersistentEngine* engine = new EventuallyPersistentEngine(get_server_api);
+    LockHolder lockHolder(engineMapLock);
+    engineMap[engine->getBucketId()] = engine;
+    return engine;
 }
 
 /**
@@ -32,20 +45,37 @@ EventuallyPersistentStoragePool::~EventuallyPersistentStoragePool() {
     The storage pool creates each HashTable on the first request, then
     returns the HashTable for all subsequent callers.
 **/
-HashTable& EventuallyPersistentStoragePool::getOrCreateHashTable(uint16_t vbid) {
+HashTable& StoragePool::getOrCreateHashTable(uint16_t vbid) {
     if(hashTables[vbid].get() == nullptr) {
         hashTables[vbid] = std::unique_ptr<HashTable>(new HashTable());
     }
     return (*hashTables[vbid].get());
 }
 
-EventuallyPersistentStoragePool EventuallyPersistentStoragePool::thePool;
+StoragePoolShard& StoragePool::getStoragePoolShard(uint16_t vbid) {
+    if (shards[vbid % 4].get() == nullptr) {
+        shards[vbid % 4] = std::unique_ptr<StoragePoolShard>(new StoragePoolShard(*this));
+    }
+    return (*shards[vbid % 4].get());
+}
+
+bool StoragePool::getEngine(bucket_id_t id, EventuallyPersistentEngine** engine) {
+    LockHolder lockHolder(engineMapLock);
+    bool rv = false;
+    if (engineMap.count(id) > 0) {
+        rv = true;
+        *engine = engineMap[id];
+    }
+    return rv;
+}
+
+StoragePool StoragePool::thePool;
 
 /**
     Basic factory that returns one storage pool.
 
     Future: support many storage pools.
 **/
-EventuallyPersistentStoragePool& EventuallyPersistentStoragePool::getStoragePool() {
+StoragePool& StoragePool::getStoragePool() {
     return thePool;
 }

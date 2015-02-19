@@ -55,15 +55,14 @@ struct WarmupCookie {
 };
 
 static bool batchWarmupCallback(uint16_t vbId,
-                                std::vector<std::pair<std::string,
-                                uint64_t> > &fetches,
+                                std::vector<std::pair<ItemKey, uint64_t> > &fetches,
                                 void *arg)
 {
     WarmupCookie *c = static_cast<WarmupCookie *>(arg);
 
     if (!c->epstore->maybeEnableTraffic()) {
         vb_bgfetch_queue_t items2fetch;
-        std::vector<std::pair<std::string, uint64_t> >::iterator itm =
+        std::vector<std::pair<ItemKey, uint64_t> >::iterator itm =
                                                               fetches.begin();
         for (; itm != fetches.end(); itm++) {
             // ignore duplicate keys, if any in access log
@@ -88,7 +87,7 @@ static bool batchWarmupCallback(uint16_t vbId,
                 "Warning: warmup failed to load data for vBucket = %d"
                 " key = %s error = %X\n",
                 vbId,
-                    (*items).first.c_str(), val.getStatus());
+                    (*items).first.getKey(), val.getStatus());
                 c->error++;
           }
           delete fetchedItem;
@@ -101,7 +100,7 @@ static bool batchWarmupCallback(uint16_t vbId,
     }
 }
 
-static bool warmupCallback(void *arg, uint16_t vb, const std::string &key)
+static bool warmupCallback(void *arg, uint16_t vb, const ItemKey &key)
 {
     WarmupCookie *cookie = static_cast<WarmupCookie*>(arg);
 
@@ -115,7 +114,7 @@ static bool warmupCallback(void *arg, uint16_t vb, const std::string &key)
             cookie->loaded++;
         } else {
             LOG(EXTENSION_LOG_WARNING, "Warning: warmup failed to load data "
-                "for vBucket = %d key = %s error = %X\n", vb, key.c_str(),
+                "for vBucket = %d key = %s error = %X\n", vb, key.getKey(),
                 cb.val.getStatus());
             cookie->error++;
         }

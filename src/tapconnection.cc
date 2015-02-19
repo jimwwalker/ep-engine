@@ -1027,7 +1027,7 @@ const char *TapProducer::opaqueCmdToString(uint32_t opaque_code) {
     return "unknown";
 }
 
-void TapProducer::queueBGFetch_UNLOCKED(const std::string &key, uint64_t id, uint16_t vb) {
+void TapProducer::queueBGFetch_UNLOCKED(const ItemKey &key, uint64_t id, uint16_t vb) {
     ExTask task = new BGFetchCallback(&engine(), getName(), key, vb,
                                       getConnectionToken(),
                                       Priority::TapBgFetcherPriority, 0);
@@ -1880,7 +1880,7 @@ Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
                 itm->setRevSeqno(qi->getRevSeqno());
                 ret = TAP_DELETION;
             } else if (r == ENGINE_EWOULDBLOCK) {
-                queueBGFetch_UNLOCKED(qi->getKey(), gv.getId(), *vbucket);
+                queueBGFetch_UNLOCKED(qi->getItemKey(), gv.getId(), *vbucket);
                 // If there's an item ready, return NOOP so we'll come
                 // back immediately, otherwise pause the connection
                 // while we wait.

@@ -69,7 +69,7 @@ size_t BgFetcher::doFetch(uint16_t vbId) {
         std::list<VBucketBGFetchItem *> &requestedItems = (*itr).second;
         std::list<VBucketBGFetchItem *>::iterator itm = requestedItems.begin();
         for(; itm != requestedItems.end(); ++itm) {
-            const std::string &key = (*itr).first;
+            const ItemKey &key = (*itr).first;
             fetchedItems.push_back(std::make_pair(key, *itm));
             ++totalfetches;
         }

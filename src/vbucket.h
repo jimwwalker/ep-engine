@@ -157,7 +157,7 @@ public:
 
     VBucket(int i, vbucket_state_t newState, EPStats &st,
             CheckpointConfig &chkConfig, KVShard *kvshard,
-            EventuallyPersistentStoragePool &storagePool,
+            StoragePool &storagePool,
             int64_t lastSeqno, uint64_t lastSnapStart,
             uint64_t lastSnapEnd, FailoverTable *table,
             vbucket_state_t initState = vbucket_state_dead,
@@ -189,7 +189,8 @@ public:
         numHpChks(0),
         shard(kvshard),
         bFilter(NULL),
-        tempFilter(NULL)
+        tempFilter(NULL),
+        storagePoolShard(storagePool.getStoragePoolShard(i))
     {
         backfill.isBackfillPhase = false;
         pendingOpsStart = 0;
@@ -329,7 +330,7 @@ public:
     }
 
     bool getBGFetchItems(vb_bgfetch_queue_t &fetches);
-    void queueBGFetchItem(const std::string &key, VBucketBGFetchItem *fetch,
+    void queueBGFetchItem(const ItemKey &key, VBucketBGFetchItem *fetch,
                           BgFetcher *bgFetcher);
     size_t numPendingBGFetchItems(void) {
         // do a dirty read of number of fetch items
@@ -494,6 +495,8 @@ private:
     std::list<shared_ptr<Callback<uint64_t>> > persistedNotifications;
 
     static size_t chkFlushTimeout;
+
+    StoragePoolShard& storagePoolShard; // to replace KVShard*
 
     DISALLOW_COPY_AND_ASSIGN(VBucket);
 };

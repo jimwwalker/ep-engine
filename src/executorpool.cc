@@ -287,7 +287,7 @@ bool ExecutorPool::_cancel(size_t taskId, bool eraseTask) {
     ExTask task = itr->second.first;
     LOG(EXTENSION_LOG_DEBUG, "Cancel task %s id %d on bucket %s %s",
             task->getDescription().c_str(), task->getId(),
-            task->getEngine()->getName(), eraseTask ? "final erase" : "!");
+            "not here"/*task->getEngine()->getName() TYNSET FUDGE*/, eraseTask ? "final erase" : "!");
 
     task->cancel(); // must be idempotent, just set state to dead
 
@@ -348,7 +348,12 @@ TaskQueue* ExecutorPool::_getTaskQueue(EventuallyPersistentEngine *e,
                                        task_type_t qidx) {
     TaskQueue         *q             = NULL;
     size_t            curNumThreads  = 0;
-    bucket_priority_t bucketPriority = e->getWorkloadPriority();
+
+    bucket_priority_t bucketPriority =  LOW_BUCKET_PRIORITY;
+
+    if (e) {
+        bucketPriority = e->getWorkloadPriority();
+    }
 
     cb_assert(0 <= (int)qidx && (size_t)qidx < numTaskSets);
 
@@ -356,7 +361,7 @@ TaskQueue* ExecutorPool::_getTaskQueue(EventuallyPersistentEngine *e,
 
     if (!bucketPriority) {
         LOG(EXTENSION_LOG_WARNING, "Trying to schedule task for unregistered "
-            "bucket %s", e->getName());
+            "bucket %s", e ? e->getName() : "TYNSET FUDGE");
         return q;
     }
 
@@ -512,7 +517,7 @@ bool ExecutorPool::_stopTaskGroup(EventuallyPersistentEngine *e,
         for (itr = taskLocator.begin(); itr != taskLocator.end(); itr++) {
             task = itr->second.first;
             TaskQueue *q = itr->second.second;
-            if (task->getEngine() == e &&
+            if (task->getEngine() && task->getEngine() == e && /*TYNSET FUDGE*/
                 (taskType == NO_TASK_TYPE || q->queueType == taskType)) {
                 LOG(EXTENSION_LOG_DEBUG, "Stopping Task id %d %s ",
                         task->getId(), task->getDescription().c_str());

@@ -205,7 +205,7 @@ public:
         uint8_t ext_meta[1];
         uint8_t ext_len = EXT_META_LEN;
         *(ext_meta) = datatype;
-        ItemKey itemKey(static_cast<const char*>(key), nkey, serverApi->cookie->get_bucket_id(cookie));
+        ItemKey itemKey(static_cast<const char*>(key), nkey, getBucketId(cookie));
         *itm = new Item(itemKey, flags, expiretime, NULL, nbytes, ext_meta, ext_len);
         if (*itm == NULL) {
             return memoryCondition();
@@ -221,7 +221,7 @@ public:
                                  uint64_t* cas,
                                  uint16_t vbucket)
     {
-        ItemKey k(static_cast<const char*>(key), nkey, serverApi->cookie->get_bucket_id(cookie));
+        ItemKey k(static_cast<const char*>(key), nkey, getBucketId(cookie));
         return itemDelete(cookie, k, cas, vbucket);
     }
 
@@ -260,7 +260,7 @@ public:
                           bool track_stat = false)
     {
         BlockTimer timer(&stats.getCmdHisto);
-        ItemKey k(static_cast<const char*>(key), nkey, serverApi->cookie->get_bucket_id(cookie));
+        ItemKey k(static_cast<const char*>(key), nkey, getBucketId(cookie));
         GetValue gv(epstore->get(k, vbucket, cookie, serverApi->core));
         ENGINE_ERROR_CODE ret = gv.getStatus();
 
@@ -325,7 +325,7 @@ public:
 
         ENGINE_ERROR_CODE ret = get(cookie, &it, key, nkey, vbucket);
 
-        ItemKey itemKey(static_cast<const char*>(key), nkey, serverApi->cookie->get_bucket_id(cookie));
+        ItemKey itemKey(static_cast<const char*>(key), nkey, getBucketId(cookie));
         if (ret == ENGINE_SUCCESS) {
             Item *itm = static_cast<Item*>(it);
             char *endptr = NULL;
@@ -730,13 +730,21 @@ public:
      */
     void runDefragmenterTask(void);
 
-    EventuallyPersistentStoragePool& getStoragePool() {
+    StoragePool& getStoragePool() {
         return storagePool;
     }
 
-    bucket_id_t getBucketId(const void* cookie) {
-        return serverApi->cookie->get_bucket_id(cookie);
+    bucket_id_t getBucketId() {
+        return bucketId;
     }
+
+    bucket_id_t getBucketId(const void* cookie) {
+        (void)cookie;
+        //bucketId = serverApi->cookie->get_bucket_id(cookie);
+        return getBucketId();
+    }
+
+
 
 protected:
     friend class EpEngineValueChangeListener;
@@ -754,10 +762,9 @@ protected:
     }
 
 private:
+    friend StoragePool;
     EventuallyPersistentEngine(GET_SERVER_API get_server_api);
-    friend ENGINE_ERROR_CODE create_instance(uint64_t interface,
-                                             GET_SERVER_API get_server_api,
-                                             ENGINE_HANDLE **handle);
+
     uint16_t doWalkTapQueue(const void *cookie, item **itm, void **es,
                             uint16_t *nes, uint8_t *ttl, uint16_t *flags,
                             uint32_t *seqno, uint16_t *vbucket,
@@ -919,8 +926,8 @@ private:
     // ep_engine starts up.
     time_t startupTime;
 
-    EventuallyPersistentStoragePool& storagePool;
-
+    StoragePool& storagePool; // the pool the engine/bucket belongs to
+    bucket_id_t bucketId; // need to know the bucketId for code which can't use the cookie API
 };
 
 #endif

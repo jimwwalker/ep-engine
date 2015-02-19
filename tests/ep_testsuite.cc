@@ -11637,7 +11637,9 @@ engine_test_t* get_tests(void) {
     TestCase tc[] = {
         TestCase("validate engine handle", test_validate_engine_handle,
                  NULL, teardown, NULL, prepare, cleanup),
-
+         TestCase("disk>RAM golden path", test_disk_gt_ram_golden,
+                 test_setup, teardown,
+                 "chk_remover_stime=1;chk_period=60", prepare, cleanup),
         // basic tests
         TestCase("test alloc limit", test_alloc_limit, test_setup, teardown,
                  NULL, prepare, cleanup),

@@ -27,11 +27,11 @@
 #include "warmup.h"
 
 
-KVStore *KVStoreFactory::create(Configuration &config, bool read_only) {
+KVStore *KVStoreFactory::create(Configuration &config, bucket_id_t bucketId, bool read_only) {
     KVStore *ret = NULL;
     std::string backend = config.getBackend();
     if (backend.compare("couchdb") == 0) {
-        ret = new CouchKVStore(config, read_only);
+        ret = new CouchKVStore(config, bucketId, read_only);
     } else {
         LOG(EXTENSION_LOG_WARNING, "Unknown backend: [%s]", backend.c_str());
     }
@@ -53,7 +53,7 @@ void RollbackCB::callback(GetValue &val) {
     RememberingCallback<GetValue> gcb;
     engine_.getEpStore()->getROUnderlying(itm->getVBucketId())->
                                           getWithHeader(dbHandle,
-                                                        itm->getKey(),
+                                                        itm->getItemKey(),
                                                         itm->getVBucketId(),
                                                         gcb);
     gcb.waitForValue();

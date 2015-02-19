@@ -46,7 +46,7 @@
 
 EPStats global_stats;
 CheckpointConfig checkpoint_config;
-EventuallyPersistentStoragePool storagePool;
+StoragePool storagePool;
 
 struct thread_args {
     SyncObject *mutex;

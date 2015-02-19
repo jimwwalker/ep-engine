@@ -660,8 +660,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::addTempItemForBgFetch(
             abort();
         case ADD_BG_FETCH:
             lock.unlock();
-            //TYNSET: Fix bgFetch path to use ItemKey?
-           // bgFetch(key, vb->getId(), cookie, metadataOnly);
+            bgFetch(key, vb->getId(), cookie, metadataOnly);
     }
     return ENGINE_EWOULDBLOCK;
 }
@@ -740,7 +739,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::set(const Item &itm,
         if (v) {
             // temp item is already created. Simply schedule a bg fetch job
             lh.unlock();
-            //TYNSET bgFetch(itm.getKey(), vb->getId(), cookie, true);
+            bgFetch(itm.getItemKey(), vb->getId(), cookie, true);
             return ENGINE_EWOULDBLOCK;
         }
         ret = addTempItemForBgFetch(lh, bucket_num, itm.getItemKey(), vb,
@@ -805,7 +804,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::add(const Item &itm,
                                      cookie, true);
     case ADD_BG_FETCH:
         lh.unlock();
-        //TYNSET bgFetch(itm.getKey(), vb->getId(), cookie, true);
+        bgFetch(itm.getItemKey(), vb->getId(), cookie, true);
         return ENGINE_EWOULDBLOCK;
     case ADD_SUCCESS:
     case ADD_UNDEL:
@@ -874,7 +873,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::replace(const Item &itm,
             {
                 // temp item is already created. Simply schedule a bg fetch job
                 lh.unlock();
-                // bgFetch(itm.getItemKey(), vb->getId(), cookie, true);
+                bgFetch(itm.getItemKey(), vb->getId(), cookie, true);
                 ret = ENGINE_EWOULDBLOCK;
                 break;
             }
@@ -1540,8 +1539,7 @@ void EventuallyPersistentStore::completeBGFetch(const ItemKey &key,
                                                 hrtime_t init,
                                                 bool isMeta) {
 
-    //TYNSET FIX ME
- /*   hrtime_t start(gethrtime());
+   hrtime_t start(gethrtime());
     // Go find the data
     RememberingCallback<GetValue> gcb;
     if (isMeta) {
@@ -1610,14 +1608,14 @@ void EventuallyPersistentStore::completeBGFetch(const ItemKey &key,
                     // log returned error and notify TMPFAIL to client
                     LOG(EXTENSION_LOG_WARNING,
                         "Warning: failed background fetch for vb=%d seq=%d "
-                        "key=%s", vbucket, v->getBySeqno(), key.c_str());
+                        "key=%s", vbucket, v->getBySeqno(), key.getKey());
                     status = ENGINE_TMPFAIL;
                 }
             }
         }
     } else {
         LOG(EXTENSION_LOG_INFO, "VBucket %d's file was deleted in the middle of"
-            " a bg fetch for key %s\n", vbucket, key.c_str());
+            " a bg fetch for key %s\n", vbucket, key.getKey());
         status = ENGINE_NOT_MY_VBUCKET;
     }
 
@@ -1629,15 +1627,12 @@ void EventuallyPersistentStore::completeBGFetch(const ItemKey &key,
 
     delete gcb.val.getValue();
     engine.notifyIOComplete(cookie, status);
-    */
 }
 
 void EventuallyPersistentStore::completeBGFetchMulti(uint16_t vbId,
                                  std::vector<bgfetched_item_t> &fetchedItems,
                                  hrtime_t startTime)
 {
-    //TYNSET : FIXME
-    /*
     RCPtr<VBucket> vb = getVBucket(vbId);
     if (!vb) {
         std::vector<bgfetched_item_t>::iterator itemItr = fetchedItems.begin();
@@ -1657,7 +1652,7 @@ void EventuallyPersistentStore::completeBGFetchMulti(uint16_t vbId,
         VBucketBGFetchItem *bgitem = (*itemItr).second;
         ENGINE_ERROR_CODE status = bgitem->value.getStatus();
         Item *fetchedValue = bgitem->value.getValue();
-        const std::string &key = (*itemItr).first;
+        const ItemKey &key = (*itemItr).first;
 
         int bucket = 0;
         LockHolder blh = vb->ht.getLockedBucket(key, &bucket);
@@ -1709,7 +1704,7 @@ void EventuallyPersistentStore::completeBGFetchMulti(uint16_t vbId,
                     // log returned error and notify TMPFAIL to client
                     LOG(EXTENSION_LOG_WARNING,
                         "Warning: failed background fetch for vb=%d "
-                        "key=%s", vbId, key.c_str());
+                        "key=%s", vbId, key.getKey());
                     status = ENGINE_TMPFAIL;
                 }
             }
@@ -1731,10 +1726,9 @@ void EventuallyPersistentStore::completeBGFetchMulti(uint16_t vbId,
         "EP Store completes %d of batched background fetch "
         "for vBucket = %d endTime = %lld\n",
         fetchedItems.size(), vbId, gethrtime()/1000000);
-        */
 }
 
-void EventuallyPersistentStore::bgFetch(const std::string &key,
+void EventuallyPersistentStore::bgFetch(const ItemKey &key,
                                         uint16_t vbucket,
                                         const void *cookie,
                                         bool isMeta) {
@@ -1809,8 +1803,7 @@ GetValue EventuallyPersistentStore::getInternal(const ItemKey &key,
         // If the value is not resident, wait for it...
         if (!v->isResident()) {
             if (queueBG) {
-// FIX bgFtch
-                //bgFetch(key, vbucket, cookie);
+                bgFetch(key, vbucket, cookie);
             }
             return GetValue(NULL, ENGINE_EWOULDBLOCK, v->getBySeqno(),
                             true, v->getNRUValue());
@@ -1975,7 +1968,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setWithMeta(const Item &itm,
     if (!force) {
         if (v)  {
             if (v->isTempInitialItem()) {
-                bgFetch(itm.getKey(), itm.getVBucketId(), cookie, true);
+                bgFetch(itm.getItemKey(), itm.getVBucketId(), cookie, true);
                 return ENGINE_EWOULDBLOCK;
             }
             if (!conflictResolver->resolve(v, itm.getMetaData(), false)) {
@@ -2034,7 +2027,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setWithMeta(const Item &itm,
         {            // CAS operation with non-resident item + full eviction.
             if (v) { // temp item is already created. Simply schedule a
                 lh.unlock(); // bg fetch job.
-                bgFetch(itm.getKey(), vb->getId(), cookie, true);
+                bgFetch(itm.getItemKey(), vb->getId(), cookie, true);
                 return ENGINE_EWOULDBLOCK;
             }
             ret = addTempItemForBgFetch(lh, bucket_num, itm.getItemKey(), vb,
@@ -2078,7 +2071,7 @@ GetValue EventuallyPersistentStore::getAndUpdateTtl(const ItemKey& key,
         }
 
         if (!v->isResident()) {
-            // TYNSET bgFetch(key, vbucket, cookie);
+            bgFetch(key, vbucket, cookie);
             return GetValue(NULL, ENGINE_EWOULDBLOCK, v->getBySeqno());
         }
         if (v->isLocked(ep_current_time())) {
@@ -2373,7 +2366,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::getKeyStats(const ItemKey &key,
         if (eviction_policy == FULL_EVICTION &&
             v->isTempInitialItem() && bgfetch) {
             lh.unlock();
-            // TYNSET bgFetch(key, vbucket, cookie, true);
+            bgFetch(key, vbucket, cookie, true);
             return ENGINE_EWOULDBLOCK;
         }
         kstats.logically_deleted = v->isDeleted();
@@ -2470,7 +2463,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::deleteItem(const ItemKey &key,
                     }
                 } else if (v->isTempInitialItem()) {
                     lh.unlock();
-                    //TYNSET bgFetch(key, vbucket, cookie, true);
+                    bgFetch(key, vbucket, cookie, true);
                     return ENGINE_EWOULDBLOCK;
                 } else { // Non-existent or deleted key.
                     return ENGINE_KEY_ENOENT;
@@ -2582,7 +2575,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::deleteWithMeta(
     if (!force) { // Need conflict resolution.
         if (v)  {
             if (v->isTempInitialItem()) {
-                //TYNSET bgFetch(key, vbucket, cookie, true);
+                bgFetch(key, vbucket, cookie, true);
                 return ENGINE_EWOULDBLOCK;
             }
             if (!conflictResolver->resolve(v, *itemMeta, true)) {
@@ -2657,7 +2650,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::deleteWithMeta(
         break;
     case NEED_BG_FETCH:
         lh.unlock();
-        //TYNSET bgFetch(key, vbucket, cookie, true);
+        bgFetch(key, vbucket, cookie, true);
         ret = ENGINE_EWOULDBLOCK;
     }
 

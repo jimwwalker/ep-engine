@@ -278,12 +278,12 @@ void VBucket::addStat(const char *nm, const T &val, ADD_STAT add_stat,
     add_casted_stat(n.data(), value.str().data(), add_stat, c);
 }
 
-void VBucket::queueBGFetchItem(const std::string &key,
+void VBucket::queueBGFetchItem(const ItemKey &key,
                                VBucketBGFetchItem *fetch,
                                BgFetcher *bgFetcher) {
     LockHolder lh(pendingBGFetchesLock);
     pendingBGFetches[key].push_back(fetch);
-    bgFetcher->addPendingVB(id);
+    storagePoolShard.getFetcher().addPendingVB(key.getBucketId(), id);
     lh.unlock();
 }
 

@@ -272,11 +272,12 @@ public:
     /**
      * Constructor
      *
-     * @param stats     Engine stats
      * @param config    Configuration information
+     * @param bucketId  The id of the bucket this CouchKVStore manages.
      * @param read_only flag indicating if this kvstore instance is for read-only operations
      */
-    CouchKVStore(Configuration &config, bool read_only = false);
+    // TYNSET: Persisting the bucketId works given that a CouchKVStore manages a single database (set of vbucket couchfiles)
+    CouchKVStore(Configuration &config, bucket_id_t bucketId, bool read_only = false);
 
     /**
      * Copy constructor
@@ -350,10 +351,10 @@ public:
      * @param fetchDelete True if we want to retrieve a deleted item if it not
      *        purged yet.
      */
-    void get(const std::string &key, uint16_t vb, Callback<GetValue> &cb,
+    void get(const ItemKey &key, uint16_t vb, Callback<GetValue> &cb,
              bool fetchDelete = false);
 
-    void getWithHeader(void *dbHandle, const std::string &key,
+    void getWithHeader(void *dbHandle, const ItemKey &key,
                        uint16_t vb, Callback<GetValue> &cb,
                        bool fetchDelete = false);
 
@@ -546,6 +547,10 @@ public:
 
     void destroyScanContext(ScanContext* ctx);
 
+    bucket_id_t getBucketId() {
+        return bucketId;
+    }
+
 private:
 
     bool setVBucketState(uint16_t vbucketId, vbucket_state &vbstate,
@@ -628,6 +633,7 @@ private:
     AtomicValue<size_t> backfillCounter;
     std::map<size_t, Db*> backfills;
     Mutex backfillLock;
+    bucket_id_t bucketId;
 };
 
 #endif  // SRC_COUCH_KVSTORE_COUCH_KVSTORE_H_

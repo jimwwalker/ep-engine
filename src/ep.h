@@ -433,7 +433,7 @@ public:
      * @param type whether the fetch is for a non-resident value or metadata of
      *             a (possibly) deleted item
      */
-    void bgFetch(const std::string &key,
+    void bgFetch(const ItemKey &key,
                  uint16_t vbucket,
                  const void *cookie,
                  bool isMeta = false);

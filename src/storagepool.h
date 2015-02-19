@@ -19,20 +19,50 @@
 #include <memory>
 #include <vector>
 #include <stdint.h>
+#include <storagepool_shard.h>
 
 class HashTable;
-class KVShard;
+class EventuallyPersistentEngine;
 
-class EventuallyPersistentStoragePool {
+class StoragePool {
 public:
-    EventuallyPersistentStoragePool();
-    ~EventuallyPersistentStoragePool();
+    StoragePool();
+    ~StoragePool();
+
+    EventuallyPersistentEngine* createEngine(GET_SERVER_API get_server_api);
 
     HashTable& getOrCreateHashTable(uint16_t vbid);
-    KVShard* getOrCreateKVShard(uint16_t shardId);
 
-    static EventuallyPersistentStoragePool& getStoragePool();
+    /*
+        Obtain a reference to the StoragePoolShard who will flush/fetch
+        the specified vb (vbid)
+    */
+    StoragePoolShard& getStoragePoolShard(uint16_t vbid);
+
+    /*
+        TYNSET: This method only really exists because async readers/writers etc...
+        don't have a reference to the engine they are working for. We can remove this
+        by passing engine& deeper into bgfetcher/flushers etc...
+
+        return true if the engine exists and set engine to the reference
+    */
+    bool getEngine(bucket_id_t id, EventuallyPersistentEngine** engine);
+
+    static StoragePool& getStoragePool();
+
 private:
     std::vector< std::unique_ptr<HashTable> > hashTables;
-    static EventuallyPersistentStoragePool thePool;
+    /*
+        Storage pool provides flushing and fetching.
+        Chunks of VBuckets are flushed and fetched by a shard.
+    */
+    std::vector< std::unique_ptr<StoragePoolShard> > shards;
+
+    Mutex engineMapLock;
+    std::unordered_map<bucket_id_t, EventuallyPersistentEngine*> engineMap;
+
+    /*
+        FUTURE: many storage pools...
+    */
+    static StoragePool thePool;
 };
