@@ -664,7 +664,7 @@ size_t CheckpointManager::removeClosedUnrefCheckpoints(
     for (; it != checkpointList.end(); ++it) {
         removeInvalidCursorsOnCheckpoint(*it);
         if ((*it)->getNumberOfCursors() > 0 ||
-            (*it)->getId() > pCursorPreCheckpointId) {
+            ((*it)->getId() - 1) > pCursorPreCheckpointId) {
             break;
         } else {
             numUnrefItems += (*it)->getNumItems();
