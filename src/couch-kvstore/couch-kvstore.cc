@@ -302,10 +302,10 @@ CouchRequest::CouchRequest(const Item &it, uint64_t rev,
     start = gethrtime();
 }
 
-CouchKVStore::CouchKVStore(Configuration &config, bool read_only) :
+CouchKVStore::CouchKVStore(Configuration &config, bucket_id_t bId, bool read_only) :
     KVStore(read_only), configuration(config),
     dbname(configuration.getDbname()), intransaction(false),
-    backfillCounter(0)
+    backfillCounter(0), bucketId(bId)
 {
     open();
     statCollectingFileOps = getCouchstoreStatsOps(&st.fsStats);
@@ -1268,6 +1268,9 @@ scan_error_t CouchKVStore::scan(ScanContext* ctx) {
         start = ctx->lastReadSeqno + 1;
     }
 
+    // recordDbDumpC is static so can't access out bucketId
+    ctx->bucketId = bucketId;
+
     couchstore_error_t errorCode;
     errorCode = couchstore_changes_since(db, start, options, recordDbDumpC,
                                          static_cast<void*>(ctx));
@@ -1558,7 +1561,7 @@ couchstore_error_t CouchKVStore::fetchDoc(Db *db, DocInfo *docinfo,
     exptime = ntohl(exptime);
 
     if (metaOnly || (fetchDelete && docinfo->deleted)) {
-        Item *it = new Item(ItemKey(docinfo->id.buf, (size_t)docinfo->id.size), // TYNSET: bucket-id
+        Item *it = new Item(ItemKey(docinfo->id.buf, (size_t)docinfo->id.size, bucketId),
                             itemFlags, (time_t)exptime, NULL, docinfo->size,
                             ext_meta, ext_len, cas, docinfo->db_seq, vbId);
         if (docinfo->deleted) {
@@ -1597,7 +1600,7 @@ couchstore_error_t CouchKVStore::fetchDoc(Db *db, DocInfo *docinfo,
                                                      valuelen);
                 }
 
-                Item *it = new Item(ItemKey(docinfo->id.buf, (size_t)docinfo->id.size), // TYNSET: BucketID
+                Item *it = new Item(ItemKey(docinfo->id.buf, (size_t)docinfo->id.size, bucketId),
                                     itemFlags, (time_t)exptime, valuePtr, valuelen,
                                     ext_meta, ext_len, cas, docinfo->db_seq, vbId,
                                     docinfo->rev_seq);
@@ -1700,7 +1703,7 @@ int CouchKVStore::recordDbDump(Db *db, DocInfo *docinfo, void *ctx) {
         }
     }
 
-    Item *it = new Item(ItemKey(key.buf, key.size, 0), // TYNSET: Need to obtain the bucketid
+    Item *it = new Item(ItemKey(key.buf, key.size, sctx->bucketId),
                         itemflags,
                         (time_t)exptime,
                         valuePtr, valuelen,

@@ -131,6 +131,7 @@ public:
     const bool onlyKeys;
     const bool noDeletes;
     const bool onlyDeletes;
+    bucket_id_t bucketId;
 };
 
 /**
@@ -406,9 +407,10 @@ public:
      *
      * @param stats     instance of ep-engine stats
      * @param config    engine configuration
+     * @param bucketId  identfier of the bucket (for safe Item creation/storage in shared hashtable)
      * @param read_only true if the kvstore instance is for read operations only
      */
-    static KVStore *create(Configuration &config, bool read_only = false);
+    static KVStore *create(Configuration &config, bucket_id_t bucketId, bool read_only = false);
 };
 
 /**

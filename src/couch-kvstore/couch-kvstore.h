@@ -275,11 +275,11 @@ public:
     /**
      * Constructor
      *
-     * @param stats     Engine stats
      * @param config    Configuration information
+     * @param bucketId  The id of the bucket this CouchKVStore manages.
      * @param read_only flag indicating if this kvstore instance is for read-only operations
      */
-    CouchKVStore(Configuration &config, bool read_only = false);
+    CouchKVStore(Configuration &config, bucket_id_t bucketId, bool read_only = false);
 
     /**
      * Copy constructor
@@ -543,6 +543,10 @@ public:
 
     void destroyScanContext(ScanContext* ctx);
 
+    bucket_id_t getBucketId() {
+        return bucketId;
+    }
+
 private:
 
     bool setVBucketState(uint16_t vbucketId, vbucket_state &vbstate,
@@ -629,6 +633,7 @@ private:
     AtomicValue<size_t> backfillCounter;
     std::map<size_t, Db*> backfills;
     Mutex backfillLock;
+    bucket_id_t bucketId;
 };
 
 #endif  // SRC_COUCH_KVSTORE_COUCH_KVSTORE_H_
