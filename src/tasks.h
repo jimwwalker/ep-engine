@@ -40,6 +40,7 @@ class CompareTasksByPriority;
 class EventuallyPersistentEngine;
 class Flusher;
 class Warmup;
+class Taskable;
 
 /**
  * Compaction context to perform compaction
@@ -68,13 +69,12 @@ friend class ExecutorPool;
 friend class ExecutorThread;
 friend class TaskQueue;
 public:
+
+    GlobalTask(Taskable *t, const Priority &p,
+               double sleeptime = 0, bool completeBeforeShutdown = true);
+
     GlobalTask(EventuallyPersistentEngine *e, const Priority &p,
-               double sleeptime = 0, bool completeBeforeShutdown = true) :
-          RCValue(), priority(p),
-          blockShutdown(completeBeforeShutdown),
-          state(TASK_RUNNING), taskId(nextTaskId()), engine(e) {
-        snooze(sleeptime);
-    }
+               double sleeptime = 0, bool completeBeforeShutdown = true);
 
     /* destructor */
     virtual ~GlobalTask(void) {
@@ -147,6 +147,10 @@ public:
         state.compare_exchange_strong(expected, tstate);
     }
 
+    Taskable* getTaskable() {
+        return taskable;
+    }
+
 protected:
 
     const Priority &priority;
@@ -155,6 +159,7 @@ protected:
     const size_t taskId;
     struct timeval waketime;
     EventuallyPersistentEngine *engine;
+    Taskable *taskable;
 
     static AtomicValue<size_t> task_id_counter;
     static size_t nextTaskId() { return task_id_counter.fetch_add(1); }

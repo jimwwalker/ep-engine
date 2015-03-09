@@ -41,6 +41,7 @@
 #include "workload.h"
 #include "vbucket.h"
 #include "storagepool.h"
+#include "taskable.h"
 
 class DcpConnMap;
 class TapConnMap;
@@ -68,6 +69,34 @@ typedef void (*NOTIFY_IO_COMPLETE_T)(const void *cookie,
 // Forward decl
 class EventuallyPersistentEngine;
 class TapConnMap;
+
+/**
+    To allow Engines to run tasks.
+**/
+class EpEngineTaskable : public Taskable {
+public:
+    EpEngineTaskable(EventuallyPersistentEngine* e) : myEngine(e) {
+
+    }
+
+    std::string getName() const;
+
+    uintptr_t getGID() const;
+
+    bucket_priority_t getWorkloadPriority() const;
+
+    void setWorkloadPriority(bucket_priority_t prio);
+
+    WorkLoadPolicy& getWorkLoadPolicy(void);
+
+    void logQTime(type_id_t taskType, hrtime_t enqTime);
+
+    void logRunTime(type_id_t taskType, hrtime_t enqTime);
+
+private:
+    EventuallyPersistentEngine* myEngine;
+};
+
 
 /**
  * Vbucket visitor that counts active vbuckets.
@@ -284,8 +313,8 @@ public:
         return ret;
     }
 
-    const char* getName() {
-        return name.c_str();
+    std::string getName() const {
+        return name;
     }
 
     ENGINE_ERROR_CODE getStats(const void* cookie,
@@ -733,7 +762,7 @@ public:
         return *workload;
     }
 
-    bucket_priority_t getWorkloadPriority(void) {return workloadPriority; }
+    bucket_priority_t getWorkloadPriority(void) const {return workloadPriority; }
     void setWorkloadPriority(bucket_priority_t p) { workloadPriority = p; }
 
     struct clusterConfig {
@@ -764,6 +793,9 @@ public:
         return bucketId;
     }
 
+    EpEngineTaskable* getTaskable() {
+        return &taskable;
+    }
 protected:
     friend class EpEngineValueChangeListener;
 
@@ -954,9 +986,12 @@ private:
     time_t startupTime;
 
     StoragePool& storagePool;
-
     bucket_id_t bucketId;
+    EpEngineTaskable taskable;
 
 };
+
+
+
 
 #endif

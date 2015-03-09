@@ -232,7 +232,7 @@ EventuallyPersistentStore::EventuallyPersistentStore(
         stats.taskRuntimeHisto[i].reset();
     }
 
-    ExecutorPool::get()->registerBucket(ObjectRegistry::getCurrentEngine());
+    ExecutorPool::get()->registerTaskable(ObjectRegistry::getCurrentEngine()->getTaskable());
 
     size_t num_vbs = config.getMaxVbuckets();
     vb_mutexes = new Mutex[num_vbs];
@@ -385,7 +385,7 @@ bool EventuallyPersistentStore::initialize() {
 EventuallyPersistentStore::~EventuallyPersistentStore() {
     stopWarmup();
     stopBgFetcher();
-    ExecutorPool::get()->stopTaskGroup(&engine, NONIO_TASK_IDX);
+    ExecutorPool::get()->stopTaskGroup(reinterpret_cast<uintptr_t>(&engine), NONIO_TASK_IDX);
 
     ExecutorPool::get()->cancel(statsSnapshotTaskId);
     LockHolder lh(accessScanner.mutex);
@@ -393,7 +393,7 @@ EventuallyPersistentStore::~EventuallyPersistentStore() {
     lh.unlock();
 
     stopFlusher();
-    ExecutorPool::get()->unregisterBucket(ObjectRegistry::getCurrentEngine());
+    ExecutorPool::get()->unregisterTaskable(ObjectRegistry::getCurrentEngine()->getTaskable());
 
     delete [] vb_mutexes;
     delete [] schedule_vbstate_persist;
