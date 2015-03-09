@@ -141,6 +141,7 @@ extern "C" {
     static void EvpDestroy(ENGINE_HANDLE* handle, const bool force)
     {
         getHandle(handle)->destroy(force);
+        StoragePool::getStoragePool().engineShuttingDown(getHandle(handle));
         delete getHandle(handle);
         releaseHandle(NULL);
     }
@@ -1789,7 +1790,7 @@ extern "C" {
 
         ObjectRegistry::setStats(inital_tracking);
         EventuallyPersistentEngine *engine;
-        engine = new EventuallyPersistentEngine(get_server_api);
+        engine = StoragePool::getStoragePool().createEngine(get_server_api);
         ObjectRegistry::setStats(NULL);
 
         if (engine == NULL) {
@@ -1811,8 +1812,8 @@ extern "C" {
         return ENGINE_SUCCESS;
     }
 
-   void destroy_engine(void) {
-
+    void destroy_engine(void) {
+        StoragePool::getStoragePool().shutdown();
     }
 
     static bool EvpGetItemInfo(ENGINE_HANDLE *handle, const void *,
@@ -1915,6 +1916,7 @@ EventuallyPersistentEngine::EventuallyPersistentEngine(
     trafficEnabled(false), flushAllEnabled(false), startupTime(0),
     storagePool(StoragePool::getStoragePool()), taskable(this)
 {
+    static bucket_id_t staticBucketID = 0xcafeface; // TYNSET: memcache API should push this.
     interface.interface = 1;
     ENGINE_HANDLE_V1::get_info = EvpGetInfo;
     ENGINE_HANDLE_V1::initialize = EvpInitialize;
@@ -1965,6 +1967,7 @@ EventuallyPersistentEngine::EventuallyPersistentEngine(
                                              ENGINE_FEATURE_PERSISTENT_STORAGE;
     info.info.features[info.info.num_features++].feature = ENGINE_FEATURE_LRU;
     info.info.features[info.info.num_features++].feature = ENGINE_FEATURE_DATATYPE;
+    bucketId = staticBucketID++;
 
 
     // TYNSET: temp code for bucketId, memcache API will pass this.
@@ -2894,7 +2897,6 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::ConnHandlerCheckPoint(
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
 
     if (consumer->processCheckpointCommand(event, vbucket, checkpointId)) {
-        getEpStore()->wakeUpFlusher();
         ret = ENGINE_SUCCESS;
     }
     else {
@@ -3077,7 +3079,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doEngineStats(const void *cookie,
     add_casted_stat("ep_diskqueue_items",
                     epstats.diskQueueSize, add_stat, cookie);
     add_casted_stat("ep_flusher_state",
-                    epstore->getFlusher(0)->stateName(),
+                    getStoragePool().isFlushingPaused(getBucketId()) ? "paused" : "running",
                     add_stat, cookie);
     add_casted_stat("ep_commit_num", epstats.flusherCommits,
                     add_stat, cookie);
@@ -4926,7 +4928,7 @@ EventuallyPersistentEngine::handleCheckpointCmds(const void *cookie,
         } else {
             uint64_t checkpointId = htonll(vb->checkpointManager.
                                            createNewCheckpoint());
-            getEpStore()->wakeUpFlusher();
+            vb->notifyFlusher(getBucketId());
 
             uint64_t persistedChkId = htonll(epstore->
                                    getLastPersistedCheckpointId(vb->getId()));
@@ -4954,10 +4956,11 @@ EventuallyPersistentEngine::handleCheckpointCmds(const void *cookie,
                 chk_id = ntohll(chk_id);
                 void *es = getEngineSpecific(cookie);
                 if (!es) {
+
                     vb->addHighPriorityVBEntry(chk_id, cookie, false);
                     storeEngineSpecific(cookie, this);
                     // Wake up the flusher if it is idle.
-                    getEpStore()->wakeUpFlusher();
+                    vb->notifyFlusher(getBucketId());
                     return ENGINE_EWOULDBLOCK;
                 } else {
                     storeEngineSpecific(cookie, NULL);
@@ -6066,6 +6069,10 @@ EventuallyPersistentEngine::~EventuallyPersistentEngine() {
     delete checkpointConfig;
     delete tapThrottle;
     free(clusterConfig.config);
+}
+
+void EventuallyPersistentEngine::wakeFlusherForFlushAll() {
+    getStoragePool().wakeFlusherForFlushAll(getBucketId());
 }
 
 std::string EpEngineTaskable::getName() const {

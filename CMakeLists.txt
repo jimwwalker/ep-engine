@@ -136,7 +136,7 @@ ADD_LIBRARY(ep SHARED
             src/tapthrottle.cc src/tasks.cc
             src/taskqueue.cc src/vbucket.cc
             src/vbucketmap.cc src/warmup.cc
-            src/storagepool.cc
+            src/storagepool.cc src/storagepool_shard.cc src/storagepool_fetcher.cc src/storagepool_flusher.cc
             ${KVSTORE_SOURCE} ${COUCH_KVSTORE_SOURCE}
             ${OBJECTREGISTRY_SOURCE} ${CONFIG_SOURCE})
 
@@ -160,16 +160,16 @@ ADD_EXECUTABLE(ep-engine_atomic_test
   src/mutex.cc)
 TARGET_LINK_LIBRARIES(ep-engine_atomic_test platform)
 
-ADD_EXECUTABLE(ep-engine_checkpoint_test
-  tests/module_tests/checkpoint_test.cc
-  src/bloomfilter.cc src/murmurhash3.cc
-  src/checkpoint.cc src/failover-table.cc
-  src/testlogger.cc src/stored-value.cc
-  src/atomic.cc src/mutex.cc
-  tests/module_tests/test_memory_tracker.cc
-  src/item.cc src/vbucket.cc src/storagepool.cc
-  ${OBJECTREGISTRY_SOURCE} ${CONFIG_SOURCE})
-TARGET_LINK_LIBRARIES(ep-engine_checkpoint_test ${SNAPPY_LIBRARIES} cJSON platform)
+#ADD_EXECUTABLE(ep-engine_checkpoint_test
+#  tests/module_tests/checkpoint_test.cc
+#  src/bloomfilter.cc src/murmurhash3.cc
+#  src/checkpoint.cc src/failover-table.cc
+#  src/testlogger.cc src/stored-value.cc
+#  src/atomic.cc src/mutex.cc
+#  tests/module_tests/test_memory_tracker.cc
+#  src/item.cc src/vbucket.cc src/storagepool.cc src/storagepool_shard.cc src/storagepool_fetcher.cc
+#  ${OBJECTREGISTRY_SOURCE} ${CONFIG_SOURCE})
+#TARGET_LINK_LIBRARIES(ep-engine_checkpoint_test ${SNAPPY_LIBRARIES} cJSON platform)
 
 ADD_EXECUTABLE(ep-engine_chunk_creation_test
   tests/module_tests/chunk_creation_test.cc)
@@ -222,24 +222,26 @@ ADD_EXECUTABLE(ep-engine_sizes src/sizes.cc src/mutex.h src/mutex.cc src/testlog
               ${OBJECTREGISTRY_SOURCE} ${CONFIG_SOURCE})
 TARGET_LINK_LIBRARIES(ep-engine_sizes platform)
 
-ADD_EXECUTABLE(ep-engine_defragmenter_test
-               tests/module_tests/defragmenter_test.cc
-               src/bloomfilter.cc
-               src/checkpoint.cc
-               src/configuration.cc
-               src/defragmenter_visitor.cc
-               src/ep_time.c
-               src/generated_configuration.cc
-               src/failover-table.cc
-               src/item.cc
-               src/murmurhash3.cc
-               src/mutex.cc
-               src/stored-value.cc
-               src/testlogger.cc
-               src/vbucket.cc
-               src/storagepool.cc
-               ${OBJECTREGISTRY_SOURCE})
-TARGET_LINK_LIBRARIES(ep-engine_defragmenter_test cJSON platform ${SNAPPY_LIBRARIES})
+#ADD_EXECUTABLE(ep-engine_defragmenter_test
+#               tests/module_tests/defragmenter_test.cc
+#               src/bloomfilter.cc
+#               src/checkpoint.cc
+#               src/configuration.cc
+#               src/defragmenter_visitor.cc
+#               src/ep_time.c
+#               src/generated_configuration.cc
+#               src/failover-table.cc
+#               src/item.cc
+#               src/murmurhash3.cc
+#               src/mutex.cc
+#               src/stored-value.cc
+#               src/testlogger.cc
+#               src/vbucket.cc
+#               src/storagepool.cc
+#               src/storagepool_shard.cc
+#               src/storagepool_fetcher.cc
+#               ${OBJECTREGISTRY_SOURCE})
+#TARGET_LINK_LIBRARIES(ep-engine_defragmenter_test ep cJSON platform dirutils JSON_checker couchstore ${SNAPPY_LIBRARIES})
 
 ADD_LIBRARY(ep_testsuite SHARED
    tests/ep_testsuite.cc

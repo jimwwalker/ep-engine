@@ -2780,8 +2780,8 @@ void EventuallyPersistentStore::reset() {
     ++stats.diskQueueSize;
     bool inverse = true;
     flushAllTaskCtx.delayFlushAll.compare_exchange_strong(inverse, false);
-    // Waking up (notifying) one flusher is good enough for diskFlushAll
-    vbMap.shards[EP_PRIMARY_SHARD]->getFlusher()->notifyFlushEvent();
+    // wake pooled flusher
+    getEPEngine().wakeFlusherForFlushAll();
 }
 
 /**
@@ -3224,8 +3224,11 @@ void EventuallyPersistentStore::queueDirty(RCPtr<VBucket> &vb,
         if (rv) {
             KVShard* shard = vbMap.getShard(vb->getId());
             shard->getFlusher()->notifyFlushEvent();
-
+            vb->notifyFlusher(engine.getBucketId());
         }
+
+
+
         if (!tapBackfill && notifyReplicator) {
             engine.getTapConnMap().notifyVBConnections(vb->getId());
             engine.getDcpConnMap().notifyVBConnections(vb->getId(),

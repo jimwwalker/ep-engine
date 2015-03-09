@@ -40,18 +40,6 @@ const size_t MIN_CHK_FLUSH_TIMEOUT = 10; // 10 sec.
 const size_t MAX_CHK_FLUSH_TIMEOUT = 30; // 30 sec.
 static const int64_t INITIAL_DRIFT = -140737488355328; //lowest possible 48-bit integer
 
-struct HighPriorityVBEntry {
-    HighPriorityVBEntry() :
-        cookie(NULL), id(0), start(gethrtime()), isBySeqno_(false) { }
-    HighPriorityVBEntry(const void *c, uint64_t idNum, bool isBySeqno) :
-        cookie(c), id(idNum), start(gethrtime()), isBySeqno_(isBySeqno) { }
-
-    const void *cookie;
-    uint64_t id;
-    hrtime_t start;
-    bool isBySeqno_;
-};
-
 /**
  * Function object that returns true if the given vbucket is acceptable.
  */
@@ -196,7 +184,8 @@ public:
         numHpChks(0),
         shard(kvshard),
         bFilter(NULL),
-        tempFilter(NULL)
+        tempFilter(NULL),
+        storagePoolShard(storagePool.getStoragePoolShard(i))
     {
         backfill.isBackfillPhase = false;
         pendingOpsStart = 0;
@@ -440,6 +429,8 @@ public:
 
     void addPersistenceNotification(shared_ptr<Callback<uint64_t> > cb);
     void notifySeqnoPersisted(uint64_t highseqno);
+    void notifyFlusher(bucket_id_t bid);
+    rel_time_t findNextCheckpointWakeup();
 
     static const vbucket_state_t ACTIVE;
     static const vbucket_state_t REPLICA;
@@ -479,12 +470,27 @@ public:
     AtomicValue<size_t>  fileSize;
 
 private:
+
+    class HighPriorityVBEntry {
+    public:
+        HighPriorityVBEntry(const void *c, uint64_t idNum, bool isBySeqno);
+
+        const void *cookie;
+        uint64_t id;
+        bool isBySeqno_;
+        rel_time_t creationTime;
+
+    private:
+        HighPriorityVBEntry() :
+            cookie(NULL), id(0), isBySeqno_(false), creationTime(ep_current_time()) { }
+    };
+
     template <typename T>
     void addStat(const char *nm, const T &val, ADD_STAT add_stat, const void *c);
 
     void fireAllOps(EventuallyPersistentEngine &engine, ENGINE_ERROR_CODE code);
 
-    void adjustCheckpointFlushTimeout(size_t wall_time);
+    void adjustCheckpointFlushTimeout(rel_time_t elapsedTime);
 
     int                      id;
     AtomicValue<vbucket_state_t>  state;
@@ -523,6 +529,8 @@ private:
     std::list<shared_ptr<Callback<uint64_t>> > persistedNotifications;
 
     static size_t chkFlushTimeout;
+
+    StoragePoolShard& storagePoolShard; // to replace KVShard*
 
     DISALLOW_COPY_AND_ASSIGN(VBucket);
 };

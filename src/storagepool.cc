@@ -17,21 +17,46 @@
 
 #include "storagepool.h"
 #include "stored-value.h"
+#include "storagepool_shard.h"
+#include "ep_engine.h"
 
-
-StoragePool::StoragePool() : hashTables(1024) /* TYNSET: use config values. */ {
+StoragePool::StoragePool()
+    :
+    hashTables(1024),
+    shards(4), /* TYNSET: we should use config derived values. */
+    taskable(this) {
 
 }
 
 StoragePool::~StoragePool() {
     hashTables.clear();
+    shards.clear();
 }
 
-/**
+Configuration& StoragePool::getConfiguration() {
+    return config;
+}
+
+void StoragePool::shutdown() {
+    delete thePool;
+    thePool = NULL;
+}
+
+/*
+    Create an engine
+*/
+EventuallyPersistentEngine* StoragePool::createEngine(GET_SERVER_API get_server_api) {
+    EventuallyPersistentEngine* engine = new EventuallyPersistentEngine(get_server_api);
+    LockHolder lockHolder(engineMapLock);
+    engineMap[engine->getBucketId()] = engine;
+    return engine;
+}
+
+/*
     Return a HashTable reference for the given vbucket ID (vbid).
     The storage pool creates each HashTable on the first request, then
     returns the HashTable for all subsequent callers.
-**/
+*/
 HashTable& StoragePool::getOrCreateHashTable(uint16_t vbid) {
     if(hashTables[vbid].get() == nullptr) {
         hashTables[vbid] = std::unique_ptr<HashTable>(new HashTable());
@@ -39,13 +64,85 @@ HashTable& StoragePool::getOrCreateHashTable(uint16_t vbid) {
     return (*hashTables[vbid].get());
 }
 
-StoragePool StoragePool::thePool;
+StoragePoolShard& StoragePool::getStoragePoolShard(uint16_t vbid) {
+    if (shards[vbid % 4].get() == nullptr) {
+        shards[vbid % 4] = std::unique_ptr<StoragePoolShard>(new StoragePoolShard(*this));
+    }
+    return (*shards[vbid % 4].get());
+}
 
-/**
+void StoragePool::wakeFlusherForFlushAll(bucket_id_t bucketId) {
+    // explictly wake shard 0 for the bucketId
+    shards[0]->getFlusher()->addPendingVB(bucketId, 0);
+}
+
+EventuallyPersistentEngine* StoragePool::getEngine(bucket_id_t id) {
+    LockHolder lockHolder(engineMapLock);
+    EventuallyPersistentEngine* rv = nullptr;
+    if (engineMap.count(id) > 0) {
+        rv = engineMap[id];
+    }
+    return rv;
+}
+
+void StoragePool::removeEngine(EventuallyPersistentEngine* engine) {
+    LockHolder lh(engineMapLock);
+    engineMap.erase(engine->getBucketId());
+}
+
+void StoragePool::engineShuttingDown(EventuallyPersistentEngine* engine) {
+    // run the flusher to purge the engine
+    for (auto &shard : shards) {
+        if (shard.get() != nullptr) {
+            // execution will block on the flusher
+            shard.get()->getFlusher()->flushEngineAndWait(engine);
+        }
+    }
+    removeEngine(engine);
+}
+
+/*
+    Resume flushing/persistence for the specified engine
+*/
+void StoragePool::resumeFlushing(bucket_id_t bucketId) {
+    LockHolder lockHolder(engineMapLock);
+    bucketsPaused.erase(bucketId);
+    lockHolder.unlock();
+
+    // Force the flusher todo something.
+    // Setting a flush of vb:0 will force it to at least see if any
+    // pendingPaused VBs need service.
+    for (auto &shard : shards) {
+        if (shard.get() != nullptr) {
+            shard.get()->getFlusher()->addPendingVB(bucketId, 0);
+        }
+    }
+}
+
+/*
+    Pause flushing/persistence for the specified engine
+*/
+void StoragePool::pauseFlushing(bucket_id_t bucketId)  {
+    LockHolder lockHolder(engineMapLock);
+    bucketsPaused.insert(bucketId);
+}
+
+
+bool StoragePool::isFlushingPaused(bucket_id_t bucketId)  {
+    LockHolder lockHolder(engineMapLock);
+    return bucketsPaused.count(bucketId) != 0;
+}
+
+/*
     Basic factory that returns one storage pool.
 
     Future: support many storage pools.
-**/
+*/
 StoragePool& StoragePool::getStoragePool() {
-    return thePool;
+    if (thePool == NULL) {
+        thePool = new StoragePool();
+    }
+    return *thePool;
 }
+
+StoragePool* StoragePool::thePool;

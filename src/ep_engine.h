@@ -608,26 +608,16 @@ public:
 
     protocol_binary_response_status stopFlusher(const char **msg, size_t *msg_size) {
         (void) msg_size;
-        protocol_binary_response_status rv = PROTOCOL_BINARY_RESPONSE_SUCCESS;
         *msg = NULL;
-        if (!epstore->pauseFlusher()) {
-            LOG(EXTENSION_LOG_INFO, "Unable to stop flusher");
-            *msg = "Flusher not running.";
-            rv = PROTOCOL_BINARY_RESPONSE_EINVAL;
-        }
-        return rv;
+        StoragePool::getStoragePool().pauseFlushing(getBucketId());
+        return PROTOCOL_BINARY_RESPONSE_SUCCESS;
     }
 
     protocol_binary_response_status startFlusher(const char **msg, size_t *msg_size) {
         (void) msg_size;
-        protocol_binary_response_status rv = PROTOCOL_BINARY_RESPONSE_SUCCESS;
         *msg = NULL;
-        if (!epstore->resumeFlusher()) {
-            LOG(EXTENSION_LOG_INFO, "Unable to start flusher");
-            *msg = "Flusher not shut down.";
-            rv = PROTOCOL_BINARY_RESPONSE_EINVAL;
-        }
-        return rv;
+        StoragePool::getStoragePool().resumeFlushing(getBucketId());
+        return PROTOCOL_BINARY_RESPONSE_SUCCESS;
     }
 
     ENGINE_ERROR_CODE deleteVBucket(uint16_t vbid, const void* c = NULL) {
@@ -796,6 +786,9 @@ public:
     EpEngineTaskable* getTaskable() {
         return &taskable;
     }
+
+    void wakeFlusherForFlushAll();
+
 protected:
     friend class EpEngineValueChangeListener;
 
@@ -812,10 +805,9 @@ protected:
     }
 
 private:
+    friend StoragePool;
     EventuallyPersistentEngine(GET_SERVER_API get_server_api);
-    friend ENGINE_ERROR_CODE create_instance(uint64_t interface,
-                                             GET_SERVER_API get_server_api,
-                                             ENGINE_HANDLE **handle);
+
     uint16_t doWalkTapQueue(const void *cookie, item **itm, void **es,
                             uint16_t *nes, uint8_t *ttl, uint16_t *flags,
                             uint32_t *seqno, uint16_t *vbucket,
