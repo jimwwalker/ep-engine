@@ -28,6 +28,8 @@
 const double BgFetcher::sleepInterval = MIN_SLEEP_TIME;
 
 void BgFetcher::start() {
+    return;
+    /* TYNSET: StoragePool fetcher doing the fetches.
     bool inverse = false;
     pendingFetch.compare_exchange_strong(inverse, true);
     ExecutorPool* iom = ExecutorPool::get();
@@ -35,23 +37,28 @@ void BgFetcher::start() {
                                       Priority::BgFetcherPriority, false);
     this->setTaskId(task->getId());
     iom->schedule(task, READER_TASK_IDX);
-    cb_assert(taskId > 0);
+    cb_assert(taskId > 0);*/
 }
 
 void BgFetcher::stop() {
+    return;
+    /*
     bool inverse = true;
     pendingFetch.compare_exchange_strong(inverse, false);
     cb_assert(taskId > 0);
     ExecutorPool::get()->cancel(taskId);
+    */
 }
 
 void BgFetcher::notifyBGEvent(void) {
+    return;
+    /*
     ++stats.numRemainingBgJobs;
     bool inverse = false;
     if (pendingFetch.compare_exchange_strong(inverse, true)) {
         cb_assert(taskId > 0);
         ExecutorPool::get()->wake(taskId);
-    }
+    }*/
 }
 
 size_t BgFetcher::doFetch(uint16_t vbId) {
@@ -103,6 +110,7 @@ void BgFetcher::clearItems(uint16_t vbId) {
 }
 
 bool BgFetcher::run(GlobalTask *task) {
+    return false;
     size_t num_fetched_items = 0;
     bool inverse = true;
     pendingFetch.compare_exchange_strong(inverse, false);

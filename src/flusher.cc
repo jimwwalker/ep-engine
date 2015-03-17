@@ -146,13 +146,14 @@ void Flusher::start() {
                 taskId, stateName());
         return;
     }
-    schedule_UNLOCKED();
+    // TYNSET: StoragePool flusher replacing this - schedule_UNLOCKED();
 }
 
 void Flusher::wake(void) {
-    LockHolder lh(taskMutex);
-    cb_assert(taskId > 0);
-    ExecutorPool::get()->wake(taskId);
+    // TYNSET: nothing to wake
+    //LockHolder lh(taskMutex);
+    //cb_assert(taskId > 0);
+    //ExecutorPool::get()->wake(taskId);
 }
 
 bool Flusher::step(GlobalTask *task) {
