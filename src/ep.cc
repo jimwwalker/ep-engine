@@ -3049,10 +3049,16 @@ int EventuallyPersistentStore::flushVBucket(uint16_t vbid) {
             for(; it != items.end(); ++it) {
                 if ((*it)->getOperation() != queue_op_set &&
                     (*it)->getOperation() != queue_op_del) {
-
                     continue;
-                } else if (!prev || !prev->compareKey(it->get())) {
-
+                } else if (!prev || (!prev->compareKey(it->get()) || ((*it)->getOperation() != prev->getOperation()))) {
+                    // TYNSET: review this fix in detail..
+                    // The above else if now compares the item operation.
+                    // Found that when flushing spanned checkpoints E.g. in one test sometimes set(key1) was in CP2
+                    // and del(key1) was in CP3 (prev was pointing at the set(key1).
+                    // Ideally the checkpoints should of been merged so we only flushed the delete?
+                    // But without this fix we never flushed the delete because the keys matched and the test hung expecting the curr_items to reduce to 0.
+                    // Issue found in test_exp_persisted_set_del and is "racey", depends if the 3rd set lands before or after the flusher
+                    // runs for the second set. I.e. when we call CP::queueDirty, the CP-cursor is in use causing a cursor decrement
                     prev = (*it).get();
 
                     ++items_flushed;
