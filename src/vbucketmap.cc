@@ -83,6 +83,7 @@ void VBucketMap::removeBucket(uint16_t id) {
         // Theoretically, this could be off slightly.  In
         // practice, this happens only on dead vbuckets.
         getShard(id)->resetBucket(id);
+        setBucketCreation(id, false);
     }
 }
 
