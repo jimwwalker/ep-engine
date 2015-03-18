@@ -476,7 +476,8 @@ void Warmup::createVBuckets(uint16_t shardId) {
                 table = new FailoverTable(vbs.failovers, maxEntries);
             }
             KVShard* shard = store->getVBuckets().getShard(vbid);
-            shared_ptr<Callback<uint16_t> > cb(new NotifyFlusherCB(shard));
+            shared_ptr<Callback<uint16_t> > cb(new NotifyFlusherCB(store->getEPEngine().getStoragePool().getStoragePoolShard(vbid),
+                                                                   store->getEPEngine().getBucketId()));
             vb.reset(new VBucket(vbid, vbs.state,
                                  store->getEPEngine().getEpStats(),
                                  store->getEPEngine().getCheckpointConfig(),

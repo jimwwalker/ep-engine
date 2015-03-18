@@ -1182,7 +1182,8 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setVBucketState(uint16_t vbid,
     } else {
         FailoverTable* ft = new FailoverTable(engine.getMaxFailoverEntries());
         KVShard* shard = vbMap.getShard(vbid);
-        shared_ptr<Callback<uint16_t> > cb(new NotifyFlusherCB(shard));
+        shared_ptr<Callback<uint16_t> > cb(new NotifyFlusherCB(engine.getStoragePool().getStoragePoolShard(vbid),
+                                           engine.getBucketId()));
         RCPtr<VBucket> newvb(new VBucket(vbid, to, stats,
                                          engine.getCheckpointConfig(),
                                          shard,

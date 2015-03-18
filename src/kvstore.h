@@ -491,13 +491,14 @@ private:
  */
 class NotifyFlusherCB: public Callback<uint16_t> {
 public:
-    NotifyFlusherCB(KVShard *sh)
-        : shard(sh) {}
+    NotifyFlusherCB(StoragePoolShard &sh, bucket_id_t bId)
+        : storagePoolShard(sh), bucketId(bId) {}
 
     void callback(uint16_t &vbid);
 
 private:
-    KVShard *shard;
+    StoragePoolShard &storagePoolShard;
+    bucket_id_t bucketId;
 };
 
 #endif  // SRC_KVSTORE_H_

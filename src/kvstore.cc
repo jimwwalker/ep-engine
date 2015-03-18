@@ -140,7 +140,5 @@ void AllKeysCB::addtoAllKeys(uint16_t len, char *buf) {
 }
 
 void NotifyFlusherCB::callback(uint16_t &vb) {
-    if (shard->getBucket(vb)) {
-        shard->notifyFlusher();
-    }
+    storagePoolShard.getFlusher()->addPendingVB(bucketId, vb);
 }

@@ -31,6 +31,7 @@
 #include "item.h"
 #include "locks.h"
 #include "stats.h"
+#include "storagepool.h"
 
 #define MIN_CHECKPOINT_ITEMS 10
 #define MAX_CHECKPOINT_ITEMS 50000
@@ -658,7 +659,6 @@ private:
     uint64_t                 lastClosedCheckpointId;
     uint64_t                 pCursorPreCheckpointId;
     cursor_index             tapCursors;
-
     shared_ptr<Callback<uint16_t> > flusherCB;
 };
 
