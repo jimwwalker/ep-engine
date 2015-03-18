@@ -63,6 +63,13 @@ public:
 
     void visit(StoredValue *v) {
         // Delete expired items for an active vbucket.
+
+        // TYNSET: Need to move pager to be a pool task.
+        // For now each task is checking the bucketId and ignoring keys which are not mine
+        if (v->getBucketId() != store.getEPEngine().getBucketId()) {
+            return;
+        }
+
         bool isExpired = (currentBucket->getState() == vbucket_state_active) &&
             v->isExpired(startTime) && !v->isDeleted();
         if (isExpired || v->isTempNonExistentItem() || v->isTempDeletedItem()) {
