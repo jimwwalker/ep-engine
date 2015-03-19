@@ -1871,7 +1871,7 @@ Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
                 // Item was deleted and set a message type to tap_deletion.
                 itm = new Item(qi->getItemKey(),
                                /*flags*/0, /*exp*/0,
-                               /*data*/NULL, /*size*/0,
+                               /*data*/(void*)NULL, /*size*/0,
                                /*ext_meta*/NULL, /*ext_len*/0,
                                /*cas*/0, /*seqno*/-1, qi->getVBucketId());
                 itm->setRevSeqno(qi->getRevSeqno());
@@ -1904,7 +1904,7 @@ Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
         } else if (qi->getOperation() == queue_op_del) {
             itm = new Item(qi->getItemKey(),
                            /*flags*/0, /*exp*/0,
-                           /*data*/NULL, /*size*/0,
+                           /*data*/(void*)NULL, /*size*/0,
                            /*ext_meta*/NULL, /*ext_len*/0,
                            qi->getCas(), /*seqno*/-1, qi->getVBucketId());
             itm->setRevSeqno(qi->getRevSeqno());
