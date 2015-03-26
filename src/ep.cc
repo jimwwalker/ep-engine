@@ -164,8 +164,8 @@ public:
     }
 
     bool run(void) {
+        // TYNSET: need to delete VB memory from HashTable
         vbucket->notifyAllPendingConnsFailed(e);
-        vbucket->ht.clear();
         vbucket.reset();
         return false;
     }
@@ -2773,8 +2773,8 @@ void EventuallyPersistentStore::reset() {
         RCPtr<VBucket> vb = getVBucket(*it);
         if (vb) {
             LockHolder lh(vb_mutexes[vb->getId()]);
-            vb->ht.clear();
             vb->checkpointManager.clear(vb->getState());
+            // TYNSET: clear hashtable data for the VB?
             vb->resetStats();
             vb->setPersistedSnapshot(0, 0);
         }
