@@ -371,14 +371,6 @@ bool EventuallyPersistentStore::initialize() {
     ExTask workloadMonitorTask = new WorkLoadMonitor(&engine, false);
     ExecutorPool::get()->schedule(workloadMonitorTask, NONIO_TASK_IDX);
 
-#if HAVE_JEMALLOC
-    /* Only create the defragmenter task if we have an underlying memory
-     * allocator which can facilitate defragmenting memory.
-     */
-    defragmenterTask = new DefragmenterTask(&engine, stats);
-    ExecutorPool::get()->schedule(defragmenterTask, NONIO_TASK_IDX);
-#endif
-
     return true;
 }
 
@@ -3486,38 +3478,6 @@ void EventuallyPersistentStore::visit(VBucketVisitor &visitor)
     visitor.complete();
 }
 
-EventuallyPersistentStore::Position
-EventuallyPersistentStore::pauseResumeVisit(PauseResumeEPStoreVisitor& visitor,
-                                            Position& start_pos)
-{
-    const size_t maxSize = vbMap.getSize();
-
-    uint16_t vbid = start_pos.vbucket_id;
-    for (; vbid < maxSize; ++vbid) {
-        RCPtr<VBucket> vb = vbMap.getBucket(vbid);
-        if (vb) {
-            bool paused = !visitor.visit(vbid, vb->ht);
-            if (paused) {
-                break;
-            }
-        }
-    }
-
-    return EventuallyPersistentStore::Position(vbid);
-}
-
-EventuallyPersistentStore::Position
-EventuallyPersistentStore::startPosition() const
-{
-    return EventuallyPersistentStore::Position(0);
-}
-
-EventuallyPersistentStore::Position
-EventuallyPersistentStore::endPosition() const
-{
-    return EventuallyPersistentStore::Position(vbMap.getSize());
-}
-
 VBCBAdaptor::VBCBAdaptor(EventuallyPersistentStore *s,
                          shared_ptr<VBucketVisitor> v,
                          const char *l, const Priority &p, double sleep) :
@@ -3682,14 +3642,4 @@ EventuallyPersistentStore::rollback(uint16_t vbid,
         return ENGINE_SUCCESS;
     }
     return ENGINE_NOT_MY_VBUCKET;
-}
-
-void EventuallyPersistentStore::runDefragmenterTask() {
-    defragmenterTask->run();
-}
-
-std::ostream& operator<<(std::ostream& os,
-                         const EventuallyPersistentStore::Position& pos) {
-    os << "vbucket:" << pos.vbucket_id;
-    return os;
 }

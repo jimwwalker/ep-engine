@@ -534,24 +534,24 @@ extern "C" {
                 }
             } else if (strcmp(keyz, "defragmenter_enabled") == 0) {
                 if (strcmp(valz, "true") == 0) {
-                    e->getConfiguration().setDefragmenterEnabled(true);
+                    e->getStoragePool().getConfiguration().setDefragmenterEnabled(true);
                 } else {
-                    e->getConfiguration().setDefragmenterEnabled(false);
+                    e->getStoragePool().getConfiguration().setDefragmenterEnabled(false);
                 }
             } else if (strcmp(keyz, "defragmenter_interval") == 0) {
                 checkNumeric(valz);
                 validate(v, 1, std::numeric_limits<int>::max());
-                e->getConfiguration().setDefragmenterInterval(v);
+                e->getStoragePool().getConfiguration().setDefragmenterInterval(v);
             } else if (strcmp(keyz, "defragmenter_age_threshold") == 0) {
                 checkNumeric(valz);
                 validate(v, 0, std::numeric_limits<int>::max());
-                e->getConfiguration().setDefragmenterAgeThreshold(v);
+                e->getStoragePool().getConfiguration().setDefragmenterAgeThreshold(v);
             } else if (strcmp(keyz, "defragmenter_chunk_duration") == 0) {
                 checkNumeric(valz);
                 validate(v, 1, std::numeric_limits<int>::max());
-                e->getConfiguration().setDefragmenterChunkDuration(v);
+                e->getStoragePool().getConfiguration().setDefragmenterChunkDuration(v);
             } else if (strcmp(keyz, "defragmenter_run") == 0) {
-                e->runDefragmenterTask();
+                e->getStoragePool().runDefragmenterTask();
             } else if (strcmp(keyz, "compaction_write_queue_cap") == 0) {
                 checkNumeric(valz);
                 validate(v, 1, std::numeric_limits<int>::max());
@@ -4413,10 +4413,6 @@ void EventuallyPersistentEngine::addLookupAllKeys(const void *cookie,
                                                   ENGINE_ERROR_CODE err) {
     LockHolder lh(lookupMutex);
     allKeysLookups[cookie] = err;
-}
-
-void EventuallyPersistentEngine::runDefragmenterTask(void) {
-    epstore->runDefragmenterTask();
 }
 
 ENGINE_ERROR_CODE EventuallyPersistentEngine::getStats(const void* cookie,

@@ -19,16 +19,19 @@
 #include "stored-value.h"
 #include "storagepool_shard.h"
 #include "ep_engine.h"
+#include "defragmenter.h"
 
 StoragePool::StoragePool()
     :
     hashTables(1024),
     shards(4), /* TYNSET: we should use config derived values. */
-    taskable(this) {
+    taskable(this),
+    needToCreateTasks(true) {
 
 }
 
 StoragePool::~StoragePool() {
+    ExecutorPool::get()->stopTaskGroup(taskable.getGID(), NONIO_TASK_IDX);
     hashTables.clear();
     shards.clear();
 }
@@ -49,7 +52,32 @@ EventuallyPersistentEngine* StoragePool::createEngine(GET_SERVER_API get_server_
     EventuallyPersistentEngine* engine = new EventuallyPersistentEngine(get_server_api);
     LockHolder lockHolder(engineMapLock);
     engineMap[engine->getBucketId()] = engine;
+    if (needToCreateTasks) {
+        // bring tasks up when the first engine is created (defrag needs to grab the alloc_api from an engine)
+        createTasks(engine);
+        needToCreateTasks = false;
+    }
     return engine;
+}
+
+/*
+    Create the pool's tasks
+*/
+void StoragePool::createTasks(EventuallyPersistentEngine* engine) {
+
+    // executorpool::get relies on getting an engine* from TLS for config data
+    // so set the engine and call ::get
+    ObjectRegistry::onSwitchThread(engine);
+    ExecutorPool::get()->registerTaskable(&taskable);
+
+#if HAVE_JEMALLOC
+    /* Only create the defragmenter task if we have an underlying memory
+     * allocator which can facilitate defragmenting memory.
+     */
+    // this code asssume that all buckets use the same alloc API, it would be pretty hard for them not to.
+    defragmenterTask = new DefragmenterTask(this,  engine->getServerApi()->alloc_hooks);
+    ExecutorPool::get()->schedule(defragmenterTask, NONIO_TASK_IDX);
+#endif
 }
 
 /*
@@ -143,6 +171,50 @@ StoragePool& StoragePool::getStoragePool() {
         thePool = new StoragePool();
     }
     return *thePool;
+}
+
+StoragePoolTaskable& StoragePool::getTaskable() {
+    return taskable;
+}
+
+
+StoragePool::Position StoragePool::pauseResumeVisit(PauseResumeStoragePoolVisitor& visitor,
+                              Position& start_pos)
+{
+    const size_t maxSize = hashTables.size();
+
+    uint16_t vbid = start_pos.vbucket_id;
+    for (; vbid < maxSize; ++vbid) {
+
+        if (hashTables[vbid].get()) {
+            bool paused = !visitor.visit(vbid, *(hashTables[vbid].get()));
+            if (paused) {
+                break;
+            }
+        }
+    }
+
+    return StoragePool::Position(vbid);
+}
+
+StoragePool::Position StoragePool::startPosition() const
+{
+    return StoragePool::Position(0);
+}
+
+StoragePool::Position StoragePool::endPosition() const
+{
+    return StoragePool::Position(hashTables.size());
+}
+
+void StoragePool::runDefragmenterTask() {
+    defragmenterTask->run();
+}
+
+std::ostream& operator<<(std::ostream& os,
+                         const StoragePool::Position& pos) {
+    os << "vbucket:" << pos.vbucket_id;
+    return os;
 }
 
 StoragePool* StoragePool::thePool;
