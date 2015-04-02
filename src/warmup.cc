@@ -478,10 +478,12 @@ void Warmup::createVBuckets(uint16_t shardId) {
             KVShard* shard = store->getVBuckets().getShard(vbid);
             shared_ptr<Callback<uint16_t> > cb(new NotifyFlusherCB(store->getEPEngine().getStoragePool().getStoragePoolShard(vbid),
                                                                    store->getEPEngine().getBucketId()));
+            StoragePoolShard& storagePoolShard = store->getEPEngine().getStoragePool().getStoragePoolShard(vbid);
+            HashTable& hashTable = store->getEPEngine().getStoragePool().getHashTable(store->getEPEngine().getBucketId(), vbid);
             vb.reset(new VBucket(vbid, vbs.state,
                                  store->getEPEngine().getEpStats(),
                                  store->getEPEngine().getCheckpointConfig(),
-                                 shard, store->getEPEngine().getStoragePool(),
+                                 shard, storagePoolShard, hashTable,
                                  vbs.highSeqno, vbs.lastSnapStart,
                                  vbs.lastSnapEnd, table, cb, vbs.state, 1,
                                  vbs.purgeSeqno, vbs.maxCas,

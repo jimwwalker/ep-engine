@@ -83,7 +83,7 @@ void StoragePoolFlusher::setupCheckpointPending(EventuallyPersistentEngine* engi
     RCPtr<VBucket> vb = engine->getVBucket(vbid);
     if (vb && vb->getHighPriorityChkSize() > 0) {
 
-        rel_time_t nextWakeup = abs(vb->findNextCheckpointWakeup() - wakeupTime);
+        rel_time_t nextWakeup = vb->findNextCheckpointWakeup() - wakeupTime;
 
         if (nextWakeup < flusherSleepTime) {
             flusherSleepTime = nextWakeup == 0 ? 1 : nextWakeup;

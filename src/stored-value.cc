@@ -26,8 +26,8 @@
 #define DEFAULT_HT_SIZE 1531
 #endif
 
-size_t HashTable::defaultNumBuckets = DEFAULT_HT_SIZE;
-size_t HashTable::defaultNumLocks = 193;
+size_t HashTableStorage::defaultNumBuckets = DEFAULT_HT_SIZE;
+size_t HashTableStorage::defaultNumLocks = 193;
 double StoredValue::mutation_mem_threshold = 0.9;
 const int64_t StoredValue::state_deleted_key = -3;
 const int64_t StoredValue::state_non_existent_key = -4;
@@ -81,7 +81,7 @@ bool StoredValue::unlocked_restoreValue(Item *itm, HashTable &ht) {
 
     if (isTempInitialItem()) { // Regular item with the full eviction
         --ht.numTempItems;
-        ++ht.numItems;
+        ht.incrementNumItems();
         newCacheItem = false; // set it back to false as we created a temp item
                               // by setting it to true when bg fetch is
                               // scheduled (full eviction mode).
@@ -120,7 +120,7 @@ bool StoredValue::unlocked_restoreMeta(Item *itm, ENGINE_ERROR_CODE status,
             setStoredValueState(state_deleted_key);
         } else { // Regular item with the full eviction
             --ht.numTempItems;
-            ++ht.numItems;
+            ht.incrementNumItems();
             ++ht.numNonResidentItems;
             bySeqno = itm->getBySeqno();
             newCacheItem = false; // set it back to false as we created a temp
@@ -164,10 +164,10 @@ bool HashTable::unlocked_ejectItem(StoredValue*& vptr,
             StoredValue::reduceCacheSize(*this, vptr->size());
 
             int bucket_num = getBucketForHash(hash(vptr));
-            StoredValue *v = values[bucket_num];
+            StoredValue *v = getBucketHead(bucket_num);
             // Remove the item from the hash table.
             if (v == vptr) {
-                values[bucket_num] = v->next;
+                setBucketHead(bucket_num, v->next);
             } else {
                 while (v->next) {
                     if (v->next == vptr) {
@@ -186,7 +186,7 @@ bool HashTable::unlocked_ejectItem(StoredValue*& vptr,
                 --numNonResidentItems; // Decrement because the item is
                                        // fully evicted.
             }
-            --numItems; // Decrement because the item is fully evicted.
+            decrementNumItems(); // Decrement because the item is fully evicted.
             ++numEjects;
             updateMaxDeletedRevSeqno(vptr->getRevSeqno());
 
@@ -212,14 +212,14 @@ mutation_type_t HashTable::insert(Item &itm, item_eviction_policy_t policy,
     StoredValue *v = unlocked_find(itm.getItemKey(), bucket_num, true, false);
 
     if (v == NULL) {
-        v = valFact(itm, values[bucket_num], *this, epstats);
+        v = valFact(itm, getBucketHead(bucket_num), *this, epstats);
         v->markClean();
         if (partial) {
             v->markNotResident();
             ++numNonResidentItems;
         }
-        values[bucket_num] = v;
-        ++numItems;
+        setBucketHead(bucket_num, v);
+        incrementNumItems();
         v->setNewCacheItem(false);
     } else {
         if (partial) {
@@ -245,7 +245,7 @@ mutation_type_t HashTable::insert(Item &itm, item_eviction_policy_t policy,
 
         if (v->isTempItem()) {
             --numTempItems;
-            ++numItems;
+            incrementNumItems();
             ++numTotalItems;
         }
 
@@ -265,18 +265,18 @@ static inline size_t getDefault(size_t x, size_t d) {
     return x == 0 ? d : x;
 }
 
-size_t HashTable::getNumBuckets(size_t n) {
+size_t HashTableStorage::getNumBuckets(size_t n) {
     return getDefault(n, defaultNumBuckets);
 }
 
-size_t HashTable::getNumLocks(size_t n) {
+size_t HashTableStorage::getNumLocks(size_t n) {
     return getDefault(n, defaultNumLocks);
 }
 
 /**
  * Set the default number of hashtable buckets.
  */
-void HashTable::setDefaultNumBuckets(size_t to) {
+void HashTableStorage::setDefaultNumBuckets(size_t to) {
     if (to != 0) {
         defaultNumBuckets = to;
     }
@@ -285,34 +285,56 @@ void HashTable::setDefaultNumBuckets(size_t to) {
 /**
  * Set the default number of hashtable locks.
  */
-void HashTable::setDefaultNumLocks(size_t to) {
+void HashTableStorage::setDefaultNumLocks(size_t to) {
     if (to != 0) {
         defaultNumLocks = to;
     }
 }
 
-HashTableStatVisitor HashTable::clear(bool deactivate) {
+HashTableStatVisitor HashTable::clearBucketUnlocked(bucket_id_t deleteMe) {
     HashTableStatVisitor rv;
 
-    if (!deactivate) {
-        // If not deactivating, assert we're already active.
-        cb_assert(isActive());
-    }
-    MultiLockHolder mlh(mutexes, n_locks);
-    if (deactivate) {
-        setActiveState(false);
-    }
-    for (int i = 0; i < (int)size; i++) {
-        while (values[i]) {
-            StoredValue *v = values[i];
-            rv.visit(v);
-            values[i] = v->next;
-            delete v;
+    // Iterate through the hash buckets looking for the specific items.
+    for (size_t ii = 0; ii < getSize(); ii++) {
+        StoredValue* v = getBucketHead(ii);
+        StoredValue* preValue = nullptr;
+        while (v) {
+            if (v->getBucketId() == deleteMe) {
+                if (preValue) {
+                    StoredValue* deleteV = v;
+                    preValue->next = v->next;
+                    v = v->next;
+                    decrementNumItems();
+                    rv.visit(deleteV);
+                    delete deleteV;
+                } else {
+                    // The head node is a match
+                    StoredValue* deleteV = v;
+                    v = v->next;
+                    // new head node
+                    setBucketHead(ii, v);
+                    decrementNumItems();
+                    rv.visit(deleteV);
+                    delete deleteV;
+                }
+            } else {
+                preValue = v;
+                v = v->next;
+            }
         }
     }
 
-    // TYNSET: stats.currentSize.fetch_sub(rv.memSize - rv.valSize); destructing, whos stats should we fiddle??
-    // cb_assert(stats.currentSize.load() < GIGANTOR);
+    return rv;
+}
+
+HashTableStatVisitor HashTable::clearBucket(bucket_id_t deleteMe, EPStats& epstats) {
+
+    MultiLockHolder mlh(getMutexes(), getNumLocks());
+
+    HashTableStatVisitor rv = clearBucketUnlocked(deleteMe);
+
+    epstats.currentSize.fetch_sub(rv.memSize - rv.valSize);
+    cb_assert(epstats.currentSize.load() < GIGANTOR);
 
     numTotalItems.store(0);
     numItems.store(0);
@@ -324,62 +346,21 @@ HashTableStatVisitor HashTable::clear(bool deactivate) {
     return rv;
 }
 
-void HashTable::resize(size_t newSize) {
-    cb_assert(isActive());
+//
+// Clear out this hashtable storage
+//
+void HashTableStorage::clear() {
+    MultiLockHolder mlh(getMutexes(), getNumLocks());
 
-    // Due to the way hashing works, we can't fit anything larger than
-    // an int.
-    if (newSize > static_cast<size_t>(std::numeric_limits<int>::max())) {
-        return;
-    }
-
-    // Don't resize to the same size, either.
-    if (newSize == size) {
-        return;
-    }
-
-    MultiLockHolder mlh(mutexes, n_locks);
-    if (visitors.load() > 0) {
-        // Do not allow a resize while any visitors are actually
-        // processing.  The next attempt will have to pick it up.  New
-        // visitors cannot start doing meaningful work (we own all
-        // locks at this point).
-        return;
-    }
-
-    // Get a place for the new items.
-    StoredValue **newValues = static_cast<StoredValue**>(calloc(newSize,
-                                                        sizeof(StoredValue*)));
-    // If we can't allocate memory, don't move stuff around.
-    if (!newValues) {
-        return;
-    }
-
-    ++numResizes;
-
-    // Set the new size so all the hashy stuff works.
-    size_t oldSize = size;
-    size.store(newSize);
-
-    // Move existing records into the new space.
-    for (size_t i = 0; i < oldSize; i++) {
-        while (values[i]) {
-            StoredValue *v = values[i];
-            values[i] = v->next;
-
-            int newBucket = getBucketForHash(hash(v));
-            v->next = newValues[newBucket];
-            newValues[newBucket] = v;
+    for (size_t ii = 0; ii < getSize(); ii++) {
+        while (getBucketHead(ii)) {
+            StoredValue *v = getBucketHead(ii);
+            setBucketHead(ii, v->next);
+            delete v;
         }
     }
 
-    // values still points to the old (now empty) table.
-    free(values);
-    values = newValues;
-
-    // TYNSET: resize() is not accounting in any stats for memorySize() and the change in memorySize()
-    // As we cannot account the HashTable size to a bucket
-    // Old code would also use VBucket constructor to capture intial ::memorySize in bucket stats.
+    numItems.store(0);
 }
 
 static size_t distance(size_t a, size_t b) {
@@ -395,8 +376,26 @@ static bool isCurrently(size_t size, ssize_t a, ssize_t b) {
     return (current == a || current == b);
 }
 
+// TYNSET: remove this at some point, only HashTableStorage should attempt the resize
+// requires the resize task moving to be a pool owned task
 void HashTable::resize() {
-    size_t ni = getNumInMemoryItems();
+    if (isActive()) {
+        if (storage->resize()) {
+            ++numResizes; //TYNSET: sort of meaningless when a pooled task
+        }
+    }
+}
+
+void HashTable::resize(size_t to) {
+    if (isActive()) {
+        if (storage->resize(to)) {
+            ++numResizes;
+        }
+    }
+}
+
+bool HashTableStorage::resize() {
+    size_t ni = numItems;
     int i(0);
     size_t new_size(0);
 
@@ -415,28 +414,85 @@ void HashTable::resize() {
     } else if (isCurrently(size, prime_size_table[i-1], prime_size_table[i])) {
         // If one of the candidate sizes is the current size, maintain
         // the current size in order to remain stable.
-        new_size = size;
+        new_size = getSize();
     } else {
         // Somewhere in the middle, use the one we're closer to.
         new_size = nearest(ni, prime_size_table[i-1], prime_size_table[i]);
     }
 
-    resize(new_size);
+    return resize(new_size);
+}
+
+bool HashTableStorage::resize(size_t newSize) {
+    // Due to the way hashing works, we can't fit anything larger than
+    // an int.
+    if (newSize > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        return false;
+    }
+
+    // Don't resize to the same size, either.
+    if (newSize == getSize()) {
+        return false;
+    }
+
+    MultiLockHolder mlh(getMutexes(), getNumLocks());
+
+    if (visitors.load() > 0) {
+        // Do not allow a resize while any visitors are actually
+        // processing.  The next attempt will have to pick it up.  New
+        // visitors cannot start doing meaningful work (we own all
+        // locks at this point).
+        return false;
+    }
+
+    // Get a place for the new items.
+    StoredValue **newValues = static_cast<StoredValue**>(calloc(newSize,
+                                                        sizeof(StoredValue*)));
+
+    // If we can't allocate memory, don't move stuff around.
+    if (!newValues) {
+        return false;
+    }
+
+    // Set the new size so all the hashy stuff works.
+    size_t oldSize = getSize();
+    setSize(newSize);
+
+    // Move existing records into the new space.
+    for (size_t i = 0; i < oldSize; i++) {
+        while (getBucketHead(i)) {
+            StoredValue *v = getBucketHead(i);
+            setBucketHead(i, v->next);
+
+            int newBucket = getBucketForHash(HashTable::hash(v));
+            v->next = newValues[newBucket];
+            newValues[newBucket] = v;
+        }
+    }
+
+    // values still points to the old (now empty) table.
+    free(hashBuckets);
+    hashBuckets = newValues;
+
+    // TYNSET: resize() is not accounting in any stats for memorySize() and the change in memorySize()
+    // As we cannot account the HashTable size to a bucket
+    // Old code would also use VBucket constructor to capture intial ::memorySize in bucket stats.
+    return true;
 }
 
 void HashTable::visit(HashTableVisitor &visitor) {
     if ((numItems.load() + numTempItems.load()) == 0 || !isActive()) {
         return;
     }
-    VisitorTracker vt(&visitors);
+    VisitorTracker vt = storage->getNewVisitorTracker();
     bool aborted = !visitor.shouldContinue();
     size_t visited = 0;
-    for (int l = 0; isActive() && !aborted && l < static_cast<int>(n_locks);
+    for (int l = 0; isActive() && !aborted && l < static_cast<int>(getNumLocks());
          l++) {
-        LockHolder lh(mutexes[l]);
-        for (int i = l; i < static_cast<int>(size); i+= n_locks) {
+        LockHolder lh(getMutex(l));
+        for (int i = l; i < static_cast<int>(getSize()); i+= getNumLocks()) {
             cb_assert(l == mutexForBucket(i));
-            StoredValue *v = values[i];
+            StoredValue *v = getBucketHead(i);
             cb_assert(v == NULL || i == getBucketForHash(hash(v)));
             while (v) {
                 StoredValue *tmp = v->next;
@@ -448,7 +504,7 @@ void HashTable::visit(HashTableVisitor &visitor) {
         lh.unlock();
         aborted = !visitor.shouldContinue();
     }
-    cb_assert(aborted || visited == size);
+    cb_assert(aborted || visited == getSize());
 }
 
 void HashTable::visitDepth(HashTableDepthVisitor &visitor) {
@@ -456,13 +512,13 @@ void HashTable::visitDepth(HashTableDepthVisitor &visitor) {
         return;
     }
     size_t visited = 0;
-    VisitorTracker vt(&visitors);
+    VisitorTracker vt = storage->getNewVisitorTracker();
 
-    for (int l = 0; l < static_cast<int>(n_locks); l++) {
-        LockHolder lh(mutexes[l]);
-        for (int i = l; i < static_cast<int>(size); i+= n_locks) {
+    for (int l = 0; l < static_cast<int>(getNumLocks()); l++) {
+        LockHolder lh(getMutex(l));
+        for (int i = l; i < static_cast<int>(getSize()); i+= getNumLocks()) {
             size_t depth = 0;
-            StoredValue *p = values[i];
+            StoredValue *p = getBucketHead(i);
             cb_assert(p == NULL || i == getBucketForHash(hash(p)));
             size_t mem(0);
             while (p) {
@@ -475,41 +531,41 @@ void HashTable::visitDepth(HashTableDepthVisitor &visitor) {
         }
     }
 
-    cb_assert(visited == size);
+    cb_assert(visited == getSize());
 }
 
-HashTable::Position
-HashTable::pauseResumeVisit(PauseResumeHashTableVisitor& visitor,
-                            Position& start_pos) {
-    if ((numItems.load() + numTempItems.load()) == 0 || !isActive()) {
+HashTableStorage::Position
+HashTableStorage::pauseResumeVisit(PauseResumeHashTableVisitor& visitor,
+                                   Position& start_pos) {
+    if (numItems.load() == 0) {
         // Nothing to visit
         return endPosition();
     }
 
     bool paused = false;
-    VisitorTracker vt(&visitors);
+    VisitorTracker vt = getNewVisitorTracker();
 
     // Start from the requested lock number if in range.
-    size_t lock = (start_pos.lock < n_locks) ? start_pos.lock : 0;
+    size_t lock = (start_pos.lock < getNumLocks()) ? start_pos.lock : 0;
     size_t hash_bucket = 0;
 
-    for (; isActive() && !paused && lock < n_locks; lock++) {
-        LockHolder lh(mutexes[lock]);
+    for (; !paused && lock < getNumLocks(); lock++) {
+        LockHolder lh(getMutex(lock));
 
         // If the bucket position is *this* lock, then start from the
         // recorded bucket (as long as we haven't resized).
         hash_bucket = lock;
         if (start_pos.lock == lock &&
-            start_pos.ht_size == size &&
-            start_pos.hash_bucket < size) {
+            start_pos.ht_size == getSize() &&
+            start_pos.hash_bucket < getSize()) {
             hash_bucket = start_pos.hash_bucket;
         }
 
         // Iterate across all values in the hash buckets owned by this lock.
         // Note: we don't record how far into the bucket linked-list we
         // pause at; so any restart will begin from the next bucket.
-        for (; !paused && hash_bucket < size; hash_bucket += n_locks) {
-            StoredValue *v = values[hash_bucket];
+        for (; !paused && hash_bucket < getSize(); hash_bucket += getNumLocks()) {
+            StoredValue *v = getBucketHead(hash_bucket);
             while (!paused && v) {
                 StoredValue *tmp = v->next;
                 paused = !visitor.visit(*v);
@@ -520,21 +576,21 @@ HashTable::pauseResumeVisit(PauseResumeHashTableVisitor& visitor,
         // If the visitor paused us before we visited all hash buckets owned
         // by this lock, we don't want to skip the remaining hash buckets, so
         // stop the outer for loop from advancing to the next lock.
-        if (paused && hash_bucket < size) {
+        if (paused && hash_bucket < getSize()) {
             break;
         }
 
         // Finished all buckets owned by this lock. Set hash_bucket to 'size'
         // to give a consistent marker for "end of lock".
-        hash_bucket = size;
+        hash_bucket = getSize();
     }
 
     // Return the *next* location that should be visited.
-    return HashTable::Position(size, lock, hash_bucket);
+    return HashTableStorage::Position(getSize(), lock, hash_bucket);
 }
 
-HashTable::Position HashTable::endPosition() const  {
-    return HashTable::Position(size, n_locks, size);
+HashTableStorage::Position HashTableStorage::endPosition() const  {
+    return HashTableStorage::Position(getSize(), getNumLocks(), getSize());
 }
 
 add_type_t HashTable::unlocked_add(int &bucket_num,
@@ -572,7 +628,7 @@ add_type_t HashTable::unlocked_add(int &bucket_num,
                     itm.setRevSeqno(getMaxDeletedRevSeqno() + 1);
                 }
                 --numTempItems;
-                ++numItems;
+                incrementNumItems();
                 ++numTotalItems;
             }
             v->setValue(itm, *this, v->isTempItem() ? true : false);
@@ -587,14 +643,14 @@ add_type_t HashTable::unlocked_add(int &bucket_num,
                     return ADD_TMP_AND_BG_FETCH;
                 }
             }
-            v = valFact(itm, values[bucket_num], *this, epstats, isDirty);
-            values[bucket_num] = v;
+            v = valFact(itm, getBucketHead(bucket_num), *this, epstats, isDirty);
+            setBucketHead(bucket_num, v);
 
             if (v->isTempItem()) {
                 ++numTempItems;
                 rv = ADD_BG_FETCH;
             } else {
-                ++numItems;
+                incrementNumItems();
                 ++numTotalItems;
             }
 
@@ -726,7 +782,7 @@ void StoredValue::reallocate() {
 
 Item *HashTable::getRandomKeyFromSlot(int slot) {
     LockHolder lh = getLockedBucket(slot);
-    StoredValue *v = values[slot];
+    StoredValue *v = getBucketHead(slot);
 
     while (v) {
         if (!v->isTempItem() && !v->isDeleted() && v->isResident()) {
@@ -740,13 +796,13 @@ Item *HashTable::getRandomKeyFromSlot(int slot) {
 
 Item* HashTable::getRandomKey(long rnd) {
     /* Try to locate a partition */
-    size_t start = rnd % size;
+    size_t start = rnd % getSize();
     size_t curr = start;
     Item *ret;
 
     do {
         ret = getRandomKeyFromSlot(curr++);
-        if (curr == size) {
+        if (curr == getSize()) {
             curr = 0;
         }
     } while (ret == NULL && curr != start);
@@ -754,7 +810,7 @@ Item* HashTable::getRandomKey(long rnd) {
     return ret;
 }
 
-std::ostream& operator<<(std::ostream& os, const HashTable::Position& pos) {
+std::ostream& operator<<(std::ostream& os, const HashTableStorage::Position& pos) {
     os << "{lock:" << pos.lock << " bucket:" << pos.hash_bucket << "/" << pos.ht_size << "}";
     return os;
 }

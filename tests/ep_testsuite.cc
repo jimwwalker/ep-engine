@@ -1862,6 +1862,7 @@ static enum test_result test_bug7023(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
                               testHarness.get_current_testcase()->cfg,
                               true, false);
     wait_for_warmup_complete(h, h1);
+    keys.clear();
     return get_int_stat(h, h1, "ep_warmup_value_count", "warmup") == 10000 ? SUCCESS : FAIL;
 }
 

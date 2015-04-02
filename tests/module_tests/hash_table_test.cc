@@ -31,6 +31,8 @@
 #define alarm(a)
 #endif
 
+#define BUCKET_ID (0)
+
 time_t time_offset;
 
 /* HashTable requires the callers stats */
@@ -143,7 +145,7 @@ static std::vector<ItemKey> generateKeys(int num, int start=0) {
     for (int i = start; i < num; i++) {
         char buf[64];
         int len = snprintf(buf, sizeof(buf), "key%d", i);
-        ItemKey key(buf, len, 0);
+        ItemKey key(buf, len, BUCKET_ID);
         rv.push_back(key);
     }
 
@@ -155,7 +157,8 @@ static std::vector<ItemKey> generateKeys(int num, int start=0) {
 // ----------------------------------------------------------------------
 
 static void testHashSize() {
-    HashTable h;
+    HashTableStorage storage;
+    HashTable h(BUCKET_ID, &storage);
     cb_assert(count(h) == 0);
 
     ItemKey k("testkey", 7, 0);
@@ -165,21 +168,23 @@ static void testHashSize() {
 }
 
 static void testHashSizeTwo() {
-    HashTable h;
+    HashTableStorage storage;
+    HashTable h(BUCKET_ID, &storage);
     cb_assert(count(h) == 0);
 
     std::vector<ItemKey> keys = generateKeys(5);
     storeMany(h, keys);
     cb_assert(count(h) == 5);
 
-    h.clear();
+    h.clearBucket(BUCKET_ID, epstats);
     cb_assert(count(h) == 0);
 }
 
 static void testReverseDeletions() {
     alarm(10);
     size_t initialSize = global_stats.currentSize.load();
-    HashTable h(5, 1);
+    HashTableStorage storage(5, 1);
+    HashTable h(BUCKET_ID, &storage);
     cb_assert(count(h) == 0);
     const int nkeys = 10000;
 
@@ -202,7 +207,8 @@ static void testReverseDeletions() {
 static void testForwardDeletions() {
     alarm(10);
     size_t initialSize = global_stats.currentSize.load();
-    HashTable h(5, 1);
+    HashTableStorage storage(5, 1);
+    HashTable h(BUCKET_ID, &storage);
     cb_assert(h.getSize() == 5);
     cb_assert(h.getNumLocks() == 1);
     cb_assert(count(h) == 0);
@@ -243,12 +249,14 @@ static void testFind(HashTable &h) {
 }
 
 static void testFind() {
-    HashTable h(5, 1);
+    HashTableStorage storage(5, 1);
+    HashTable h(BUCKET_ID, &storage);
     testFind(h);
 }
 
 static void testAddExpiry() {
-    HashTable h(5, 1);
+    HashTableStorage storage(5, 1);
+    HashTable h(BUCKET_ID, &storage);
     ItemKey k("aKey", 4, 0);
 
     add(h, k, ADD_SUCCESS, ep_real_time() + 5);
@@ -269,7 +277,8 @@ static void testAddExpiry() {
 }
 
 static void testResize() {
-    HashTable h(5, 3);
+    HashTableStorage storage(5, 3);
+    HashTable h(BUCKET_ID, &storage);
 
     std::vector<ItemKey> keys = generateKeys(5000);
     storeMany(h, keys);
@@ -278,11 +287,13 @@ static void testResize() {
 
     h.resize(6143);
     cb_assert(h.getSize() == 6143);
+    cb_assert(storage.getSize() == 6143); // validate storage resized
 
     verifyFound(h, keys);
 
     h.resize(769);
     cb_assert(h.getSize() == 769);
+    cb_assert(storage.getSize() == 769);
 
     verifyFound(h, keys);
 
@@ -299,6 +310,8 @@ public:
                     HashTable &h) : keys(k), ht(h), size(10000) {
         std::random_shuffle(keys.begin(), keys.end());
     }
+
+    ~AccessGenerator(){}
 
     bool operator()() {
         std::vector<ItemKey>::iterator it;
@@ -324,7 +337,8 @@ private:
 };
 
 static void testConcurrentAccessResize() {
-    HashTable h(5, 3);
+    HashTableStorage storage(5, 3);
+    HashTable h(BUCKET_ID, &storage);
 
     std::vector<ItemKey> keys = generateKeys(20000);
     h.resize(keys.size());
@@ -338,7 +352,8 @@ static void testConcurrentAccessResize() {
 }
 
 static void testAutoResize() {
-    HashTable h(5, 3);
+    HashTableStorage storage(5, 3);
+    HashTable h(BUCKET_ID, &storage);
 
     std::vector<ItemKey> keys = generateKeys(5000);
     storeMany(h, keys);
@@ -351,7 +366,9 @@ static void testAutoResize() {
 }
 
 static void testAdd() {
-    HashTable h(5, 1);
+    HashTableStorage storage(5, 1);
+    HashTable h(BUCKET_ID, &storage);
+
     const int nkeys = 5000;
 
     std::vector<ItemKey> keys = generateKeys(nkeys);
@@ -385,7 +402,9 @@ static void testAdd() {
 }
 
 static void testDepthCounting() {
-    HashTable h(5, 1);
+    HashTableStorage storage(5, 1);
+    HashTable h(BUCKET_ID, &storage);
+
     const int nkeys = 5000;
 
     std::vector<ItemKey> keys = generateKeys(nkeys);
@@ -401,7 +420,8 @@ static void testPoisonKey() {
     const char poison[] = "A\\NROBs_oc)$zqJ1C.9?XU}Vn^(LW\"`+K/4lykF[ue0{ram;fvId6h=p&Zb3T~SQ]82'ixDP";
     ItemKey k(poison, sizeof(poison)-1, 0);
 
-    HashTable h(5, 1);
+    HashTableStorage storage(5, 1);
+    HashTable h(BUCKET_ID, &storage);
 
     store(h, k);
     cb_assert(count(h) == 1);
@@ -409,7 +429,8 @@ static void testPoisonKey() {
 
 static void testSizeStats() {
     global_stats.reset();
-    HashTable ht(5, 1);
+    HashTableStorage storage(5, 1);
+    HashTable ht(BUCKET_ID, &storage);
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
@@ -434,7 +455,8 @@ static void testSizeStats() {
 
 static void testSizeStatsFlush() {
     global_stats.reset();
-    HashTable ht(5, 1);
+    HashTableStorage storage(5, 1);
+    HashTable ht(BUCKET_ID, &storage);
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
@@ -448,7 +470,7 @@ static void testSizeStatsFlush() {
 
     cb_assert(ht.set(i, epstats) == WAS_CLEAN);
 
-    ht.clear();
+    ht.clearBucket(BUCKET_ID, epstats);
 
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
@@ -459,7 +481,8 @@ static void testSizeStatsFlush() {
 
 static void testSizeStatsSoftDel() {
     global_stats.reset();
-    HashTable ht(5, 1);
+    HashTableStorage storage(5, 1);
+    HashTable ht(BUCKET_ID, &storage);
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
@@ -485,7 +508,8 @@ static void testSizeStatsSoftDel() {
 
 static void testSizeStatsSoftDelFlush() {
     global_stats.reset();
-    HashTable ht(5, 1);
+    HashTableStorage storage(5, 1);
+    HashTable ht(BUCKET_ID, &storage);
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
@@ -500,7 +524,7 @@ static void testSizeStatsSoftDelFlush() {
     cb_assert(ht.set(i, epstats) == WAS_CLEAN);
 
     cb_assert(ht.softDelete(k, 0) == WAS_DIRTY);
-    ht.clear();
+    ht.clearBucket(BUCKET_ID, epstats);
 
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
@@ -511,7 +535,8 @@ static void testSizeStatsSoftDelFlush() {
 
 static void testSizeStatsEject() {
     global_stats.reset();
-    HashTable ht(5, 1);
+    HashTableStorage storage(5, 1);
+    HashTable ht(BUCKET_ID, &storage);
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
@@ -543,7 +568,8 @@ static void testSizeStatsEject() {
 
 static void testSizeStatsEjectFlush() {
     global_stats.reset();
-    HashTable ht( 5, 1);
+    HashTableStorage storage(5, 1);
+    HashTable ht(BUCKET_ID, &storage);
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
@@ -564,7 +590,7 @@ static void testSizeStatsEjectFlush() {
     v->markClean();
     cb_assert(ht.unlocked_ejectItem(v, policy, epstats));
 
-    ht.clear();
+    ht.clearBucket(BUCKET_ID, epstats);
 
     cb_assert(ht.memSize.load() == 0);
     cb_assert(ht.cacheSize.load() == 0);
@@ -575,7 +601,8 @@ static void testSizeStatsEjectFlush() {
 
 static void testItemAge() {
     // Setup
-    HashTable ht(5, 1);
+    HashTableStorage storage(5, 1);
+    HashTable ht(BUCKET_ID, &storage);
     ItemKey key("key", 3, 0);
     Item item(key, 0, 0, "value", strlen("value"));
     cb_assert(ht.set(item, epstats) == WAS_CLEAN);
@@ -605,7 +632,8 @@ static void testItemAge() {
 
 static void testBucketIdSeparation() {
     // Setup
-    HashTable ht(5, 1);
+    HashTableStorage storage(5, 1);
+    HashTable ht(BUCKET_ID, &storage);
     const char key[] = "bucket_key";
     std::string data = "bucket";
 
@@ -626,10 +654,73 @@ static void testBucketIdSeparation() {
     }
 }
 
+static void testSharedStorage() {
+    // Setup
+    HashTableStorage storage(5, 1);
+    HashTable ht1(0, &storage);
+    HashTable ht2(1, &storage);
+    HashTable ht3(2, &storage);
+    HashTable ht4(3, &storage);
+
+    const int n = 10;
+    std::string keyRoot = "bucket_key";
+    std::string data = "bucket";
+
+    for (int i = 0; i < n; i++) {
+        std::stringstream key;
+        key << keyRoot << i;
+        std::stringstream document;
+        document << "bucket" << i;
+        Item item1(ItemKey(key.str().c_str(), key.str().length(), 0), 0, 0, document.str().c_str(), document.str().length());
+        Item item2(ItemKey(key.str().c_str(), key.str().length(), 1), 0, 0, document.str().c_str(), document.str().length());
+        Item item3(ItemKey(key.str().c_str(), key.str().length(), 2), 0, 0, document.str().c_str(), document.str().length());
+        Item item4(ItemKey(key.str().c_str(), key.str().length(), 3), 0, 0, document.str().c_str(), document.str().length());
+        cb_assert(ht1.set(item1, epstats) == WAS_CLEAN);
+        cb_assert(ht2.set(item2, epstats) == WAS_CLEAN);
+        cb_assert(ht3.set(item3, epstats) == WAS_CLEAN);
+        cb_assert(ht4.set(item4, epstats) == WAS_CLEAN);
+    }
+
+    // Storage should have twice the number of items as each hashtable reports
+    cb_assert(storage.getNumItems() == n * 4);
+    cb_assert(ht1.getNumItems() == n);
+    cb_assert(ht2.getNumItems() == n);
+    cb_assert(ht3.getNumItems() == n);
+    cb_assert(ht4.getNumItems() == n);
+
+    // clear should remove items from shared storage
+    ht2.clearBucket(BUCKET_ID, epstats);
+    // now 1/4 of thems will have been deleted
+    cb_assert(storage.getNumItems() == n * 3);
+    cb_assert(ht1.getNumItems() == n); // no change
+    cb_assert(ht2.getNumItems() == 0); // should be 0
+}
+
+static void testSharedResize() {
+    HashTableStorage storage(5, 3);
+    HashTable h1(0, &storage);
+    HashTable h2(1, &storage);
+
+    // When two hashtables share the same underlying
+    // storage they will affect each other with a resize()
+    // the ht.resize path maybe removed for a logically cleaner
+    // implementation
+
+    h1.resize(6143);
+    cb_assert(h1.getSize() == 6143);
+    cb_assert(h2.getSize() == 6143);
+    cb_assert(storage.getSize() == 6143);
+
+    h2.resize(769);
+    cb_assert(h1.getSize() == 769);
+    cb_assert(h2.getSize() == 769);
+    cb_assert(storage.getSize() == 769);
+}
+
 int main() {
     putenv(strdup("ALLOW_NO_STATS_UPDATE=yeah"));
     global_stats.setMaxDataSize(64*1024*1024);
-    HashTable::setDefaultNumBuckets(3);
+    HashTableStorage::setDefaultNumBuckets(3);
     alarm(60);
     testHashSize();
     testHashSizeTwo();
@@ -651,5 +742,7 @@ int main() {
     testSizeStatsEjectFlush();
     testItemAge();
     testBucketIdSeparation();
+    testSharedStorage();
+    testSharedResize();
     exit(0);
 }

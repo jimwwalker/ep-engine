@@ -65,11 +65,11 @@ void DefragmentVisitor::setDeadline(hrtime_t deadline) {
     progressTracker->setDeadline(deadline);
 }
 
-bool DefragmentVisitor::visit(uint16_t vbucket_id, HashTable& ht) {
+bool DefragmentVisitor::visit(uint16_t vbucket_id, HashTableStorage& ht) {
 
     // Check if this vbucket_id matches the position we should resume
     // from. If so then call the visitor using our stored HashTable::Position.
-    HashTable::Position ht_start;
+    HashTableStorage::Position ht_start;
     if (resume_vbucket_id == vbucket_id) {
         ht_start = hashtable_position;
     }
@@ -109,7 +109,7 @@ bool DefragmentVisitor::visit(StoredValue& v) {
     return progressTracker->shouldContinueVisiting();
 }
 
-HashTable::Position DefragmentVisitor::getHashtablePosition() const {
+HashTableStorage::Position DefragmentVisitor::getHashtablePosition() const {
     return hashtable_position;
 }
 

@@ -23,16 +23,18 @@
 
 StoragePool::StoragePool()
     :
-    hashTables(1024),
-    shards(4), /* TYNSET: we should use config derived values. */
+    /* these numbers should be config based? */
+    hashTableStorage(config.getMaxVbuckets()),
+    shards(config.getMaxNumShards()),
     taskable(this),
     needToCreateTasks(true) {
-
+    HashTableStorage::setDefaultNumBuckets(config.getHtSize());
+    HashTableStorage::setDefaultNumLocks(config.getHtLocks());
 }
 
 StoragePool::~StoragePool() {
     ExecutorPool::get()->stopTaskGroup(taskable.getGID(), NONIO_TASK_IDX);
-    hashTables.clear();
+    hashTableStorage.clear();
     shards.clear();
 }
 
@@ -81,15 +83,15 @@ void StoragePool::createTasks(EventuallyPersistentEngine* engine) {
 }
 
 /*
-    Return a HashTable reference for the given vbucket ID (vbid).
-    The storage pool creates each HashTable on the first request, then
-    returns the HashTable for all subsequent callers.
+    Return a new HashTable reference for the given vbucket ID (vbid).
+    The HashTable will be configured to use the correct underlying mutex and hash-bucket store.
 */
-HashTable& StoragePool::getOrCreateHashTable(uint16_t vbid) {
-    if(hashTables[vbid].get() == nullptr) {
-        hashTables[vbid] = std::unique_ptr<HashTable>(new HashTable());
+HashTable& StoragePool::getHashTable(bucket_id_t bucketId, uint16_t vbid) {
+    if (hashTableStorage[vbid].get() == nullptr) {
+        hashTableStorage[vbid] = std::unique_ptr<HashTableStorage>(new HashTableStorage());
     }
-    return (*hashTables[vbid].get());
+
+    return *(new HashTable(bucketId, hashTableStorage[vbid].get()));
 }
 
 StoragePoolShard& StoragePool::getStoragePoolShard(uint16_t vbid) {
@@ -179,15 +181,15 @@ StoragePoolTaskable& StoragePool::getTaskable() {
 
 
 StoragePool::Position StoragePool::pauseResumeVisit(PauseResumeStoragePoolVisitor& visitor,
-                              Position& start_pos)
+                                                    Position& start_pos)
 {
-    const size_t maxSize = hashTables.size();
+    const size_t maxSize = hashTableStorage.size();
 
     uint16_t vbid = start_pos.vbucket_id;
     for (; vbid < maxSize; ++vbid) {
-
-        if (hashTables[vbid].get()) {
-            bool paused = !visitor.visit(vbid, *(hashTables[vbid].get()));
+        // if there's an object, visit it.
+        if (hashTableStorage[vbid].get()) {
+            bool paused = !visitor.visit(vbid, *(hashTableStorage[vbid].get()));
             if (paused) {
                 break;
             }
@@ -204,7 +206,7 @@ StoragePool::Position StoragePool::startPosition() const
 
 StoragePool::Position StoragePool::endPosition() const
 {
-    return StoragePool::Position(hashTables.size());
+    return StoragePool::Position(hashTableStorage.size());
 }
 
 void StoragePool::runDefragmenterTask() {

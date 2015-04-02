@@ -164,8 +164,8 @@ public:
     }
 
     bool run(void) {
-        // TYNSET: need to delete VB memory from HashTable
         vbucket->notifyAllPendingConnsFailed(e);
+        vbucket->ht.clearBucket(e.getBucketId(), e.getEpStats());
         vbucket.reset();
         return false;
     }
@@ -1174,12 +1174,12 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setVBucketState(uint16_t vbid,
     } else if (vbid < vbMap.getSize()) {
         FailoverTable* ft = new FailoverTable(engine.getMaxFailoverEntries());
         KVShard* shard = vbMap.getShard(vbid);
-        shared_ptr<Callback<uint16_t> > cb(new NotifyFlusherCB(engine.getStoragePool().getStoragePoolShard(vbid),
-                                           engine.getBucketId()));
+        StoragePoolShard& storagePoolShard = engine.getStoragePool().getStoragePoolShard(vbid);
+        HashTable& hashTable = engine.getStoragePool().getHashTable(engine.getBucketId(), vbid);
+        shared_ptr<Callback<uint16_t> > cb(new NotifyFlusherCB(storagePoolShard, engine.getBucketId()));
         RCPtr<VBucket> newvb(new VBucket(vbid, to, stats,
                                          engine.getCheckpointConfig(),
-                                         shard,
-                                         engine.getStoragePool(),
+                                         shard, storagePoolShard, hashTable,
                                          0, 0, 0, ft, cb));
         // The first checkpoint for active vbucket should start with id 2.
         uint64_t start_chk_id = (to == vbucket_state_active) ? 2 : 0;
@@ -2766,7 +2766,7 @@ void EventuallyPersistentStore::reset() {
         if (vb) {
             LockHolder lh(vb_mutexes[vb->getId()]);
             vb->checkpointManager.clear(vb->getState());
-            // TYNSET: clear hashtable data for the VB?
+            vb->ht.clearBucket(getEPEngine().getBucketId(), getEPEngine().getEpStats());
             vb->resetStats();
             vb->setPersistedSnapshot(0, 0);
         }

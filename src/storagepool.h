@@ -25,6 +25,7 @@
 #include "configuration.h"
 
 class HashTable;
+class HashTableStorage;
 class EventuallyPersistentEngine;
 class StoragePool;
 class DefragmenterTask;
@@ -93,7 +94,7 @@ public:
      * @param ht a reference to the hashtable.
      * @return True if visiting should continue, otherwise false.
      */
-    virtual bool visit(uint16_t vbucket_id, HashTable& ht) = 0;
+    virtual bool visit(uint16_t vbucket_id, HashTableStorage& ht) = 0;
 };
 
 
@@ -133,7 +134,10 @@ public:
     */
     EventuallyPersistentEngine* createEngine(GET_SERVER_API get_server_api);
 
-    HashTable& getOrCreateHashTable(uint16_t vbid);
+    /*
+        Create a new HashTable to be used by the bucket/vbucket
+    */
+    HashTable& getHashTable(bucket_id_t bucketId, uint16_t vbid);
 
     /*
         Obtain a reference to the StoragePoolShard who will flush/fetch
@@ -227,7 +231,8 @@ private:
     void createTasks(EventuallyPersistentEngine* engine);
 
     Configuration config;
-    std::vector< std::unique_ptr<HashTable> > hashTables;
+    std::vector< std::unique_ptr<HashTableStorage> > hashTableStorage;
+
     /*
         Storage pool provides flushing and fetching.
         Chunks of VBuckets are flushed and fetched by a shard.
