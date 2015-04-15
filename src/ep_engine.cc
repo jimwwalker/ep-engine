@@ -2042,6 +2042,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::initialize(const char* config) {
         if (!configuration.parseConfiguration(config, serverApi)) {
             return ENGINE_FAILED;
         }
+        // warning: StoragePool is using the config of the first bucket created
+        StoragePool::getStoragePool().configure(config, serverApi);
     }
 
     name = configuration.getCouchBucket();

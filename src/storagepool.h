@@ -125,6 +125,13 @@ public:
     ~StoragePool();
 
     /*
+        Parse config string into storage pools config
+        TYNSET: Warning, the pool is taking the config of the first bucket created.
+        This should move towards using a config string when the pool is created.
+    */
+    void configure(const char* cfg, SERVER_HANDLE_V1* sapi);
+
+    /*
         Obtain the pools configuration setting
     */
     Configuration& getConfiguration();
@@ -231,6 +238,7 @@ private:
     void createTasks(EventuallyPersistentEngine* engine);
 
     Configuration config;
+    bool configured;
     std::vector< std::unique_ptr<HashTableStorage> > hashTableStorage;
 
     /*

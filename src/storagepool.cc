@@ -22,12 +22,11 @@
 #include "defragmenter.h"
 
 StoragePool::StoragePool()
-    :
-    /* these numbers should be config based? */
-    hashTableStorage(config.getMaxVbuckets()),
-    shards(config.getMaxNumShards()),
-    taskable(this),
-    needToCreateTasks(true) {
+    : configured(false),
+      hashTableStorage(1),
+      shards(1),
+      taskable(this),
+      needToCreateTasks(true) {
     HashTableStorage::setDefaultNumBuckets(config.getHtSize());
     HashTableStorage::setDefaultNumLocks(config.getHtLocks());
 }
@@ -36,6 +35,16 @@ StoragePool::~StoragePool() {
     ExecutorPool::get()->stopTaskGroup(taskable.getGID(), NONIO_TASK_IDX);
     hashTableStorage.clear();
     shards.clear();
+}
+
+void StoragePool::configure(const char* cfg, SERVER_HANDLE_V1* sapi) {
+    if (!configured) {
+        config.parseConfiguration(cfg, sapi);
+        hashTableStorage.resize(config.getMaxVbuckets());
+        shards.resize(config.getMaxNumShards());
+        HashTableStorage::setDefaultNumBuckets(config.getHtSize());
+        HashTableStorage::setDefaultNumLocks(config.getHtLocks());
+    }
 }
 
 Configuration& StoragePool::getConfiguration() {
@@ -95,10 +104,10 @@ HashTable& StoragePool::createHashTable(EventuallyPersistentEngine& engine, uint
 }
 
 StoragePoolShard& StoragePool::getStoragePoolShard(uint16_t vbid) {
-    if (shards[vbid % 4].get() == nullptr) {
-        shards[vbid % 4] = std::unique_ptr<StoragePoolShard>(new StoragePoolShard(*this));
+    if (shards[vbid % config.getMaxNumShards()].get() == nullptr) {
+        shards[vbid % config.getMaxNumShards()] = std::unique_ptr<StoragePoolShard>(new StoragePoolShard(*this));
     }
-    return (*shards[vbid % 4].get());
+    return (*shards[vbid % config.getMaxNumShards()].get());
 }
 
 void StoragePool::wakeFlusherForFlushAll(bucket_id_t bucketId) {
