@@ -143,23 +143,23 @@ bool StoredValue::unlocked_restoreMeta(Item *itm, ENGINE_ERROR_CODE status,
 }
 
 bool HashTable::unlocked_ejectItem(StoredValue*& vptr,
-                                   item_eviction_policy_t policy, EPStats &epstats) {
+                                   item_eviction_policy_t policy) {
     cb_assert(vptr);
 
     if (policy == VALUE_ONLY) {
         bool rv = vptr->ejectValue(*this, policy);
         if (rv) {
-            ++epstats.numValueEjects;
+            ++stats.numValueEjects;
             ++numNonResidentItems;
             ++numEjects;
             return true;
         } else {
-            ++epstats.numFailedEjects;
+            ++stats.numFailedEjects;
             return false;
         }
     } else { // full eviction.
         if (vptr->eligibleForEviction(policy)) {
-            StoredValue::reduceMetaDataSize(*this, epstats,
+            StoredValue::reduceMetaDataSize(*this, stats,
                                             vptr->metaDataSize());
             StoredValue::reduceCacheSize(*this, vptr->size());
 
@@ -180,7 +180,7 @@ bool HashTable::unlocked_ejectItem(StoredValue*& vptr,
             }
 
             if (vptr->isResident()) {
-                ++epstats.numValueEjects;
+                ++stats.numValueEjects;
             }
             if (!vptr->isResident() && !v->isTempItem()) {
                 --numNonResidentItems; // Decrement because the item is
@@ -194,16 +194,16 @@ bool HashTable::unlocked_ejectItem(StoredValue*& vptr,
             vptr = NULL;
             return true;
         } else {
-            ++epstats.numFailedEjects;
+            ++stats.numFailedEjects;
             return false;
         }
     }
 }
 
 mutation_type_t HashTable::insert(Item &itm, item_eviction_policy_t policy,
-                                  bool eject, bool partial, EPStats& epstats) {
+                                  bool eject, bool partial) {
     cb_assert(isActive());
-    if (!StoredValue::hasAvailableSpace(epstats, itm)) {
+    if (!StoredValue::hasAvailableSpace(stats, itm)) {
         return NOMEM;
     }
 
@@ -212,7 +212,7 @@ mutation_type_t HashTable::insert(Item &itm, item_eviction_policy_t policy,
     StoredValue *v = unlocked_find(itm.getItemKey(), bucket_num, true, false);
 
     if (v == NULL) {
-        v = valFact(itm, getBucketHead(bucket_num), *this, epstats);
+        v = valFact(itm, getBucketHead(bucket_num), *this);
         v->markClean();
         if (partial) {
             v->markNotResident();
@@ -255,7 +255,7 @@ mutation_type_t HashTable::insert(Item &itm, item_eviction_policy_t policy,
     v->markClean();
 
     if (eject && !partial) {
-        unlocked_ejectItem(v, policy, epstats);
+        unlocked_ejectItem(v, policy);
     }
 
     return NOT_FOUND;
@@ -291,7 +291,7 @@ void HashTableStorage::setDefaultNumLocks(size_t to) {
     }
 }
 
-HashTableStatVisitor HashTable::clearBucketUnlocked(bucket_id_t deleteMe) {
+HashTableStatVisitor HashTableStorage::clearBucketUnlocked(bucket_id_t deleteMe) {
     HashTableStatVisitor rv;
 
     // Iterate through the hash buckets looking for the specific items.
@@ -327,14 +327,15 @@ HashTableStatVisitor HashTable::clearBucketUnlocked(bucket_id_t deleteMe) {
     return rv;
 }
 
-HashTableStatVisitor HashTable::clearBucket(bucket_id_t deleteMe, EPStats& epstats) {
+HashTableStatVisitor HashTable::clear() {
 
     MultiLockHolder mlh(getMutexes(), getNumLocks());
 
-    HashTableStatVisitor rv = clearBucketUnlocked(deleteMe);
+    // clear this bucket
+    HashTableStatVisitor rv = storage->clearBucketUnlocked(bucketId);
 
-    epstats.currentSize.fetch_sub(rv.memSize - rv.valSize);
-    cb_assert(epstats.currentSize.load() < GIGANTOR);
+    stats.currentSize.fetch_sub(rv.memSize - rv.valSize);
+    cb_assert(stats.currentSize.load() < GIGANTOR);
 
     numTotalItems.store(0);
     numItems.store(0);
@@ -347,7 +348,7 @@ HashTableStatVisitor HashTable::clearBucket(bucket_id_t deleteMe, EPStats& epsta
 }
 
 //
-// Clear out this hashtable storage
+// Clear out the hashtable storage (everything is deleted)
 //
 void HashTableStorage::clear() {
     MultiLockHolder mlh(getMutexes(), getNumLocks());
@@ -597,7 +598,6 @@ add_type_t HashTable::unlocked_add(int &bucket_num,
                                    StoredValue*& v,
                                    const Item &val,
                                    item_eviction_policy_t policy,
-                                   EPStats& epstats,
                                    bool isDirty,
                                    bool storeVal,
                                    bool maybeKeyExists,
@@ -608,7 +608,7 @@ add_type_t HashTable::unlocked_add(int &bucket_num,
         rv = ADD_EXISTS;
     } else {
         Item &itm = const_cast<Item&>(val);
-        if (!StoredValue::hasAvailableSpace(epstats, itm,
+        if (!StoredValue::hasAvailableSpace(stats, itm,
                                             isReplication)) {
             return ADD_NOMEM;
         }
@@ -643,7 +643,7 @@ add_type_t HashTable::unlocked_add(int &bucket_num,
                     return ADD_TMP_AND_BG_FETCH;
                 }
             }
-            v = valFact(itm, getBucketHead(bucket_num), *this, epstats, isDirty);
+            v = valFact(itm, getBucketHead(bucket_num), *this, isDirty);
             setBucketHead(bucket_num, v);
 
             if (v->isTempItem()) {
@@ -669,7 +669,7 @@ add_type_t HashTable::unlocked_add(int &bucket_num,
             itm.setRevSeqno(seqno);
         }
         if (!storeVal) {
-            unlocked_ejectItem(v, policy, epstats);
+            unlocked_ejectItem(v, policy);
         }
         if (v && v->isTempItem()) {
             v->markNotResident();
@@ -683,7 +683,6 @@ add_type_t HashTable::unlocked_add(int &bucket_num,
 add_type_t HashTable::unlocked_addTempItem(int &bucket_num,
                                            const ItemKey &key,
                                            item_eviction_policy_t policy,
-                                           EPStats &epstats,
                                            bool isReplication) {
 
     cb_assert(isActive());
@@ -698,7 +697,7 @@ add_type_t HashTable::unlocked_addTempItem(int &bucket_num,
     // the value cuz normally a new item added is considered resident which
     // does not apply for temp item.
     StoredValue* v = NULL;
-    return unlocked_add(bucket_num, v, itm, policy, epstats,
+    return unlocked_add(bucket_num, v, itm, policy,
                         false,  // isDirty
                         true,   // storeVal
                         true,

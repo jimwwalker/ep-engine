@@ -86,12 +86,12 @@ void StoragePool::createTasks(EventuallyPersistentEngine* engine) {
     Return a new HashTable reference for the given vbucket ID (vbid).
     The HashTable will be configured to use the correct underlying mutex and hash-bucket store.
 */
-HashTable& StoragePool::getHashTable(bucket_id_t bucketId, uint16_t vbid) {
+HashTable& StoragePool::createHashTable(EventuallyPersistentEngine& engine, uint16_t vbid) {
     if (hashTableStorage[vbid].get() == nullptr) {
         hashTableStorage[vbid] = std::unique_ptr<HashTableStorage>(new HashTableStorage());
     }
 
-    return *(new HashTable(bucketId, hashTableStorage[vbid].get()));
+    return *(new HashTable(engine.getBucketId(), hashTableStorage[vbid].get(), engine.getEpStats()));
 }
 
 StoragePoolShard& StoragePool::getStoragePoolShard(uint16_t vbid) {

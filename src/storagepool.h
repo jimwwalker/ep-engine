@@ -135,9 +135,9 @@ public:
     EventuallyPersistentEngine* createEngine(GET_SERVER_API get_server_api);
 
     /*
-        Create a new HashTable to be used by the bucket/vbucket
+        Create a new HashTable to be used by the engine/vbucket
     */
-    HashTable& getHashTable(bucket_id_t bucketId, uint16_t vbid);
+    HashTable& createHashTable(EventuallyPersistentEngine& engine, uint16_t vbid);
 
     /*
         Obtain a reference to the StoragePoolShard who will flush/fetch

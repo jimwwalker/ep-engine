@@ -232,9 +232,7 @@ void LoadStorageKVPairCallback::callback(GetValue &val) {
                 }
             }
 
-            switch (vb->ht.insert(*i, policy, shouldEject(),
-                                  val.isPartial(),
-                                  epstore->getEPEngine().getEpStats())) {
+            switch (vb->ht.insert(*i, policy, shouldEject(), val.isPartial())) {
             case NOMEM:
                 if (retry == 2) {
                     if (hasPurged) {
@@ -327,8 +325,7 @@ void LoadStorageKVPairCallback::purge() {
             epstore(store) {}
 
         void visit(StoredValue *v) {
-            currentBucket->ht.unlocked_ejectItem(v,
-                                             epstore->getItemEvictionPolicy(), epstore->getEPEngine().getEpStats());
+            currentBucket->ht.unlocked_ejectItem(v, epstore->getItemEvictionPolicy());
         }
     private:
         EventuallyPersistentStore *epstore;
@@ -479,7 +476,7 @@ void Warmup::createVBuckets(uint16_t shardId) {
             shared_ptr<Callback<uint16_t> > cb(new NotifyFlusherCB(store->getEPEngine().getStoragePool().getStoragePoolShard(vbid),
                                                                    store->getEPEngine().getBucketId()));
             StoragePoolShard& storagePoolShard = store->getEPEngine().getStoragePool().getStoragePoolShard(vbid);
-            HashTable& hashTable = store->getEPEngine().getStoragePool().getHashTable(store->getEPEngine().getBucketId(), vbid);
+            HashTable& hashTable = store->getEPEngine().getStoragePool().createHashTable(store->getEPEngine(), vbid);
             vb.reset(new VBucket(vbid, vbs.state,
                                  store->getEPEngine().getEpStats(),
                                  store->getEPEngine().getCheckpointConfig(),

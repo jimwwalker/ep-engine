@@ -809,6 +809,11 @@ class StoredValueFactory {
 public:
 
     /**
+     * Create a new StoredValueFactory of the given type.
+     */
+    StoredValueFactory(EPStats &s) : stats(&s) { }
+
+    /**
      * Create a new StoredValue with the given item.
      *
      * @param itm the item the StoredValue should contain
@@ -816,23 +821,25 @@ public:
      * @param ht the hashtable that will contain the StoredValue instance created
      * @param setDirty if true, mark this item as dirty after creating it
      */
-    StoredValue *operator ()(const Item &itm, StoredValue *n, HashTable &ht, EPStats &epstats,
+    StoredValue *operator ()(const Item &itm, StoredValue *n, HashTable &ht,
                              bool setDirty = true) {
-        return newStoredValue(itm, n, ht, epstats, setDirty);
+        return newStoredValue(itm, n, ht, setDirty);
     }
 
 private:
 
-    StoredValue* newStoredValue(const Item &itm, StoredValue *n, HashTable &ht, EPStats &epstats,
+    StoredValue* newStoredValue(const Item &itm, StoredValue *n, HashTable &ht,
                                 bool setDirty) {
         size_t base = sizeof(StoredValue);
         cb_assert(itm.getKeyLen() < 256);
         size_t len = itm.getKeyLen() + base;
 
         StoredValue *t = new (::operator new(len))
-                         StoredValue(itm, n, epstats, ht, setDirty);
+                         StoredValue(itm, n, *stats, ht, setDirty);
         return t;
     }
+
+    EPStats                *stats;
 };
 
 /**
@@ -1000,6 +1007,11 @@ public:
     Position endPosition() const;
 
     /**
+     * Clear all items relating to the bucket_id_t, caller must obtain all mutexes.
+     */
+    HashTableStatVisitor clearBucketUnlocked(bucket_id_t deleteMe);
+
+    /**
      * Set the default number of buckets.
      */
     static void setDefaultNumBuckets(size_t n);
@@ -1044,15 +1056,16 @@ public:
      *
      * @param bucketId for the bucket owning this HashTable (safe deletion)
      * @param st pointer to the storage object for this hashtable
+     * @param st the owning buckets stats object
      * @param s the number of hash table buckets
      * @param l the number of locks in the hash table
      */
-    HashTable(bucket_id_t bId, HashTableStorage* st) :
+    HashTable(bucket_id_t bId, HashTableStorage* hts, EPStats &st) :
         maxDeletedRevSeqno(0), numTotalItems(0),
         numNonResidentItems(0), numEjects(0),
         memSize(0), cacheSize(0), metaDataMemory(0),
-        storage(st), numItems(0), numResizes(0),
-        numTempItems(0), bucketId(bId)
+        storage(hts), stats(st), valFact(st), numItems(0),
+        numResizes(0), numTempItems(0), bucketId(bId)
     {
         activeState = true;
     }
@@ -1061,8 +1074,7 @@ public:
 
         // delete all objects belonging to this HashTable
         MultiLockHolder mlh(getMutexes(), getNumLocks());
-        clearBucketUnlocked(bucketId);
-
+        storage->clearBucketUnlocked(bucketId);
     }
 
     size_t memorySize() {
@@ -1128,14 +1140,11 @@ public:
     size_t getItemMemory(void) { return memSize; }
 
     /**
-     * Clear the hash table for a specific bucket.
-     *
-     * @param deleteMe clear items associated with this bucket.
-     * @param epstats for the bucket being cleared.
+     * Clear the hash table of items
      *
      * @return a stat visitor reporting how much was removed
      */
-    HashTableStatVisitor clearBucket(bucket_id_t deleteMe, EPStats& epstats);
+    HashTableStatVisitor clear();
 
     /**
      * Get the number of times this hash table has been resized.
@@ -1183,17 +1192,15 @@ public:
      * doesn't contain meta data.
      *
      * @param val the Item to store
-     * @param epstats the callers stats object
      * @param policy item eviction policy
      * @param nru the nru bit for the item
      * @return a result indicating the status of the store
      */
     mutation_type_t set(const Item &val,
-                        EPStats &epstats,
                         item_eviction_policy_t policy = VALUE_ONLY,
                         uint8_t nru=0xff)
     {
-        return set(val, epstats, val.getCas(), true, false, policy, nru);
+        return set(val, val.getCas(), true, false, policy, nru);
     }
 
     /**
@@ -1201,7 +1208,6 @@ public:
      * when your item includes meta data.
      *
      * @param val the Item to store
-     * @param epstats the callers stats object
      * @param cas This is the cas value for the item <b>in</b> the cache
      * @param allowExisting should we allow existing items or not
      * @param hasMetaData should we keep the same revision seqno or increment it
@@ -1210,23 +1216,23 @@ public:
      * @param isReplication true if issued by consumer (for replication)
      * @return a result indicating the status of the store
      */
-    mutation_type_t set(const Item &val, EPStats &epstats, uint64_t cas, bool allowExisting,
+    mutation_type_t set(const Item &val, uint64_t cas, bool allowExisting,
                         bool hasMetaData = true, item_eviction_policy_t policy = VALUE_ONLY,
                         uint8_t nru=0xff) {
         int bucket_num(0);
         LockHolder lh = getLockedBucket(val.getItemKey(), &bucket_num);
         StoredValue *v = unlocked_find(val.getItemKey(), bucket_num, true, false);
-        return unlocked_set(v, val, epstats, cas, allowExisting, hasMetaData, policy, nru);
+        return unlocked_set(v, val, cas, allowExisting, hasMetaData, policy, nru);
     }
 
-    mutation_type_t unlocked_set(StoredValue*& v, const Item &val, EPStats &epstats, uint64_t cas,
+    mutation_type_t unlocked_set(StoredValue*& v, const Item &val, uint64_t cas,
                                  bool allowExisting, bool hasMetaData = true,
                                  item_eviction_policy_t policy = VALUE_ONLY,
                                  uint8_t nru=0xff, bool maybeKeyExists=true,
                                  bool isReplication = false) {
         cb_assert(isActive());
         Item &itm = const_cast<Item&>(val);
-        if (!StoredValue::hasAvailableSpace(epstats, itm, isReplication)) {
+        if (!StoredValue::hasAvailableSpace(stats, itm, isReplication)) {
             return NOMEM;
         }
 
@@ -1295,7 +1301,7 @@ public:
             rv = NOT_FOUND;
         } else {
             int bucket_num = getBucketForHash(hash(itm));
-            v = valFact(itm, getBucketHead(bucket_num), *this, epstats);
+            v = valFact(itm, getBucketHead(bucket_num), *this);
             setBucketHead(bucket_num, v);
             incrementNumItems();
             ++numTotalItems;
@@ -1332,25 +1338,24 @@ public:
      * @return a result indicating the status of the store
      */
     mutation_type_t insert(Item &itm, item_eviction_policy_t policy,
-                           bool eject, bool partial, EPStats &epstats);
+                           bool eject, bool partial);
 
     /**
      * Add an item to the hash table iff it doesn't already exist.
      *
      * @param val the item to store
      * @param policy item eviction policy
-     * @param epstats callers stats object
      * @param isDirty true if the item should be marked dirty on store
      * @param storeVal true if the value should be stored (paged-in)
      * @return an indication of what happened
      */
-     add_type_t add(const Item &val, item_eviction_policy_t policy, EPStats &epstats,
+     add_type_t add(const Item &val, item_eviction_policy_t policy,
                    bool isDirty = true, bool storeVal = true) {
         cb_assert(isActive());
         int bucket_num(0);
         LockHolder lh = getLockedBucket(val.getItemKey(), &bucket_num);
         StoredValue *v = unlocked_find(val.getItemKey(), bucket_num, true, false);
-        return unlocked_add(bucket_num, v, val, policy, epstats, isDirty, storeVal);
+        return unlocked_add(bucket_num, v, val, policy, isDirty, storeVal);
     }
 
     /**
@@ -1369,7 +1374,6 @@ public:
                             StoredValue*& v,
                             const Item &val,
                             item_eviction_policy_t policy,
-                            EPStats &epstats,
                             bool isDirty = true,
                             bool storeVal = true,
                             bool maybeKeyExists = true,
@@ -1384,14 +1388,12 @@ public:
      * @param bucket_num the locked partition where the key belongs
      * @param key the key for which a temporary item needs to be added
      * @param policy item eviction policy
-     * @param epstats callers stats object
      * @param isReplication true if issued by consumer (for replication)
      * @return an indication of what happened
      */
     add_type_t unlocked_addTempItem(int &bucket_num,
                                     const ItemKey& key,
                                     item_eviction_policy_t policy,
-                                    EPStats &epstats,
                                     bool isReplication = false);
 
     /**
@@ -1608,7 +1610,7 @@ public:
      * @param bucket_num the bucket to look in (must already be locked)
      * @return true if an object was deleted, false otherwise
      */
-    bool unlocked_del(const ItemKey& key, EPStats& epstats, int bucket_num) {
+    bool unlocked_del(const ItemKey& key, int bucket_num) {
         cb_assert(isActive());
         StoredValue *v = getBucketHead(bucket_num);
 
@@ -1625,7 +1627,7 @@ public:
 
             setBucketHead(bucket_num, v->next);
             StoredValue::reduceCacheSize(*this, v->size());
-            StoredValue::reduceMetaDataSize(*this, epstats, v->metaDataSize());
+            StoredValue::reduceMetaDataSize(*this, stats, v->metaDataSize());
             if (v->isTempItem()) {
                 --numTempItems;
             } else {
@@ -1645,7 +1647,7 @@ public:
 
                 v->next = v->next->next;
                 StoredValue::reduceCacheSize(*this, tmp->size());
-                StoredValue::reduceMetaDataSize(*this, epstats, tmp->metaDataSize());
+                StoredValue::reduceMetaDataSize(*this, stats, tmp->metaDataSize());
                 if (tmp->isTempItem()) {
                     --numTempItems;
                 } else {
@@ -1668,11 +1670,11 @@ public:
      * @param key the key to delete
      * @return true if the item existed before this call
      */
-    bool del(const ItemKey &key, EPStats& epstats) {
+    bool del(const ItemKey &key) {
         cb_assert(isActive());
         int bucket_num(0);
         LockHolder lh = getLockedBucket(key, &bucket_num);
-        return unlocked_del(key, epstats, bucket_num);
+        return unlocked_del(key, bucket_num);
     }
 
     /**
@@ -1734,10 +1736,9 @@ public:
      * Eject an item meta data and value from memory.
      * @param vptr the reference to the pointer to the StoredValue instance
      * @param policy item eviction policy
-     * @param epstats stats for the caller
      * @return true if an item is ejected.
      */
-    bool unlocked_ejectItem(StoredValue*& vptr, item_eviction_policy_t policy, EPStats &epstats);
+    bool unlocked_ejectItem(StoredValue*& vptr, item_eviction_policy_t policy);
 
     /*
         Increment the number of items stored via this HashTable object
@@ -1774,11 +1775,6 @@ private:
     inline bool isActive() const { return activeState; }
     inline void setActiveState(bool newv) { activeState = newv; }
 
-    /**
-     * Clear all items relating to the bucket_id_t, caller must obtain all mutexes.
-     */
-    HashTableStatVisitor clearBucketUnlocked(bucket_id_t deleteMe);
-
     int getBucketForHash(int h) {
         return storage->getBucketForHash(h);
     }
@@ -1797,6 +1793,7 @@ private:
     DISALLOW_COPY_AND_ASSIGN(HashTable);
 
     HashTableStorage* storage;
+    EPStats&             stats;
     StoredValueFactory   valFact;
     AtomicValue<size_t>       numItems;
     AtomicValue<size_t>       numResizes;
