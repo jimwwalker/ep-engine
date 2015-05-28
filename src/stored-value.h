@@ -57,35 +57,49 @@ class StoredValue {
         The two could be the same or we (and the binary protocol) can do
         things to make the hashable key different.
 
+<<<<<<< HEAD
         This object must only be used in conjunction with StoredValue, it
         requires special in-place construction into a memory buffer large enough
         for the trailing key.
+=======
+        This object must only be used in conjunction with StoredValue, it requires
+        special in-place construction into a memory buffer large enough for
+        the trailing key.
+
+        The hashkey is the entire object, [bucket_id_t][keylen][keybytes]
+        Thus bucket1:key1 and bucket2:key1 are different.
+>>>>>>> a1a7470... Tynset: Store bucket_id_t in memory
     **/
     class StoredValueKey {
 
         class HashableKey {
         public:
-            HashableKey(const char* key, size_t klen)
-              : keyBytesLen(klen) {
-                std::memcpy(keyBytes, key, klen);
+            HashableKey(const char* key, size_t klen, bucket_id_t bId) {
+                setKey(key, klen);
+                setLen(klen);
+                setBucketId(bId);
             }
 
             size_t getLen() const {
-                return keyBytesLen;
+                return keyBytesLen - sizeof(bucket_id_t);
             }
 
             /*
                 Get the key bytes.
             */
             const char* getKey() const {
-                return keyBytes;
+                return &keyBytes[sizeof(bucket_id_t)];
             }
 
             /*
                 Get the hashkey bytes.
             */
             const char* getHashKey() const {
-                return getKey(); // currently same as key
+                return keyBytes;
+            }
+
+            size_t getHashKeyLen() const {
+                return keyBytesLen;
             }
 
             size_t getTrailingBytesLen() const {
@@ -94,12 +108,18 @@ class StoredValue {
                 return keyBytesLen - sizeof(keyBytes);
             }
 
+            bucket_id_t getBucketId() const {
+                bucket_id_t rv;
+                std::memcpy(reinterpret_cast<char*>(&rv), keyBytes, sizeof(bucket_id_t));
+                return rv;
+            }
+
             /*
                 Retrieve how much compiler specified/pre-allocated
                 storage exists for the key.
             */
             static size_t getKeyBytesAllocationSize() {
-                return sizeof(keyBytes);
+                return sizeof(keyBytes) - sizeof(bucket_id_t);
             }
 
         private:
@@ -108,29 +128,35 @@ class StoredValue {
                 Set the length of the key
             */
             void setLen(size_t len) {
-                keyBytesLen = len;
+                keyBytesLen = len + sizeof(bucket_id_t);
+            }
+
+            void setBucketId(bucket_id_t bId) {
+                std::memcpy(keyBytes, reinterpret_cast<char*>(&bId), sizeof(bucket_id_t));
+            }
+
+            void setKey(const char* key, size_t klen) {
+                std::memcpy(keyBytes+sizeof(bucket_id_t), key, klen);
             }
 
             /*
                 The length of this object
             */
-            uint8_t keyBytesLen;
+            uint16_t keyBytesLen;
 
             /*
                 The actual key data.
-                In this version hashablekey and client key are the same.
-                In the future we can add bytes to the client key to make
-                the hashable key different.
+                The first 4 bytes store a bucket-id
 
                 NB: cpp requires at least 1 byte to be reserved
             */
-            char keyBytes[1];
+            char keyBytes[sizeof(bucket_id_t) + 1];
         };
 
     public:
 
         StoredValueKey(const ItemKey& itemKey)
-          :  key(itemKey.getKey(), itemKey.getKeyLen()) {
+          :  key(itemKey.getKey(), itemKey.getKeyLen(), itemKey.getBucketId()) {
         }
 
         const char* getKey() const {
@@ -148,7 +174,7 @@ class StoredValue {
             Return the length of the hashable key
         */
         size_t getHashKeyLen() const {
-            return key.getLen();
+            return key.getHashKeyLen();
         }
 
         /*
@@ -163,7 +189,7 @@ class StoredValue {
         }
 
         bucket_id_t getBucketId() const {
-            return 0; // bucket_id_t not yet stored.
+            return key.getBucketId();
         }
 
         static size_t getKeyBytesAllocationSize() {
@@ -297,8 +323,7 @@ public:
     }
 
     bucket_id_t getBucketId() const {
-        // bucket_id_t not yet stored in HashTable
-        return 0;
+        return key.getBucketId();
     }
 
 

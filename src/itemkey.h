@@ -44,11 +44,15 @@ class ItemKey {
     */
     class HashableKey {
     public:
-        HashableKey(const char* key, const size_t len, bucket_id_t id) {
-            (void)id;
+        HashableKey(const char* key, const size_t len, bucket_id_t id)
+          : bucketId(id) {
             std::memcpy(keyBytes, key, len);
             // Force zero terminate for safe printing and comparisons
             keyBytes[len] = 0;
+        }
+
+        static size_t getObjectSize() {
+            return sizeof(bucketId) + sizeof(keyBytes);
         }
 
         /*
@@ -60,7 +64,7 @@ class ItemKey {
         }
 
         bucket_id_t getBucketId() const {
-            return 0; // not stored yet, return 0
+            return bucketId;
         }
 
         const char* getKeyBytes() const {
@@ -68,6 +72,7 @@ class ItemKey {
         }
 
     private:
+        bucket_id_t bucketId;
         char keyBytes[1];
     };
 
@@ -162,7 +167,8 @@ public:
         The amount of storage required for keyLen
     */
     static size_t getRequiredStorage(size_t keyLen) {
-        size_t base = sizeof(HashableKey) + keyLen + 1;
+        // + 1 for zero terminator
+        size_t base = HashableKey::getObjectSize() + keyLen + 1;
         return base - HashableKey::getKeyBytesAllocationSize();
     }
 

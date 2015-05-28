@@ -603,6 +603,29 @@ static void testItemAge() {
     cb_assert(v->getValue()->getAge() == 1);
 }
 
+static void testBucketIdSeparation() {
+    // Setup
+    HashTable ht(global_stats,5, 1);
+    const char key[] = "bucket_key";
+    std::string data = "bucket";
+
+    for (int i = 0; i < 10; i++) {
+        std::stringstream document;
+        document << "bucket" << i;
+        Item item(ItemKey(key, sizeof(key) -1, i), 0, 0, document.str().c_str(), document.str().length());
+        cb_assert(ht.set(item) == WAS_CLEAN);
+    }
+
+    for (int i = 0; i < 10; i++) {
+        std::stringstream document;
+        document << "bucket" << i;
+        StoredValue* sv = ht.find(ItemKey(key, sizeof(key) -1, i));
+        cb_assert(sv);
+        value_t v = sv->getValue();
+        cb_assert(memcmp(document.str().c_str(), v->getData(), v->vlength()) == 0);
+    }
+}
+
 /* static storage for environment variable set by putenv().
  *
  * (This must be static as putenv() essentially 'takes ownership' of
@@ -637,5 +660,6 @@ int main() {
     testSizeStatsEject();
     testSizeStatsEjectFlush();
     testItemAge();
+    testBucketIdSeparation();
     exit(0);
 }

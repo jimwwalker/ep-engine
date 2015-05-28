@@ -37,7 +37,7 @@ static void createAndCheck(const Item& item,
                            StoredValueFactory &factory,
                            HashTable& hashTable) {
      StoredValue* value = factory(item, nullptr, hashTable);
-     cb_assert(value->getBucketId() == 0);
+     cb_assert(value->getBucketId() == item.getItemKey().getBucketId());
      cb_assert(value->getKeyLen() == item.getKeyLen());
      cb_assert(value->getHashKeyLen() ==  item.getItemKey().getHashKeyLen());
      cb_assert(StoredValue::getRequiredStorage(item) == value->getObjectSize());
@@ -45,23 +45,36 @@ static void createAndCheck(const Item& item,
                item.getHashKey(),
                value->getHashKeyLen())==0);
 
+     // hashkey and key should be different
+     cb_assert(value->getHashKey() != value->getKey());
+
+
      delete value;
 }
 
+/* static storage for environment variable set by putenv().
+ *
+ * (This must be static as putenv() essentially 'takes ownership' of
+ * the provided array, so it is unsafe to use an automatic variable.
+ * However, if we use the result of malloc() (i.e. the heap) then
+ * memory leak checkers (e.g. Valgrind) will report the memory as
+ * leaked as it's impossible to free it).
+ */
+static char allow_no_stats_env[] = "ALLOW_NO_STATS_UPDATE=yeah";
+
 int main() {
-    char* env = strdup("ALLOW_NO_STATS_UPDATE=yeah");
-    putenv(env);
+    putenv(allow_no_stats_env);
     const int keys = 255;
     StoredValueFactory factory(stats);
     HashTable hashTable(stats);
     const int dataSize = 100;
     char data[dataSize];
+
     for (int ii = 0; ii < keys; ii++) {
         std::string k(ii+1, 'a');
         ItemKey itemKey(k.c_str(), ii+1, ii);
         Item item(itemKey, 0, 0, data, dataSize);
         createAndCheck(item, factory, hashTable);
     }
-    free(env);
     return 0;
 }

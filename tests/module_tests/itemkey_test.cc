@@ -39,7 +39,7 @@ static void testZeroTermination() {
 
 static void testGetBucketID() {
     ItemKey k("keyprintablecharacters#####", 22, 99);
-    cb_assert(k.getBucketId() == 0); // not stored yet, always returns 0
+    cb_assert(k.getBucketId() == 99);
 }
 
 static void testHashKeyLength() {
@@ -52,16 +52,16 @@ static void testCopyConstructor() {
     ItemKey k1 = k;
     cb_assert(k1.getKeyLen() == 22);
     cb_assert(k1.getKey()[22] == 0);
-    cb_assert(k1.getBucketId() == 0); // bucketid not yet stored
+    cb_assert(k1.getBucketId() == 99);
     cb_assert(k1.getHashKeyLen() >= k.getKeyLen());
     cb_assert(memcmp(k1.getKey(), k.getKey(), 22) == 0);
     cb_assert(memcmp(k1.getHashKey(), k.getHashKey(), k1.getHashKeyLen()) == 0);
 }
 
 static void testItemKeyHash() {
-    ItemKey k1("KEY1", 4, 250);
-    ItemKey k2("KEY1", 4, 250);
-    ItemKey k3("KEY2", 4, 250);
+    ItemKey k1("KEY1", 4, 1);
+    ItemKey k2("KEY1", 4, 2);
+    ItemKey k3("KEY2", 4, 3);
     ItemKey k4 = k2;
 
     ItemKeyMap map;
@@ -69,18 +69,22 @@ static void testItemKeyHash() {
     map[k2] = 2;
     map[k3] = 3;
 
-    cb_assert(map[k1] == 2);
+    cb_assert(map[k1] == 1);
     cb_assert(map[k2] == 2);
     cb_assert(map[k3] == 3);
     cb_assert(map[k4] == 2);
 }
 
 static void testComparisonOperators() {
-    ItemKey k1("KEY1", 4, 250);
-    ItemKey k2("KEY1", 4, 250);
-    ItemKey k3("KEY11", 5, 250);
+    ItemKey k1("KEY1", 4, 1);
+    ItemKey k2("KEY1", 4, 101);
+    ItemKey k3("KEY11", 5, 101);
+    ItemKey k4("KEY1", 4, 1);
+    ItemKey k5 = k4;
 
-    cb_assert(k1 == k2);
+    cb_assert(k1 != k2);
+    cb_assert(k1 == k4);
+    cb_assert(k1 == k5);
     cb_assert(k2 != k3);
     cb_assert(k2 < k3);
 }
