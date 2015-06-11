@@ -58,7 +58,7 @@ public:
     Flusher(EventuallyPersistentStore *st, KVShard *k) :
         store(st), _state(initializing), taskId(0), minSleepTime(0.1),
         forceShutdownReceived(false), doHighPriority(false),
-        numHighPriority(0), pendingMutation(false), shard(k) { }
+        numHighPriority(0), pendingMutation(false), shard(k), largestSleep(0.0) { }
 
     ~Flusher() {
         if (_state != stopped) {
@@ -119,6 +119,9 @@ private:
     AtomicValue<bool> pendingMutation;
 
     KVShard *shard;
+
+    time_t lastReturn;
+    double largestSleep;
 
     DISALLOW_COPY_AND_ASSIGN(Flusher);
 };

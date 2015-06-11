@@ -146,6 +146,7 @@ void Flusher::start() {
                 taskId, stateName());
         return;
     }
+    time(&lastReturn);
     schedule_UNLOCKED();
 }
 
@@ -156,6 +157,7 @@ void Flusher::wake(void) {
 }
 
 bool Flusher::step(GlobalTask *task) {
+
     try {
         switch (_state) {
         case initializing:
@@ -171,13 +173,28 @@ bool Flusher::step(GlobalTask *task) {
             return true;
         case running:
             {
+                time_t now;
+                time(&now);
+                double sec = difftime(now, lastReturn);
+                if ( sec  > 2.0 ) {
+                    largestSleep = sec;
+                    std::cout << "flusher " << taskId << " sleep for " << sec << std::endl;
+                    LOG(EXTENSION_LOG_WARNING,
+                        "Flusher %d was asleep for %d", taskId, (int)sec);
+
+                }
+
                 flushVB();
                 if (_state == running) {
                     double tosleep = computeMinSleepTime();
                     if (tosleep > 0) {
-                        task->snooze(tosleep);
+                        LOG(EXTENSION_LOG_WARNING, "Flusher %d is sleeping for %d",
+                            taskId, (int)tosleep);
+
+                            task->snooze(tosleep);
                     }
                 }
+                time(&lastReturn);
                 return true;
             }
         case stopping:
@@ -284,4 +301,5 @@ void Flusher::flushVB(void) {
             lpVbs.push(vbid);
         }
     }
+
 }
