@@ -312,7 +312,7 @@ ENGINE_ERROR_CODE DcpProducer::step(struct dcp_message_producers* producers) {
             if (m->getExtMetaData()) {
                 std::pair<const char*, uint16_t> meta = m->getExtMetaData()->getExtMeta();
                 ret = producers->deletion(getCookie(), m->getOpaque(),
-                                          m->getItem()->getKey().c_str(),
+                                          m->getItem()->getRawKey(),
                                           m->getItem()->getNKey(),
                                           m->getItem()->getCas(),
                                           m->getVBucket(), m->getBySeqno(),
@@ -320,7 +320,7 @@ ENGINE_ERROR_CODE DcpProducer::step(struct dcp_message_producers* producers) {
                                           meta.first, meta.second);
             } else {
                 ret = producers->deletion(getCookie(), m->getOpaque(),
-                                          m->getItem()->getKey().c_str(),
+                                          m->getItem()->getRawKey(),
                                           m->getItem()->getNKey(),
                                           m->getItem()->getCas(),
                                           m->getVBucket(), m->getBySeqno(),

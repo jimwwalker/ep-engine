@@ -190,8 +190,8 @@ public:
     virtual ENGINE_ERROR_CODE streamEnd(uint32_t opaque, uint16_t vbucket,
                                         uint32_t flags);
 
-    virtual ENGINE_ERROR_CODE mutation(uint32_t opaque, const void* key,
-                                       uint16_t nkey, const void* value,
+    virtual ENGINE_ERROR_CODE mutation(uint32_t opaque, const ItemKey& key,
+                                       const void* value,
                                        uint32_t nvalue, uint64_t cas,
                                        uint16_t vbucket, uint32_t flags,
                                        uint8_t datatype, uint32_t locktime,
@@ -199,17 +199,15 @@ public:
                                        uint32_t exptime, uint8_t nru,
                                        const void* meta, uint16_t nmeta);
 
-    virtual ENGINE_ERROR_CODE deletion(uint32_t opaque, const void* key,
-                                       uint16_t nkey, uint64_t cas,
-                                       uint16_t vbucket, uint64_t bySeqno,
-                                       uint64_t revSeqno, const void* meta,
-                                       uint16_t nmeta);
+    virtual ENGINE_ERROR_CODE deletion(uint32_t opaque, const ItemKey& key,
+                                       uint64_t cas, uint16_t vbucket,
+                                       uint64_t bySeqno, uint64_t revSeqno,
+                                       const void* meta, uint16_t nmeta);
 
-    virtual ENGINE_ERROR_CODE expiration(uint32_t opaque, const void* key,
-                                         uint16_t nkey, uint64_t cas,
-                                         uint16_t vbucket, uint64_t bySeqno,
-                                         uint64_t revSeqno, const void* meta,
-                                         uint16_t nmeta);
+    virtual ENGINE_ERROR_CODE expiration(uint32_t opaque, const ItemKey& key,
+                                         uint64_t cas, uint16_t vbucket,
+                                         uint64_t bySeqno, uint64_t revSeqno,
+                                         const void* meta, uint16_t nmeta);
 
     virtual ENGINE_ERROR_CODE snapshotMarker(uint32_t opaque,
                                              uint16_t vbucket,
@@ -674,7 +672,7 @@ public:
 class BGFetchCallback : public GlobalTask {
 public:
     BGFetchCallback(EventuallyPersistentEngine *e, const std::string &n,
-                    const std::string &k, uint16_t vbid, hrtime_t token,
+                    const ItemKey &k, uint16_t vbid, hrtime_t token,
                     const Priority &p, double sleeptime = 0) :
         GlobalTask(e, p, sleeptime, false), name(n), key(k), epe(e),
         init(gethrtime()), connToken(token), vbucket(vbid)
@@ -686,13 +684,13 @@ public:
 
     std::string getDescription() {
         std::stringstream ss;
-        ss << "Fetching item from disk for tap: " << key;
+        ss << "Fetching item from disk for tap: " << key.getKey();
         return ss.str();
     }
 
 private:
     const std::string name;
-    const std::string key;
+    const ItemKey key;
     EventuallyPersistentEngine *epe;
     hrtime_t init;
     hrtime_t connToken;
@@ -707,7 +705,7 @@ public:
 
     ~TapConsumer() {}
 
-    ENGINE_ERROR_CODE mutation(uint32_t opaque, const void* key, uint16_t nkey,
+    ENGINE_ERROR_CODE mutation(uint32_t opaque, const ItemKey& key,
                                const void* value, uint32_t nvalue, uint64_t cas,
                                uint16_t vbucket, uint32_t flags,
                                uint8_t datatype, uint32_t locktime,
@@ -715,7 +713,7 @@ public:
                                uint32_t exptime, uint8_t nru, const void* meta,
                                uint16_t nmeta);
 
-    ENGINE_ERROR_CODE deletion(uint32_t opaque, const void* key, uint16_t nkey,
+    ENGINE_ERROR_CODE deletion(uint32_t opaque, const ItemKey& key,
                                uint64_t cas, uint16_t vbucket, uint64_t bySeqno,
                                uint64_t revSeqno, const void* meta,
                                uint16_t nmeta);
@@ -1242,8 +1240,7 @@ protected:
      * @param id the disk id of the item to fetch
      * @param vb the vbucket ID
      */
-    void queueBGFetch_UNLOCKED(const std::string &key, uint64_t id,
-                               uint16_t vb);
+    void queueBGFetch_UNLOCKED(const ItemKey &key, uint64_t id, uint16_t vb);
 
     ENGINE_ERROR_CODE processAck(uint32_t seqno, uint16_t status, const std::string &msg);
 

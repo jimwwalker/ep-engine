@@ -24,22 +24,24 @@
 
 #include "locks.h"
 
+#include "itemkey.h"
+
 class Item;
 
 class CacheLookup {
 public:
-    CacheLookup(std::string k, int64_t s, uint16_t vb) :
-        key(k), bySeqno(s), vbid(vb) {}
+    CacheLookup(ItemKey k, int64_t s, uint16_t vb) :
+        itemKey(k), bySeqno(s), vbid(vb) {}
 
     ~CacheLookup() {}
 
-    std::string& getKey() { return key; }
+    ItemKey& getItemKey() {return itemKey;}
 
     int64_t getBySeqno() { return bySeqno; }
 
     uint16_t getVBucketId() { return vbid; }
 private:
-    std::string key;
+    ItemKey itemKey;
     int64_t bySeqno;
     uint16_t vbid;
 };

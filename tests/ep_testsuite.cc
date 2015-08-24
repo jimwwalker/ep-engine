@@ -915,7 +915,6 @@ static enum test_result test_append(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
     h1->release(h, NULL, i);
 
     check(get_item_info(h, h1, &info, "key"), "Error in getting item info");
-
     check(vb_uuid == info.vbucket_uuid, "Expected valid vbucket uuid");
     check(high_seqno + 1 == info.seqno, "Expected valid sequence number");
 

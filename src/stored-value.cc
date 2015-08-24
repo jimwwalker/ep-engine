@@ -163,7 +163,7 @@ bool HashTable::unlocked_ejectItem(StoredValue*& vptr,
                                             vptr->metaDataSize());
             StoredValue::reduceCacheSize(*this, vptr->size());
 
-            int bucket_num = getBucketForHash(hash(vptr->getKey()));
+            int bucket_num = getBucketForHash(hash(vptr));
             StoredValue *v = values[bucket_num];
             // Remove the item from the hash table.
             if (v == vptr) {
@@ -208,8 +208,8 @@ mutation_type_t HashTable::insert(Item &itm, item_eviction_policy_t policy,
     }
 
     int bucket_num(0);
-    LockHolder lh = getLockedBucket(itm.getKey(), &bucket_num);
-    StoredValue *v = unlocked_find(itm.getKey(), bucket_num, true, false);
+    LockHolder lh = getLockedBucket(itm.getItemKey(), &bucket_num);
+    StoredValue *v = unlocked_find(itm.getItemKey(), bucket_num, true, false);
 
     if (v == NULL) {
         v = valFact(itm, values[bucket_num], *this);
@@ -368,8 +368,7 @@ void HashTable::resize(size_t newSize) {
             StoredValue *v = values[i];
             values[i] = v->next;
 
-            int newBucket = getBucketForHash(hash(v->getKeyBytes(),
-                                                  v->getKeyLen()));
+            int newBucket = getBucketForHash(hash(v));
             v->next = newValues[newBucket];
             newValues[newBucket] = v;
         }
@@ -447,8 +446,7 @@ void HashTable::visit(HashTableVisitor &visitor) {
             LockHolder lh(mutexes[l]);
 
             StoredValue *v = values[i];
-            cb_assert(v == NULL || i == getBucketForHash(hash(v->getKeyBytes(),
-                                                           v->getKeyLen())));
+            cb_assert(v == NULL || i == getBucketForHash(hash(v)));
             while (v) {
                 StoredValue *tmp = v->next;
                 visitor.visit(v);
@@ -474,8 +472,7 @@ void HashTable::visitDepth(HashTableDepthVisitor &visitor) {
         for (int i = l; i < static_cast<int>(size); i+= n_locks) {
             size_t depth = 0;
             StoredValue *p = values[i];
-            cb_assert(p == NULL || i == getBucketForHash(hash(p->getKeyBytes(),
-                                                           p->getKeyLen())));
+            cb_assert(p == NULL || i == getBucketForHash(hash(p)));
             size_t mem(0);
             while (p) {
                 depth++;
@@ -652,7 +649,7 @@ add_type_t HashTable::unlocked_add(int &bucket_num,
 }
 
 add_type_t HashTable::unlocked_addTempItem(int &bucket_num,
-                                           const std::string &key,
+                                           const ItemKey &key,
                                            item_eviction_policy_t policy,
                                            bool isReplication) {
 
@@ -660,7 +657,8 @@ add_type_t HashTable::unlocked_addTempItem(int &bucket_num,
     uint8_t ext_meta[1];
     uint8_t ext_len = EXT_META_LEN;
     *(ext_meta) = PROTOCOL_BINARY_RAW_BYTES;
-    Item itm(key.c_str(), key.length(), /*flags*/0, /*exp*/0, /*data*/NULL,
+
+    Item itm(key, /*flags*/0, /*exp*/0, /*data*/NULL,
              /*size*/0, ext_meta, ext_len, 0, StoredValue::state_temp_init);
 
     // if a temp item for a possibly deleted, set it non-resident by resetting
@@ -724,7 +722,9 @@ bool StoredValue::hasAvailableSpace(EPStats &st, const Item &itm,
 }
 
 Item* StoredValue::toItem(bool lck, uint16_t vbucket) const {
-    Item* itm = new Item(getKey(), getFlags(), getExptime(), value,
+    // create an ItemKey from our StoredValueKey
+    ItemKey itemKey(key.getKey(), key.getKeyLen(), key.getBucketId());
+    Item* itm = new Item(itemKey, getFlags(), getExptime(), value,
                          lck ? static_cast<uint64_t>(-1) : getCas(),
                          bySeqno, vbucket, getRevSeqno());
 

@@ -39,10 +39,15 @@ KVShard::KVShard(uint16_t id, EventuallyPersistentStore &store) :
     uint16_t commitInterval = 1;
 
     if (backend.compare("couchdb") == 0) {
-        rwUnderlying = KVStoreFactory::create(kvConfig, false);
-        roUnderlying = KVStoreFactory::create(kvConfig, true);
+        rwUnderlying = KVStoreFactory::create(kvConfig,
+                                              store.getEPEngine().getBucketId(),
+                                              false);
+        roUnderlying = KVStoreFactory::create(kvConfig,
+                                              store.getEPEngine().getBucketId(),
+                                              true);
     } else if (backend.compare("forestdb") == 0) {
-        rwUnderlying = KVStoreFactory::create(kvConfig);
+        rwUnderlying = KVStoreFactory::create(kvConfig,
+                                              store.getEPEngine().getBucketId());
         roUnderlying = rwUnderlying;
         commitInterval = config.getMaxVbuckets()/config.getMaxNumShards();
     }

@@ -69,8 +69,9 @@ class ForestKVStore : public KVStore
      * Constructor
      *
      * @param config    Configuration information
+     * @param bId  ID of the bucket owning this KVStore
      */
-    ForestKVStore(KVStoreConfig &config);
+    ForestKVStore(KVStoreConfig &config, bucket_id_t bId);
 
     /**
      * Copy constructor
@@ -143,10 +144,10 @@ class ForestKVStore : public KVStore
      * @param fetchDelete True if we want to retrieve a deleted item if it not
      *        purged yet.
      */
-    void get(const std::string &key, uint16_t vb, Callback<GetValue> &cb,
+    void get(const ItemKey &key, uint16_t vb, Callback<GetValue> &cb,
              bool fetchDelete = false);
 
-    void getWithHeader(void *dbHandle, const std::string &key,
+    void getWithHeader(void *dbHandle, const ItemKey &key,
                        uint16_t vb, Callback<GetValue> &cb,
                        bool fetchDelete = false);
 
@@ -281,6 +282,7 @@ private:
     fdb_config fileConfig;
     fdb_kvs_config kvsConfig;
     std::vector<ForestRequest *> pendingReqsQ;
+    bucket_id_t bucketId;
 
     static Mutex initLock;
     static int numGlobalFiles;

@@ -92,7 +92,8 @@ void ObjectRegistry::onCreateBlob(const Blob *blob)
 void ObjectRegistry::onDeleteBlob(const Blob *blob)
 {
    EventuallyPersistentEngine *engine = th->get();
-   if (verifyEngine(engine)) {
+   // Blob's maybe deleted when ep.so is destroyed and no engine* is present
+   if (engine) {
        EPStats &stats = engine->getEpStats();
        size_t size = getAllocSize(blob);
        if (size == 0) {
@@ -127,7 +128,8 @@ void ObjectRegistry::onCreateStoredValue(const StoredValue *sv)
 void ObjectRegistry::onDeleteStoredValue(const StoredValue *sv)
 {
    EventuallyPersistentEngine *engine = th->get();
-   if (verifyEngine(engine)) {
+   // StoredValue's maybe deleted when ep.so is destroyed and no engine* is present
+   if (engine) {
        EPStats &stats = engine->getEpStats();
        size_t size = getAllocSize(sv);
        if (size == 0) {

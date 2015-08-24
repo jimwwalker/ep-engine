@@ -52,9 +52,9 @@ void ForestKVStore::shutdownForestDb() {
    }
 }
 
-ForestKVStore::ForestKVStore(KVStoreConfig &config) :
+ForestKVStore::ForestKVStore(KVStoreConfig &config, bucket_id_t bId) :
     KVStore(config), intransaction(false),
-    dbname(config.getDBName()), dbFileRevNum(1) {
+    dbname(config.getDBName()), dbFileRevNum(1), bucketId(bId) {
 
     /* create the data directory */
     createDataDir(dbname);
@@ -192,7 +192,7 @@ ForestKVStore::~ForestKVStore() {
 }
 
 ForestRequest::ForestRequest(const Item &it, MutationRequestCallback &cb ,bool del)
-    : IORequest(it.getVBucketId(), cb, del, it.getKey()),
+    : IORequest(it.getVBucketId(), cb, del, it.getRawKey()),
       status(MUTATION_SUCCESS) { }
 
 ForestRequest::~ForestRequest() {
@@ -309,6 +309,7 @@ void ForestKVStore::delVBucket(uint16_t vbucket) {
 
 }
 
+
 ENGINE_ERROR_CODE ForestKVStore::forestErr2EngineErr(fdb_status errCode) {
     switch (errCode) {
     case FDB_RESULT_SUCCESS:
@@ -326,7 +327,8 @@ ENGINE_ERROR_CODE ForestKVStore::forestErr2EngineErr(fdb_status errCode) {
     }
 }
 
-void ForestKVStore::getWithHeader(void *dbHandle, const std::string &key,
+
+void ForestKVStore::getWithHeader(void *dbHandle, const ItemKey &key,
                                   uint16_t vb, Callback<GetValue> &cb,
                                   bool fetchDelete) {
     fdb_file_handle *dbFileHandle = (fdb_file_handle *)dbHandle;
@@ -363,8 +365,8 @@ void ForestKVStore::getWithHeader(void *dbHandle, const std::string &key,
 
     fdb_doc rdoc;
     memset(&rdoc, 0, sizeof(rdoc));
-    rdoc.key = const_cast<char *>(key.c_str());
-    rdoc.keylen = key.length();
+    rdoc.key = const_cast<char *>(key.getKey());
+    rdoc.keylen = key.getKeyLen();
 
     if (!getMetaOnly) {
         status = fdb_get(kvsHandle, &rdoc);
@@ -377,11 +379,11 @@ void ForestKVStore::getWithHeader(void *dbHandle, const std::string &key,
             LOG(EXTENSION_LOG_WARNING,
                 "Failed to retrieve metadata from "
                 "database, vbucketId:%d key:%s error:%s\n",
-                vb, key.c_str(), fdb_error_msg(status));
+                vb, key.getKey(), fdb_error_msg(status));
         } else {
             LOG(EXTENSION_LOG_WARNING,
                 "Failed to retrieve key value from database,"
-                "vbucketId:%d key:%s error:%s deleted:%s", vb, key.c_str(),
+                "vbucketId:%d key:%s error:%s deleted:%s", vb, key.getKey(),
                 fdb_error_msg(status), rdoc.deleted ? "yes" : "no");
         }
     } else {
@@ -425,8 +427,8 @@ GetValue ForestKVStore::docToItem(fdb_kvs_handle *kvsHandle, fdb_doc *rdoc,
 
     Item *it = NULL;
     if (metaOnly || (fetchDelete && rdoc->deleted)) {
-        it = new Item((char *)rdoc->key, rdoc->keylen, itemFlags,
-                      exptime, NULL, 0, ext_meta, ext_len, cas,
+        it = new Item(ItemKey((char *)rdoc->key, rdoc->keylen, bucketId),
+                      itemFlags, exptime, NULL, 0, ext_meta, ext_len, cas,
                       (uint64_t)rdoc->seqnum, vbId);
         if (rdoc->deleted) {
             it->setDeleted();
@@ -441,9 +443,10 @@ GetValue ForestKVStore::docToItem(fdb_kvs_handle *kvsHandle, fdb_doc *rdoc,
             ext_meta[0] = PROTOCOL_BINARY_RAW_BYTES;
         }
 
-        it = new Item((char *)rdoc->key, rdoc->keylen, itemFlags,
-                      exptime, valuePtr, valuelen, ext_meta, ext_len,
-                      cas, (uint64_t)rdoc->seqnum, vbId);
+        it = new Item(ItemKey((char *)rdoc->key, rdoc->keylen, bucketId),
+                      itemFlags, exptime, valuePtr, valuelen,
+                      ext_meta, ext_len, cas,
+                      (uint64_t)rdoc->seqnum, vbId);
     }
 
     it->setConflictResMode(
@@ -629,7 +632,7 @@ void ForestKVStore::set(const Item &itm, Callback<mutation_result> &cb) {
     memset(meta, 0, sizeof(meta));
     populateMetaData(itm, meta, false);
 
-    setDoc.key = const_cast<char *>(itm.getKey().c_str());
+    setDoc.key = const_cast<char *>(itm.getRawKey());
     setDoc.keylen = itm.getNKey();
     setDoc.meta = meta;
     setDoc.metalen = sizeof(meta);
@@ -659,7 +662,7 @@ void ForestKVStore::set(const Item &itm, Callback<mutation_result> &cb) {
     pendingReqsQ.push_back(req);
 }
 
-void ForestKVStore::get(const std::string &key, uint16_t vb,
+void ForestKVStore::get(const ItemKey &key, uint16_t vb,
                         Callback<GetValue> &cb, bool fetchDelete) {
     getWithHeader(dbFileHandle, key, vb, cb, fetchDelete);
 }
@@ -676,12 +679,12 @@ void ForestKVStore::getMulti(uint16_t vb, vb_bgfetch_queue_t &itms) {
             gcb.val.setPartial();
         }
 
-        const std::string &key = (*itr).first;
+        const ItemKey &key = (*itr).first;
         get(key, vb, gcb);
         ENGINE_ERROR_CODE status = gcb.val.getStatus();
         if (status != ENGINE_SUCCESS) {
             LOG(EXTENSION_LOG_WARNING, "Failed to retrieve key: %s",
-                key.c_str());
+                key.getKey());
         }
 
         std::list<VBucketBGFetchItem *> &fetches = bg_itm_ctx.bgfetched_list;
@@ -708,7 +711,7 @@ void ForestKVStore::del(const Item &itm, Callback<int> &cb) {
     memset(meta, 0, sizeof(meta));
     populateMetaData(itm, meta, true);
 
-    delDoc.key = const_cast<char *>(itm.getKey().c_str());
+    delDoc.key = const_cast<char *>(itm.getRawKey());
     delDoc.keylen = itm.getNKey();
     delDoc.meta = meta;
     delDoc.metalen = sizeof(meta);

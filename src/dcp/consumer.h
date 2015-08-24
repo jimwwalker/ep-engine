@@ -45,7 +45,7 @@ public:
     ENGINE_ERROR_CODE streamEnd(uint32_t opaque, uint16_t vbucket,
                                 uint32_t flags);
 
-    ENGINE_ERROR_CODE mutation(uint32_t opaque, const void* key, uint16_t nkey,
+    ENGINE_ERROR_CODE mutation(uint32_t opaque, const ItemKey& key,
                                const void* value, uint32_t nvalue, uint64_t cas,
                                uint16_t vbucket, uint32_t flags,
                                uint8_t datatype, uint32_t locktime,
@@ -53,13 +53,13 @@ public:
                                uint32_t exptime, uint8_t nru, const void* meta,
                                uint16_t nmeta);
 
-    ENGINE_ERROR_CODE deletion(uint32_t opaque, const void* key, uint16_t nkey,
+    ENGINE_ERROR_CODE deletion(uint32_t opaque, const ItemKey& key,
                                uint64_t cas, uint16_t vbucket, uint64_t bySeqno,
                                uint64_t revSeqno, const void* meta,
                                uint16_t nmeta);
 
-    ENGINE_ERROR_CODE expiration(uint32_t opaque, const void* key,
-                                 uint16_t nkey, uint64_t cas, uint16_t vbucket,
+    ENGINE_ERROR_CODE expiration(uint32_t opaque, const ItemKey& key,
+                                 uint64_t cas, uint16_t vbucket,
                                  uint64_t bySeqno, uint64_t revSeqno,
                                  const void* meta, uint16_t nmeta);
 

@@ -271,7 +271,7 @@ public:
      *
      * @return a GetValue representing the result of the request
      */
-    GetValue get(const std::string &key, uint16_t vbucket,
+    GetValue get(const ItemKey& key, uint16_t vbucket,
                  const void *cookie, bool queueBG=true,
                  bool honorStates=true, bool trackReference=true) {
         return getInternal(key, vbucket, cookie, queueBG, honorStates,
@@ -290,7 +290,7 @@ public:
      *
      * @return a GetValue representing the result of the request
      */
-    GetValue getReplica(const std::string &key, uint16_t vbucket,
+    GetValue getReplica(const ItemKey& key, uint16_t vbucket,
                         const void *cookie, bool queueBG=true) {
         return getInternal(key, vbucket, cookie, queueBG, true,
                            vbucket_state_replica);
@@ -308,7 +308,7 @@ public:
      * @param confResMode specifies the Conflict Resolution mode for the item
      * @param trackReference true if we want to set the nru bit for the item
      */
-    ENGINE_ERROR_CODE getMetaData(const std::string &key,
+    ENGINE_ERROR_CODE getMetaData(const ItemKey &key,
                                   uint16_t vbucket,
                                   const void *cookie,
                                   ItemMetaData &metadata,
@@ -354,7 +354,7 @@ public:
      *
      * @return a GetValue representing the result of the request
      */
-    GetValue getAndUpdateTtl(const std::string &key, uint16_t vbucket,
+    GetValue getAndUpdateTtl(const ItemKey &key, uint16_t vbucket,
                              const void *cookie, time_t exptime);
 
     /**
@@ -367,14 +367,14 @@ public:
      *
      * @return a status resulting form executing the method
      */
-    ENGINE_ERROR_CODE statsVKey(const std::string &key,
+    ENGINE_ERROR_CODE statsVKey(const ItemKey &key,
                                 uint16_t vbucket,
                                 const void *cookie);
 
-    void completeStatsVKey(const void* cookie, std::string &key, uint16_t vbid,
+    void completeStatsVKey(const void* cookie, ItemKey &key, uint16_t vbid,
                            uint64_t bySeqNum);
 
-    protocol_binary_response_status evictKey(const std::string &key,
+    protocol_binary_response_status evictKey(const ItemKey &key,
                                              uint16_t vbucket,
                                              const char **msg,
                                              size_t *msg_size,
@@ -399,7 +399,7 @@ public:
      *
      * @return the result of the delete operation
      */
-    ENGINE_ERROR_CODE deleteItem(const std::string &key,
+    ENGINE_ERROR_CODE deleteItem(const ItemKey &key,
                                  uint64_t* cas,
                                  uint16_t vbucket,
                                  const void *cookie,
@@ -408,7 +408,7 @@ public:
                                  mutation_descr_t *mutInfo,
                                  bool tapBackfill=false);
 
-    ENGINE_ERROR_CODE deleteWithMeta(const std::string &key,
+    ENGINE_ERROR_CODE deleteWithMeta(const ItemKey &key,
                                      uint64_t* cas,
                                      uint64_t* seqno,
                                      uint16_t vbucket,
@@ -464,7 +464,7 @@ public:
      * @param type whether the fetch is for a non-resident value or metadata of
      *             a (possibly) deleted item
      */
-    void bgFetch(const std::string &key,
+    void bgFetch(const ItemKey &key,
                  uint16_t vbucket,
                  const void *cookie,
                  bool isMeta = false);
@@ -479,7 +479,7 @@ public:
      * @param type whether the fetch is for a non-resident value or metadata of
      *             a (possibly) deleted item
      */
-    void completeBGFetch(const std::string &key,
+    void completeBGFetch(const ItemKey& key,
                          uint16_t vbucket,
                          const void *cookie,
                          hrtime_t init,
@@ -629,19 +629,19 @@ public:
 
     Warmup* getWarmup(void) const;
 
-    ENGINE_ERROR_CODE getKeyStats(const std::string &key, uint16_t vbucket,
+    ENGINE_ERROR_CODE getKeyStats(const ItemKey &key, uint16_t vbucket,
                                   const void* cookie, key_stats &kstats,
                                   bool bgfetch, bool wantsDeleted=false);
 
-    std::string validateKey(const std::string &key,  uint16_t vbucket,
+    std::string validateKey(const ItemKey &key,  uint16_t vbucket,
                             Item &diskItem);
 
-    bool getLocked(const std::string &key, uint16_t vbucket,
+    bool getLocked(const ItemKey &key, uint16_t vbucket,
                    Callback<GetValue> &cb,
                    rel_time_t currentTime, uint32_t lockTimeout,
                    const void *cookie);
 
-    ENGINE_ERROR_CODE unlockKey(const std::string &key,
+    ENGINE_ERROR_CODE unlockKey(const ItemKey &key,
                                 uint16_t vbucket,
                                 uint64_t cas,
                                 rel_time_t currentTime);
@@ -663,11 +663,10 @@ public:
         return vbMap.getShard(vbId)->getROUnderlying();
     }
 
-    void deleteExpiredItem(uint16_t, std::string &, time_t, uint64_t,
+    void deleteExpiredItem(uint16_t, ItemKey &, time_t, uint64_t,
                            exp_type_t);
-    void deleteExpiredItems(std::list<std::pair<uint16_t, std::string> > &,
-                            exp_type_t);
-
+    void deleteExpiredItems(std::list<std::pair<uint16_t, ItemKey> > &,
+                           exp_type_t);
 
     /**
      * Get the memoized storage properties from the DB.kv
@@ -749,7 +748,7 @@ public:
         bfilterResidencyThreshold = to;
     }
 
-    bool isMetaDataResident(RCPtr<VBucket> &vb, const std::string &key);
+    bool isMetaDataResident(RCPtr<VBucket> &vb, const ItemKey& key);
 
     void incExpirationStat(RCPtr<VBucket> &vb, exp_type_t source) {
         if (source == EXP_BY_PAGER) {
@@ -922,7 +921,7 @@ private:
      *
      * @return true if the object was found and method was invoked
      */
-    bool invokeOnLockedStoredValue(const std::string &key, uint16_t vbid,
+    bool invokeOnLockedStoredValue(Item& item, uint16_t vbid,
                                    void (StoredValue::* f)()) {
         RCPtr<VBucket> vb = getVBucket(vbid);
         if (!vb) {
@@ -930,8 +929,8 @@ private:
         }
 
         int bucket_num(0);
-        LockHolder lh = vb->ht.getLockedBucket(key, &bucket_num);
-        StoredValue *v = vb->ht.unlocked_find(key, bucket_num, true);
+        LockHolder lh = vb->ht.getLockedBucket(item.getItemKey(), &bucket_num);
+        StoredValue *v = vb->ht.unlocked_find(item.getItemKey(), bucket_num, true);
 
         if (v) {
             std::mem_fun(f)(v);
@@ -943,19 +942,22 @@ private:
     PersistenceCallback* flushOneDelOrSet(const queued_item &qi,
                                           RCPtr<VBucket> &vb);
 
-    StoredValue *fetchValidValue(RCPtr<VBucket> &vb, const std::string &key,
+    StoredValue *fetchValidValue(RCPtr<VBucket> &vb, const ItemKey &key,
                                  int bucket_num, bool wantsDeleted=false,
                                  bool trackReference=true, bool queueExpired=true);
 
-    GetValue getInternal(const std::string &key, uint16_t vbucket,
+    GetValue getInternal(const ItemKey& key, uint16_t vbucket,
                          const void *cookie, bool queueBG,
                          bool honorStates,
                          vbucket_state_t allowedState,
                          bool trackReference=true);
 
-    ENGINE_ERROR_CODE addTempItemForBgFetch(LockHolder &lock, int bucket_num,
-                                            const std::string &key, RCPtr<VBucket> &vb,
-                                            const void *cookie, bool metadataOnly,
+    ENGINE_ERROR_CODE addTempItemForBgFetch(LockHolder &lock,
+                                            int bucket_num,
+                                            const ItemKey& key,
+                                            RCPtr<VBucket> &vb,
+                                            const void *cookie,
+                                            bool metadataOnly,
                                             bool isReplication = false);
 
     uint16_t getCommitInterval(uint16_t shardId);

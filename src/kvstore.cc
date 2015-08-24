@@ -45,13 +45,15 @@ KVStoreConfig::KVStoreConfig(uint16_t _maxVBuckets, uint16_t _maxShards,
 
 }
 
-KVStore *KVStoreFactory::create(KVStoreConfig &config, bool read_only) {
+KVStore *KVStoreFactory::create(KVStoreConfig &config,
+                                bucket_id_t bucketId,
+                                bool read_only) {
     KVStore *ret = NULL;
     std::string backend = config.getBackend();
     if (backend.compare("couchdb") == 0) {
-        ret = new CouchKVStore(config, read_only);
+        ret = new CouchKVStore(config, bucketId, read_only);
     } else if (backend.compare("forestdb") == 0) {
-        ret = new ForestKVStore(config);
+        ret = new ForestKVStore(config, bucketId);
     } else {
         LOG(EXTENSION_LOG_WARNING, "Unknown backend: [%s]", backend.c_str());
     }

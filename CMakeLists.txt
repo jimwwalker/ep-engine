@@ -176,6 +176,22 @@ SET_TARGET_PROPERTIES(ep PROPERTIES PREFIX "")
 TARGET_LINK_LIBRARIES(ep cJSON JSON_checker couchstore forestdb
   dirutils platform ${LIBEVENT_LIBRARIES})
 
+ADD_EXECUTABLE(ep-engine_itemkey_test
+  tests/module_tests/itemkey_test.cc)
+TARGET_LINK_LIBRARIES(ep-engine_itemkey_test platform)
+
+ADD_EXECUTABLE(ep-engine_stored_value_test
+  tests/module_tests/stored_value_test.cc
+  tests/module_tests/test_memory_tracker.cc
+  src/item.cc
+  src/stored-value.cc
+  src/testlogger.cc
+  src/atomic.cc
+  src/mutex.cc
+  src/compress.cc
+  ${OBJECTREGISTRY_SOURCE} ${CONFIG_SOURCE})
+TARGET_LINK_LIBRARIES(ep-engine_stored_value_test ${SNAPPY_LIBRARIES} platform)
+
 ADD_EXECUTABLE(ep-engine_atomic_ptr_test
   tests/module_tests/atomic_ptr_test.cc
   src/atomic.cc
@@ -274,6 +290,8 @@ ADD_TEST(ep-engine_mutex_test ep-engine_mutex_test)
 ADD_TEST(ep-engine_priority_test ep-engine_priority_test)
 ADD_TEST(ep-engine_ringbuffer_test ep-engine_ringbuffer_test)
 ADD_TEST(ep-engine_kvstore_test ep-engine_kvstore_test)
+ADD_TEST(ep-engine_itemkey_test ep-engine_itemkey_test)
+ADD_TEST(ep-engine_stored_value_test ep-engine_stored_value_test)
 
 ADD_LIBRARY(timing_tests SHARED tests/module_tests/timing_tests.cc)
 SET_TARGET_PROPERTIES(timing_tests PROPERTIES PREFIX "")

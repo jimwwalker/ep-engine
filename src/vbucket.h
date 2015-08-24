@@ -356,7 +356,7 @@ public:
     }
 
     bool getBGFetchItems(vb_bgfetch_queue_t &fetches);
-    void queueBGFetchItem(const std::string &key, VBucketBGFetchItem *fetch,
+    void queueBGFetchItem(const ItemKey &key, VBucketBGFetchItem *fetch,
                           BgFetcher *bgFetcher);
     size_t numPendingBGFetchItems(void) {
         // do a dirty read of number of fetch items
@@ -401,10 +401,10 @@ public:
      * BloomFilter operations for vbucket
      */
     void initTempFilter(size_t key_count, double probability);
-    void addToFilter(const std::string &key);
-    bool maybeKeyExistsInFilter(const std::string &key);
+    void addToFilter(const ItemKey& key);
+    bool maybeKeyExistsInFilter(const ItemKey& key);
     bool isTempFilterAvailable();
-    void addToTempFilter(const std::string &key);
+    void addToTempFilter(const ItemKey &key);
     void swapFilter();
     void clearFilter();
     void setFilterStatus(bfilter_status_t to);

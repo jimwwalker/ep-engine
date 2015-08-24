@@ -61,8 +61,10 @@ typedef struct {
     bool isMetaOnly;
 } vb_bgfetch_item_ctx_t;
 
-typedef unordered_map<std::string, vb_bgfetch_item_ctx_t> vb_bgfetch_queue_t;
-typedef std::pair<std::string, VBucketBGFetchItem *> bgfetched_item_t;
+typedef std::unordered_map<ItemKey,
+                           vb_bgfetch_item_ctx_t,
+                           ItemKeyHash > vb_bgfetch_queue_t;
+typedef std::pair<ItemKey, VBucketBGFetchItem *> bgfetched_item_t;
 
 /**
  * Compaction context to perform compaction
@@ -79,8 +81,9 @@ typedef struct {
     uint64_t max_purged_seq;
     uint8_t  drop_deletes;
     uint32_t curr_time;
-    shared_ptr<Callback<std::string&, bool&> > bloomFilterCallback;
-    shared_ptr<Callback<std::string&, uint64_t&> > expiryCallback;
+    shared_ptr<Callback<ItemKey&, bool&> > bloomFilterCallback;
+    shared_ptr<Callback<ItemKey&, uint64_t&> > expiryCallback;
+    bucket_id_t bucketId;
 } compaction_ctx;
 
 /**
@@ -200,6 +203,7 @@ public:
     const uint16_t vbid;
     const DocumentFilter docFilter;
     const ValueFilter valFilter;
+    bucket_id_t bucketId;
 };
 
 // First bool is true if an item exists in VB DB file.
@@ -415,10 +419,10 @@ public:
     /**
      * Get an item from the kv store.
      */
-    virtual void get(const std::string &key, uint16_t vb,
+    virtual void get(const ItemKey &key, uint16_t vb,
                      Callback<GetValue> &cb, bool fetchDelete = false) = 0;
 
-    virtual void getWithHeader(void *dbHandle, const std::string &key,
+    virtual void getWithHeader(void *dbHandle, const ItemKey &key,
                                uint16_t vb, Callback<GetValue> &cb,
                                bool fetchDelete = false) = 0;
     /**
@@ -579,11 +583,13 @@ public:
     /**
      * Create a KVStore with the given type.
      *
-     * @param stats     instance of ep-engine stats
      * @param config    engine configuration
+     * @param bucketId  the ID of the bucket that will own the KVStore
      * @param read_only true if the kvstore instance is for read operations only
      */
-    static KVStore *create(KVStoreConfig &config, bool read_only = false);
+    static KVStore *create(KVStoreConfig &config,
+                           bucket_id_t bucketId,
+                           bool read_only = false);
 };
 
 /**

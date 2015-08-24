@@ -536,9 +536,9 @@ typedef std::pair<uint64_t, uint8_t> mutation_log_event_t;
 /**
  * MutationLogHarvester::apply callback type.
  */
-typedef bool (*mlCallback)(void*, uint16_t, const std::string &);
+typedef bool (*mlCallback)(void*, uint16_t, const ItemKey &);
 typedef bool (*mlCallbackWithQueue)(uint16_t,
-                    std::vector<std::pair<std::string, uint64_t> > &,
+                    std::vector<std::pair<ItemKey, uint64_t> > &,
                     void *arg);
 
 /**
@@ -552,6 +552,9 @@ struct mutation_log_uncommitted_t {
 };
 
 class EventuallyPersistentEngine;
+
+typedef unordered_map<std::string, uint64_t> ItemKeyMap;
+typedef unordered_map<std::string, mutation_log_event_t> ItemKeyLogEventMap;
 
 /**
  * Read log entries back from the log to reconstruct the state.
@@ -607,8 +610,8 @@ private:
     EventuallyPersistentEngine *engine;
     std::set<uint16_t> vbid_set;
 
-    unordered_map<uint16_t, unordered_map<std::string, uint64_t> > committed;
-    unordered_map<uint16_t, unordered_map<std::string, mutation_log_event_t> > loading;
+    unordered_map<uint16_t, ItemKeyMap > committed;
+    unordered_map<uint16_t, ItemKeyLogEventMap > loading;
     size_t itemsSeen[MUTATION_LOG_TYPES];
 };
 

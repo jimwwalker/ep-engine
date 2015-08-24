@@ -111,7 +111,7 @@ void basic_kvstore_test(std::string& backend) {
     CouchbaseDirectoryUtilities::rmrf(data_dir.c_str());
 
     KVStoreConfig config(1024, 4, data_dir, backend, 0);
-    KVStore* kvstore = KVStoreFactory::create(config);
+    KVStore* kvstore = KVStoreFactory::create(config, 0);
 
     StatsCallback sc;
     std::string failoverLog("");
@@ -121,14 +121,17 @@ void basic_kvstore_test(std::string& backend) {
 
     kvstore->begin();
 
-    Item item("key", 3, 0, 0, "value", 5);
+    ItemKey key("key", 3, 0);
+    Item item(key, 0, 0, "value", 5);
     WriteCallback wc;
     kvstore->set(item, wc);
 
     kvstore->commit(&sc);
 
     GetCallback gc;
-    kvstore->get("key", 0, gc);
+
+    kvstore->get(key, 0, gc);
+
     delete kvstore;
 }
 
@@ -138,7 +141,7 @@ void kvstore_get_compressed_test(std::string& backend) {
     CouchbaseDirectoryUtilities::rmrf(data_dir.c_str());
 
     KVStoreConfig config(1024, 4, data_dir, backend, 0);
-    KVStore* kvstore = KVStoreFactory::create(config);
+    KVStore* kvstore = KVStoreFactory::create(config, 0);
 
     StatsCallback sc;
     std::string failoverLog("");
@@ -151,8 +154,8 @@ void kvstore_get_compressed_test(std::string& backend) {
     uint8_t datatype = PROTOCOL_BINARY_RAW_BYTES;
     WriteCallback wc;
     for (int i = 1; i <= 5; i++) {
-        std::string key("key" + std::to_string(i));
-        Item item(key.c_str(), key.length(),
+        ItemKey key("key", 3, 0);
+        Item item(key,
                   0, 0, "value", 5, &datatype, 1, 0, i);
         kvstore->set(item, wc);
     }

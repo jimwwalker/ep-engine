@@ -1273,7 +1273,7 @@ ENGINE_ERROR_CODE PassiveStream::processDeletion(MutationResponse* deletion) {
     uint64_t delCas = 0;
     ENGINE_ERROR_CODE ret;
     ItemMetaData meta = deletion->getItem()->getMetaData();
-    ret = engine->getEpStore()->deleteWithMeta(deletion->getItem()->getKey(),
+    ret = engine->getEpStore()->deleteWithMeta(deletion->getItem()->getItemKey(),
                                                &delCas, NULL, deletion->getVBucket(),
                                                consumer->getCookie(), true,
                                                &meta, vb->isBackfillPhase(),

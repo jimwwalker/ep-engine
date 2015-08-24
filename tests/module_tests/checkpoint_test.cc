@@ -171,7 +171,8 @@ static void launch_set_thread(void *arg) {
     for (i = 0; i < NUM_ITEMS; ++i) {
         std::stringstream key;
         key << "key-" << i;
-        queued_item qi(new Item(key.str(), args->vbucket->getId(),
+        queued_item qi(new Item(ItemKey(key.str().c_str(), key.str().length(), 0),
+                                args->vbucket->getId(),
                                 queue_op_set, 0, 0));
         args->checkpoint_manager->queueDirty(args->vbucket, qi, true);
     }
@@ -259,7 +260,8 @@ void basic_chk_test() {
 
     // Push the flush command into the queue so that all other threads can be terminated.
     std::string key("flush");
-    queued_item qi(new Item(key, vbucket->getId(), queue_op_flush, 0xffff, 0));
+    queued_item qi(new Item(ItemKey(key.c_str(), key.length(), 0), vbucket->getId(),
+                   queue_op_flush, 0xffff, 0));
     checkpoint_manager->queueDirty(vbucket, qi, true);
 
     rc = cb_join_thread(persistence_thread);
@@ -294,7 +296,8 @@ void test_reset_checkpoint_id() {
     for (i = 0; i < 10; ++i) {
         std::stringstream key;
         key << "key-" << i;
-        queued_item qi(new Item(key.str(), vbucket->getId(), queue_op_set,
+        queued_item qi(new Item(ItemKey(key.str().c_str(), key.str().length(), 0),
+                                vbucket->getId(), queue_op_set,
                                 0, 0));
         manager->queueDirty(vbucket, qi, true);
     }

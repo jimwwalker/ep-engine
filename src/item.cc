@@ -73,7 +73,7 @@ ENGINE_ERROR_CODE Item::append(const Item &i, size_t maxItemSize) {
                     if (ret == SNAP_FAILURE) {
                         LOG(EXTENSION_LOG_WARNING, "(Append) Snappy uncompression "
                             "for append value of key: %s failed!",
-                            i.getKey().c_str());
+                            i.getRawKey());
                         return ENGINE_FAILED;
                     }
                     size_t newSize = value->vlength() + output.len;
@@ -111,7 +111,7 @@ ENGINE_ERROR_CODE Item::append(const Item &i, size_t maxItemSize) {
                     if (ret == SNAP_FAILURE) {
                         LOG(EXTENSION_LOG_WARNING, "(Append) Snappy uncompression "
                             "for original value of key: %s failed!",
-                            i.getKey().c_str());
+                            i.getRawKey());
                         return ENGINE_FAILED;
                     }
                     size_t len = output.len + i.getValue()->vlength();
@@ -128,7 +128,7 @@ ENGINE_ERROR_CODE Item::append(const Item &i, size_t maxItemSize) {
                     if (ret == SNAP_FAILURE) {
                         LOG(EXTENSION_LOG_WARNING, "(Append) Snappy compression "
                             "for new value of key: %s failed!",
-                            i.getKey().c_str());
+                            i.getRawKey());
                         return ENGINE_FAILED;
                     }
                     Blob *newData = Blob::New(compOutput.len,
@@ -162,7 +162,7 @@ ENGINE_ERROR_CODE Item::append(const Item &i, size_t maxItemSize) {
                     if (ret == SNAP_FAILURE) {
                         LOG(EXTENSION_LOG_WARNING, "(Append) Snappy uncompression "
                             "for original value of key: %s failed!",
-                            i.getKey().c_str());
+                            i.getRawKey());
                         return ENGINE_FAILED;
                     }
                     snap_buf output2;
@@ -172,7 +172,7 @@ ENGINE_ERROR_CODE Item::append(const Item &i, size_t maxItemSize) {
                     if (ret == SNAP_FAILURE) {
                         LOG(EXTENSION_LOG_WARNING, "(Append) Snappy uncompression "
                             "for append value of key: %s failed!",
-                            i.getKey().c_str());
+                            i.getRawKey());
                         return ENGINE_FAILED;
                     }
                     size_t len = output1.len + output2.len;
@@ -188,7 +188,7 @@ ENGINE_ERROR_CODE Item::append(const Item &i, size_t maxItemSize) {
                     if (ret == SNAP_FAILURE) {
                         LOG(EXTENSION_LOG_WARNING, "(Append) Snappy compression "
                             "for new value of key: %s failed!",
-                            i.getKey().c_str());
+                            i.getRawKey());
                         return ENGINE_FAILED;
                     }
                     Blob *newData = Blob::New(compOutput.len, value->getExtLen());
@@ -273,7 +273,7 @@ ENGINE_ERROR_CODE Item::prepend(const Item &i, size_t maxItemSize) {
                     if (ret == SNAP_FAILURE) {
                         LOG(EXTENSION_LOG_WARNING, "(Prepend) Snappy uncompression "
                             "for prepend value of key: %s failed!",
-                            i.getKey().c_str());
+                            i.getRawKey());
                         return ENGINE_FAILED;
                     }
                     size_t newSize = value->vlength() + output.len;
@@ -316,7 +316,7 @@ ENGINE_ERROR_CODE Item::prepend(const Item &i, size_t maxItemSize) {
                     if (ret == SNAP_FAILURE) {
                         LOG(EXTENSION_LOG_WARNING, "(Prepend) Snappy uncompression "
                             "for original value of key: %s failed!",
-                            i.getKey().c_str());
+                            i.getRawKey());
                         return ENGINE_FAILED;
                     }
                     size_t len = output.len + i.getValue()->vlength();
@@ -334,7 +334,7 @@ ENGINE_ERROR_CODE Item::prepend(const Item &i, size_t maxItemSize) {
                     if (ret == SNAP_FAILURE) {
                         LOG(EXTENSION_LOG_WARNING, "(Prepend) Snappy compression "
                             "for new value of key: %s failed!",
-                            i.getKey().c_str());
+                            i.getRawKey());
                         return ENGINE_FAILED;
                     }
                     Blob *newData = Blob::New(compOutput.len, value->getExtLen());
@@ -367,7 +367,7 @@ ENGINE_ERROR_CODE Item::prepend(const Item &i, size_t maxItemSize) {
                     if (ret == SNAP_FAILURE) {
                         LOG(EXTENSION_LOG_WARNING, "(Prepend) Snappy uncompression "
                             "for original value of key: %s failed!",
-                            i.getKey().c_str());
+                            i.getRawKey());
                         return ENGINE_FAILED;
                     }
                     snap_buf output2;
@@ -377,7 +377,7 @@ ENGINE_ERROR_CODE Item::prepend(const Item &i, size_t maxItemSize) {
                     if (ret == SNAP_FAILURE) {
                         LOG(EXTENSION_LOG_WARNING, "(Prepend) Snappy uncompression "
                             "for prepend value of key: %s failed!",
-                            i.getKey().c_str());
+                            i.getRawKey());
                         return ENGINE_FAILED;
                     }
                     size_t len = output1.len + output2.len;
@@ -393,7 +393,7 @@ ENGINE_ERROR_CODE Item::prepend(const Item &i, size_t maxItemSize) {
                     if (ret == SNAP_FAILURE) {
                         LOG(EXTENSION_LOG_WARNING, "(Prepend) Snappy compression "
                             "for new value of key: %s failed!",
-                            i.getKey().c_str());
+                            i.getRawKey());
                         return ENGINE_FAILED;
                     }
                     Blob *newData = Blob::New(compOutput.len, value->getExtLen());

@@ -58,7 +58,8 @@ static size_t populateVbucket(VBucket& vbucket, size_t ndocs) {
         std::stringstream ss;
         ss << "key" << i;
         const std::string key = ss.str();
-        Item item(key.c_str(), key.length(), 0, 0, value, sizeof(value));
+        Item item(ItemKey(key.c_str(), key.length(), 0),
+                  0, 0, value, sizeof(value));
         vbucket.ht.add(item, VALUE_ONLY);
     }
     hrtime_t end = gethrtime();

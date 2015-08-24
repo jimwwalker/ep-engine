@@ -61,9 +61,9 @@ public:
         } else {
             ++count;
             if (verify) {
-                std::string key = v->getKey();
+                const char* key = v->getKey();
                 value_t val = v->getValue();
-                cb_assert(key.compare(val->to_s()) == 0);
+                cb_assert(memcmp(key, val->getData(), v->getKeyLen()) == 0);
             }
         }
     }
@@ -78,26 +78,26 @@ static int count(HashTable &h, bool verify=true) {
     return c.count;
 }
 
-static void store(HashTable &h, std::string &k) {
-    Item i(k.data(), k.length(), 0, 0, k.c_str(), k.length());
+static void store(HashTable &h, ItemKey &k) {
+    Item i(k, 0, 0, k.getKey(), k.getKeyLen());
     cb_assert(h.set(i) == WAS_CLEAN);
 }
 
-static void storeMany(HashTable &h, std::vector<std::string> &keys) {
-    std::vector<std::string>::iterator it;
+static void storeMany(HashTable &h, std::vector<ItemKey> &keys) {
+    std::vector<ItemKey>::iterator it;
     for (it = keys.begin(); it != keys.end(); ++it) {
-        std::string key = *it;
+        ItemKey key = *it;
         store(h, key);
     }
 }
 
-static void addMany(HashTable &h, std::vector<std::string> &keys,
+static void addMany(HashTable &h, std::vector<ItemKey> &keys,
                     add_type_t expect) {
-    std::vector<std::string>::iterator it;
+    std::vector<ItemKey>::iterator it;
     item_eviction_policy_t policy = VALUE_ONLY;
     for (it = keys.begin(); it != keys.end(); ++it) {
-        std::string k = *it;
-        Item i(k.data(), k.length(), 0, 0, k.c_str(), k.length());
+        ItemKey k = *it;
+        Item i(k, 0, 0, k.getKey(), k.getKeyLen());
         add_type_t v = h.add(i, policy);
         cb_assert(expect == v);
     }
@@ -126,21 +126,21 @@ void assertEquals(T a, T b) {
     }
 }
 
-static void add(HashTable &h, const std::string &k, add_type_t expect,
+static void add(HashTable &h, const ItemKey &k, add_type_t expect,
                 int expiry=0) {
-    Item i(k.data(), k.length(), 0, expiry, k.c_str(), k.length());
+    Item i(k, 0, expiry, k.getKey(), k.getKeyLen());
     item_eviction_policy_t policy = VALUE_ONLY;
     add_type_t v = h.add(i, policy);
     assertEquals(expect, v);
 }
 
-static std::vector<std::string> generateKeys(int num, int start=0) {
-    std::vector<std::string> rv;
+static std::vector<ItemKey> generateKeys(int num, int start=0) {
+    std::vector<ItemKey> rv;
 
     for (int i = start; i < num; i++) {
         char buf[64];
-        snprintf(buf, sizeof(buf), "key%d", i);
-        std::string key(buf);
+        int len = snprintf(buf, sizeof(buf), "key%d", i);
+        ItemKey key(buf, len, 0);
         rv.push_back(key);
     }
 
@@ -155,7 +155,7 @@ static void testHashSize() {
     HashTable h(global_stats);
     cb_assert(count(h) == 0);
 
-    std::string k = "testkey";
+    ItemKey k("testkey", 7, 0);
     store(h, k);
 
     cb_assert(count(h) == 1);
@@ -165,7 +165,7 @@ static void testHashSizeTwo() {
     HashTable h(global_stats);
     cb_assert(count(h) == 0);
 
-    std::vector<std::string> keys = generateKeys(5);
+    std::vector<ItemKey> keys = generateKeys(5);
     storeMany(h, keys);
     cb_assert(count(h) == 5);
 
@@ -180,15 +180,15 @@ static void testReverseDeletions() {
     cb_assert(count(h) == 0);
     const int nkeys = 10000;
 
-    std::vector<std::string> keys = generateKeys(nkeys);
+    std::vector<ItemKey> keys = generateKeys(nkeys);
     storeMany(h, keys);
     cb_assert(count(h) == nkeys);
 
     std::reverse(keys.begin(), keys.end());
 
-    std::vector<std::string>::iterator it;
+    std::vector<ItemKey>::iterator it;
     for (it = keys.begin(); it != keys.end(); ++it) {
-        std::string key = *it;
+        ItemKey key = *it;
         h.del(key);
     }
 
@@ -205,13 +205,13 @@ static void testForwardDeletions() {
     cb_assert(count(h) == 0);
     const int nkeys = 10000;
 
-    std::vector<std::string> keys = generateKeys(nkeys);
+    std::vector<ItemKey> keys = generateKeys(nkeys);
     storeMany(h, keys);
     cb_assert(count(h) == nkeys);
 
-    std::vector<std::string>::iterator it;
+    std::vector<ItemKey>::iterator it;
     for (it = keys.begin(); it != keys.end(); ++it) {
-        std::string key = *it;
+        ItemKey key = *it;
         h.del(key);
     }
 
@@ -219,13 +219,13 @@ static void testForwardDeletions() {
     cb_assert(global_stats.currentSize.load() == initialSize);
 }
 
-static void verifyFound(HashTable &h, const std::vector<std::string> &keys) {
-    std::string missingKey = "aMissingKey";
+static void verifyFound(HashTable &h, const std::vector<ItemKey> &keys) {
+    ItemKey missingKey("aMissingKey", 11, 0);;
     cb_assert(h.find(missingKey) == NULL);
 
-    std::vector<std::string>::const_iterator it;
+    std::vector<ItemKey>::const_iterator it;
     for (it = keys.begin(); it != keys.end(); ++it) {
-        std::string key = *it;
+        ItemKey key = *it;
         cb_assert(h.find(key));
     }
 }
@@ -233,7 +233,7 @@ static void verifyFound(HashTable &h, const std::vector<std::string> &keys) {
 static void testFind(HashTable &h) {
     const int nkeys = 5000;
 
-    std::vector<std::string> keys = generateKeys(nkeys);
+    std::vector<ItemKey> keys = generateKeys(nkeys);
     storeMany(h, keys);
 
     verifyFound(h, keys);
@@ -246,7 +246,8 @@ static void testFind() {
 
 static void testAddExpiry() {
     HashTable h(global_stats, 5, 1);
-    std::string k("aKey");
+    ItemKey k("aKey", 4, 0);
+
 
     add(h, k, ADD_SUCCESS, ep_real_time() + 5);
     add(h, k, ADD_EXISTS, ep_real_time() + 5);
@@ -268,7 +269,7 @@ static void testAddExpiry() {
 static void testResize() {
     HashTable h(global_stats, 5, 3);
 
-    std::vector<std::string> keys = generateKeys(5000);
+    std::vector<ItemKey> keys = generateKeys(5000);
     storeMany(h, keys);
 
     verifyFound(h, keys);
@@ -292,13 +293,13 @@ static void testResize() {
 class AccessGenerator : public Generator<bool> {
 public:
 
-    AccessGenerator(const std::vector<std::string> &k,
+    AccessGenerator(const std::vector<ItemKey> &k,
                     HashTable &h) : keys(k), ht(h), size(10000) {
         std::random_shuffle(keys.begin(), keys.end());
     }
 
     bool operator()() {
-        std::vector<std::string>::iterator it;
+        std::vector<ItemKey>::iterator it;
         for (it = keys.begin(); it != keys.end(); ++it) {
             if (rand() % 111 == 0) {
                 resize();
@@ -315,7 +316,7 @@ private:
         size = size == 10000 ? 30000 : 10000;
     }
 
-    std::vector<std::string>  keys;
+    std::vector<ItemKey>  keys;
     HashTable                &ht;
     size_t                    size;
 };
@@ -323,7 +324,7 @@ private:
 static void testConcurrentAccessResize() {
     HashTable h(global_stats, 5, 3);
 
-    std::vector<std::string> keys = generateKeys(20000);
+    std::vector<ItemKey> keys = generateKeys(20000);
     h.resize(keys.size());
     storeMany(h, keys);
 
@@ -337,7 +338,7 @@ static void testConcurrentAccessResize() {
 static void testAutoResize() {
     HashTable h(global_stats, 5, 3);
 
-    std::vector<std::string> keys = generateKeys(5000);
+    std::vector<ItemKey> keys = generateKeys(5000);
     storeMany(h, keys);
 
     verifyFound(h, keys);
@@ -351,21 +352,21 @@ static void testAdd() {
     HashTable h(global_stats, 5, 1);
     const int nkeys = 5000;
 
-    std::vector<std::string> keys = generateKeys(nkeys);
+    std::vector<ItemKey> keys = generateKeys(nkeys);
     addMany(h, keys, ADD_SUCCESS);
 
-    std::string missingKey = "aMissingKey";
+    ItemKey missingKey("aMissingKey", 11, 0);
     cb_assert(h.find(missingKey) == NULL);
 
-    std::vector<std::string>::iterator it;
+    std::vector<ItemKey>::iterator it;
     for (it = keys.begin(); it != keys.end(); ++it) {
-        std::string key = *it;
+        ItemKey key = *it;
         cb_assert(h.find(key));
     }
 
     addMany(h, keys, ADD_EXISTS);
     for (it = keys.begin(); it != keys.end(); ++it) {
-        std::string key = *it;
+        ItemKey key = *it;
         cb_assert(h.find(key));
     }
 
@@ -375,7 +376,7 @@ static void testAdd() {
     cb_assert(!h.find(keys[0]));
     cb_assert(count(h) == nkeys - 1);
 
-    Item i(keys[0].data(), keys[0].length(), 0, 0, "newtest", 7);
+    Item i(keys[0], 0, 0, "newtest", 7);
     item_eviction_policy_t policy = VALUE_ONLY;
     cb_assert(h.add(i, policy) == ADD_UNDEL);
     cb_assert(count(h, false) == nkeys);
@@ -385,7 +386,7 @@ static void testDepthCounting() {
     HashTable h(global_stats, 5, 1);
     const int nkeys = 5000;
 
-    std::vector<std::string> keys = generateKeys(nkeys);
+    std::vector<ItemKey> keys = generateKeys(nkeys);
     storeMany(h, keys);
 
     HashTableDepthStatVisitor depthCounter;
@@ -395,7 +396,9 @@ static void testDepthCounting() {
 }
 
 static void testPoisonKey() {
-    std::string k("A\\NROBs_oc)$zqJ1C.9?XU}Vn^(LW\"`+K/4lykF[ue0{ram;fvId6h=p&Zb3T~SQ]82'ixDP");
+    const char poison[] = "A\\NROBs_oc)$zqJ1C.9?XU}Vn^(LW\"`+K/4lykF[ue0{ram;fv"
+                          "Id6h=p&Zb3T~SQ]82'ixDP";
+    ItemKey k(poison, sizeof(poison)-1, 0);
 
     HashTable h(global_stats, 5, 1);
 
@@ -410,12 +413,12 @@ static void testSizeStats() {
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
 
-    const std::string k("somekey");
+    const ItemKey k("somekey", 7, 0);
     const size_t itemSize(16 * 1024);
     char *someval(static_cast<char*>(calloc(1, itemSize)));
     cb_assert(someval);
 
-    Item i(k.data(), k.length(), 0, 0, someval, itemSize);
+    Item i(k, 0, 0, someval, itemSize);
 
     cb_assert(ht.set(i) == WAS_CLEAN);
 
@@ -435,12 +438,12 @@ static void testSizeStatsFlush() {
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
 
-    const std::string k("somekey");
+    const ItemKey k("somekey", 7, 0);
     const size_t itemSize(16 * 1024);
     char *someval(static_cast<char*>(calloc(1, itemSize)));
     cb_assert(someval);
 
-    Item i(k.data(), k.length(), 0, 0, someval, itemSize);
+    Item i(k, 0, 0, someval, itemSize);
 
     cb_assert(ht.set(i) == WAS_CLEAN);
 
@@ -460,12 +463,12 @@ static void testSizeStatsSoftDel() {
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
 
-    const std::string k("somekey");
+    const ItemKey k("somekey", 7, 0);
     const size_t itemSize(16 * 1024);
     char *someval(static_cast<char*>(calloc(1, itemSize)));
     cb_assert(someval);
 
-    Item i(k.data(), k.length(), 0, 0, someval, itemSize);
+    Item i(k, 0, 0, someval, itemSize);
 
     cb_assert(ht.set(i) == WAS_CLEAN);
 
@@ -486,12 +489,12 @@ static void testSizeStatsSoftDelFlush() {
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
 
-    const std::string k("somekey");
+    const ItemKey k("somekey", 7, 0);
     const size_t itemSize(16 * 1024);
     char *someval(static_cast<char*>(calloc(1, itemSize)));
     cb_assert(someval);
 
-    Item i(k.data(), k.length(), 0, 0, someval, itemSize);
+    Item i(k, 0, 0, someval, itemSize);
 
     cb_assert(ht.set(i) == WAS_CLEAN);
 
@@ -512,13 +515,13 @@ static void testSizeStatsEject() {
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
 
-    const std::string k("somekey");
-    std::string kstring(k);
+    const ItemKey k("somekey", 7, 0);
+    ItemKey kstring(k);
     const size_t itemSize(16 * 1024);
     char *someval(static_cast<char*>(calloc(1, itemSize)));
     cb_assert(someval);
 
-    Item i(k.data(), k.length(), 0, 0, someval, itemSize);
+    Item i(k, 0, 0, someval, itemSize);
 
     cb_assert(ht.set(i) == WAS_CLEAN);
 
@@ -544,18 +547,18 @@ static void testSizeStatsEjectFlush() {
     cb_assert(ht.cacheSize.load() == 0);
     size_t initialSize = global_stats.currentSize.load();
 
-    const std::string k("somekey");
-    std::string kstring(k);
+    ItemKey k("somekey", 7, 0);
+
     const size_t itemSize(16 * 1024);
     char *someval(static_cast<char*>(calloc(1, itemSize)));
     cb_assert(someval);
 
-    Item i(k.data(), k.length(), 0, 0, someval, itemSize);
+    Item i(k, 0, 0, someval, itemSize);
 
     cb_assert(ht.set(i) == WAS_CLEAN);
 
     item_eviction_policy_t policy = VALUE_ONLY;
-    StoredValue *v(ht.find(kstring));
+    StoredValue *v(ht.find(k));
     cb_assert(v);
     v->markClean();
     cb_assert(ht.unlocked_ejectItem(v, policy));
@@ -572,8 +575,9 @@ static void testSizeStatsEjectFlush() {
 static void testItemAge() {
     // Setup
     HashTable ht(global_stats, 5, 1);
-    std::string key("key");
-    Item item(key.data(), key.length(), 0, 0, "value", strlen("value"));
+    ItemKey key("key", 3, 0);
+    Item item(key, 0, 0, "value", strlen("value"));
+
     cb_assert(ht.set(item) == WAS_CLEAN);
 
     // Test
@@ -593,7 +597,7 @@ static void testItemAge() {
     cb_assert(v->getValue()->getAge() == 0);
 
     // Check changing age when new value is used.
-    Item item2(key.data(), key.length(), 0, 0, "value2", strlen("value2"));
+    Item item2(key, 0, 0, "value2", strlen("value2"));
     item2.getValue()->incrementAge();
     v->setValue(item2, ht, false);
     cb_assert(v->getValue()->getAge() == 1);

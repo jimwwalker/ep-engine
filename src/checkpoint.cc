@@ -93,7 +93,7 @@ void Checkpoint::setState(checkpoint_state state) {
 void Checkpoint::popBackCheckpointEndItem() {
     if (!toWrite.empty() &&
         toWrite.back()->getOperation() == queue_op_checkpoint_end) {
-        keyIndex.erase(toWrite.back()->getKey());
+        keyIndex.erase(toWrite.back()->getRawKey());
         toWrite.pop_back();
     }
 }
@@ -107,7 +107,7 @@ queue_dirty_t Checkpoint::queueDirty(const queued_item &qi,
     cb_assert(checkpointState == CHECKPOINT_OPEN);
     queue_dirty_t rv;
 
-    checkpoint_index::iterator it = keyIndex.find(qi->getKey());
+    checkpoint_index::iterator it = keyIndex.find(qi->getRawKey());
     // Check if this checkpoint already had an item for the same key.
     if (it != keyIndex.end()) {
         rv = EXISTING_ITEM;
@@ -119,7 +119,7 @@ queue_dirty_t Checkpoint::queueDirty(const queued_item &qi,
 
             if (*(map_it->second.currentCheckpoint) == this) {
                 queued_item &tqi = *(map_it->second.currentPos);
-                const std::string &key = tqi->getKey();
+                const std::string &key = tqi->getRawKey();
                 checkpoint_index::iterator ita = keyIndex.find(key);
                 if (ita != keyIndex.end()) {
                     uint64_t mutationId = ita->second.mutation_id;
@@ -158,7 +158,7 @@ queue_dirty_t Checkpoint::queueDirty(const queued_item &qi,
         index_entry entry = {--last, qi->getBySeqno()};
         // Set the index of the key to the new item that is pushed back into
         // the list.
-        keyIndex[qi->getKey()] = entry;
+        keyIndex[qi->getRawKey()] = entry;
         if (rv == NEW_ITEM) {
             size_t newEntrySize = qi->getNKey() + sizeof(index_entry) +
                                   sizeof(queued_item);
@@ -198,7 +198,7 @@ size_t Checkpoint::mergePrevCheckpoint(Checkpoint *pPrevCheckpoint) {
     (*itr)->setBySeqno(seqno);
 
     for (; rit != pPrevCheckpoint->rend(); ++rit) {
-        const std::string &key = (*rit)->getKey();
+        const std::string &key = (*rit)->getRawKey();
         if ((*rit)->getOperation() != queue_op_del &&
             (*rit)->getOperation() != queue_op_set) {
             continue;
@@ -810,7 +810,7 @@ void CheckpointManager::collapseClosedCheckpoints(
                 (*rit)->getCursorNameList().begin();
             for (; nameItr != (*rit)->getCursorNameList().end(); ++nameItr) {
                 cursor_index::iterator cc = connCursors.find(*nameItr);
-                const std::string& key = (*(cc->second.currentPos))->getKey();
+                const std::string& key = (*(cc->second.currentPos))->getRawKey();
                 bool cursor_on_chk_start = false;
                 if ((*(cc->second.currentPos))->getOperation() ==
                     queue_op_checkpoint_start) {
@@ -980,7 +980,7 @@ queued_item CheckpointManager::nextItem(const std::string &name,
         LOG(EXTENSION_LOG_WARNING,
         "The cursor with name \"%s\" is not found in the checkpoint of vbucket"
         "%d.\n", name.c_str(), vbucketId);
-        queued_item qi(new Item(std::string(""), 0xffff,
+        queued_item qi(new Item(ItemKey("", 0, 0), 0xffff,
                                 queue_op_empty, 0, 0));
         return qi;
     }
@@ -989,7 +989,7 @@ queued_item CheckpointManager::nextItem(const std::string &name,
             "VBucket %d is still in backfill phase that doesn't allow "
             " the cursor to fetch an item from it's current checkpoint",
             vbucketId);
-        queued_item qi(new Item(std::string(""), 0xffff,
+        queued_item qi(new Item(ItemKey("", 0, 0), 0xffff,
                                 queue_op_empty, 0, 0));
         return qi;
     }
@@ -1000,7 +1000,7 @@ queued_item CheckpointManager::nextItem(const std::string &name,
         return *(cursor.currentPos);
     } else {
         isLastMutationItem = false;
-        queued_item qi(new Item(std::string(""), 0xffff,
+        queued_item qi(new Item(ItemKey("", 0, 0), 0xffff,
                                 queue_op_empty, 0, 0));
         return qi;
     }
@@ -1351,7 +1351,7 @@ void CheckpointManager::collapseCheckpoints(uint64_t id) {
     cursor_index::iterator itr;
     for (itr = connCursors.begin(); itr != connCursors.end(); itr++) {
         Checkpoint* chk = *(itr->second.currentCheckpoint);
-        const std::string& key = (*(itr->second.currentPos))->getKey();
+        const std::string& key = (*(itr->second.currentPos))->getRawKey();
         bool cursor_on_chk_start = false;
         if ((*(itr->second.currentPos))->getOperation() == queue_op_checkpoint_start) {
             cursor_on_chk_start = true;
@@ -1396,7 +1396,7 @@ putCursorsInCollapsedChk(std::map<std::string, std::pair<uint64_t, bool> > &curs
     std::list<queued_item>::iterator cit = chk->begin();
     std::list<queued_item>::iterator last = chk->begin();
     for (i = 0; cit != chk->end(); ++i, ++cit) {
-        uint64_t id = chk->getMutationIdForKey((*cit)->getKey());
+        uint64_t id = chk->getMutationIdForKey((*cit)->getRawKey());
         std::map<std::string, std::pair<uint64_t, bool> >::iterator mit = cursors.begin();
         while (mit != cursors.end()) {
             std::pair<uint64_t, bool> val = mit->second;
@@ -1467,18 +1467,19 @@ queued_item CheckpointManager::createCheckpointItem(uint64_t id, uint16_t vbid,
            checkpoint_op == queue_op_empty);
 
     uint64_t bySeqno;
-    std::stringstream key;
+    std::string key;
     if (checkpoint_op == queue_op_checkpoint_start) {
-        key << "checkpoint_start";
+        key = "checkpoint_start";
         bySeqno = lastBySeqno + 1;
     } else if (checkpoint_op == queue_op_empty) {
-        key << "dummy_key";
+        key = "dummy_key";
         bySeqno = lastBySeqno;
     } else {
-        key << "checkpoint_end";
+        key = "checkpoint_end";
         bySeqno = lastBySeqno;
     }
-    queued_item qi(new Item(key.str(), vbid, checkpoint_op, id, bySeqno));
+    queued_item qi(new Item(ItemKey(key.c_str(), key.length(), 0),
+                            vbid, checkpoint_op, id, bySeqno));
     return qi;
 }
 

@@ -118,7 +118,7 @@ bool VKeyStatBGFetchTask::run() {
 
 bool BGFetchTask::run() {
     engine->getEpStore()->completeBGFetch(key, vbucket, cookie, init,
-                                          metaFetch);
+                                         metaFetch);
     return false;
 }
 

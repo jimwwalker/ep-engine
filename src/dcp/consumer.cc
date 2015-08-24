@@ -222,8 +222,7 @@ ENGINE_ERROR_CODE DcpConsumer::streamEnd(uint32_t opaque, uint16_t vbucket,
     return err;
 }
 
-ENGINE_ERROR_CODE DcpConsumer::mutation(uint32_t opaque, const void* key,
-                                        uint16_t nkey, const void* value,
+ENGINE_ERROR_CODE DcpConsumer::mutation(uint32_t opaque, const ItemKey& key, const void* value,
                                         uint32_t nvalue, uint64_t cas,
                                         uint16_t vbucket, uint32_t flags,
                                         uint8_t datatype, uint32_t locktime,
@@ -243,7 +242,7 @@ ENGINE_ERROR_CODE DcpConsumer::mutation(uint32_t opaque, const void* key,
     ENGINE_ERROR_CODE err = ENGINE_KEY_ENOENT;
     passive_stream_t stream = streams[vbucket];
     if (stream && stream->getOpaque() == opaque && stream->isActive()) {
-        Item *item = new Item(key, nkey, flags, exptime, value, nvalue,
+        Item *item = new Item(key, flags, exptime, value, nvalue,
                               &datatype, EXT_META_LEN, cas, bySeqno,
                               vbucket, revSeqno);
 
@@ -282,17 +281,16 @@ ENGINE_ERROR_CODE DcpConsumer::mutation(uint32_t opaque, const void* key,
     }
 
     uint32_t bytes =
-        MutationResponse::mutationBaseMsgBytes + nkey + nmeta + nvalue;
+        MutationResponse::mutationBaseMsgBytes + key.getKeyLen() + nmeta + nvalue;
     flowControl.incrFreedBytes(bytes);
 
     return err;
 }
 
-ENGINE_ERROR_CODE DcpConsumer::deletion(uint32_t opaque, const void* key,
-                                        uint16_t nkey, uint64_t cas,
-                                        uint16_t vbucket, uint64_t bySeqno,
-                                        uint64_t revSeqno, const void* meta,
-                                        uint16_t nmeta) {
+ENGINE_ERROR_CODE DcpConsumer::deletion(uint32_t opaque, const ItemKey& key,
+                                        uint64_t cas, uint16_t vbucket,
+                                        uint64_t bySeqno, uint64_t revSeqno,
+                                        const void* meta, uint16_t nmeta) {
     if (doDisconnect()) {
         return ENGINE_DISCONNECT;
     }
@@ -306,7 +304,7 @@ ENGINE_ERROR_CODE DcpConsumer::deletion(uint32_t opaque, const void* key,
     ENGINE_ERROR_CODE err = ENGINE_KEY_ENOENT;
     passive_stream_t stream = streams[vbucket];
     if (stream && stream->getOpaque() == opaque && stream->isActive()) {
-        Item* item = new Item(key, nkey, 0, 0, NULL, 0, NULL, 0, cas, bySeqno,
+        Item* item = new Item(key, 0, 0, NULL, 0, NULL, 0, cas, bySeqno,
                               vbucket, revSeqno);
         item->setDeleted();
 
@@ -344,18 +342,18 @@ ENGINE_ERROR_CODE DcpConsumer::deletion(uint32_t opaque, const void* key,
         return ENGINE_SUCCESS;
     }
 
-    uint32_t bytes = MutationResponse::deletionBaseMsgBytes + nkey + nmeta;
+    uint32_t bytes = MutationResponse::deletionBaseMsgBytes +
+                     key.getKeyLen() + nmeta;
     flowControl.incrFreedBytes(bytes);
 
     return err;
 }
 
-ENGINE_ERROR_CODE DcpConsumer::expiration(uint32_t opaque, const void* key,
-                                          uint16_t nkey, uint64_t cas,
-                                          uint16_t vbucket, uint64_t bySeqno,
-                                          uint64_t revSeqno, const void* meta,
-                                          uint16_t nmeta) {
-    return deletion(opaque, key, nkey, cas, vbucket, bySeqno, revSeqno, meta,
+ENGINE_ERROR_CODE DcpConsumer::expiration(uint32_t opaque, const ItemKey& key,
+                                          uint64_t cas, uint16_t vbucket,
+                                          uint64_t bySeqno, uint64_t revSeqno,
+                                          const void* meta, uint16_t nmeta) {
+    return deletion(opaque, key, cas, vbucket, bySeqno, revSeqno, meta,
                     nmeta);
 }
 
