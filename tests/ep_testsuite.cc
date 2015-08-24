@@ -13864,6 +13864,13 @@ static enum test_result test_defragmenter(ENGINE_HANDLE *h,
                 "Set defragmenter_enabled should have worked");
     }
 
+    // 4. set the age threshold to 0
+    // defragementer is a pool task and can only currently be adjusted away from default config
+    // via set_param which directs the defrag settings to the pool config
+    check(set_param(h, h1, protocol_binary_engine_param_flush, "defragmenter_age_threshold",
+                    "0"),
+          "Failed to set defragmenter_age_threshold");
+
     check(set_param(h, h1, protocol_binary_engine_param_flush, "defragmenter_run",
                     "true"),
           "Failed to trigger defragmenter");

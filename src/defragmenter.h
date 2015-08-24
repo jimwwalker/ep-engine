@@ -22,8 +22,8 @@
 
 #include "ep.h"
 #include "tasks.h"
+#include "storagepool.h"
 
-class EPStats;
 class DefragmentVisitor;
 
 /** Task responsible for defragmenting items in memory.
@@ -100,7 +100,7 @@ class DefragmentVisitor;
  */
 class DefragmenterTask : public GlobalTask {
 public:
-    DefragmenterTask(EventuallyPersistentEngine* e, EPStats& stats_);
+    DefragmenterTask(StoragePool* s, ALLOCATOR_HOOKS_API* alloc);
 
     ~DefragmenterTask();
 
@@ -112,7 +112,7 @@ public:
 
 private:
 
-    /// Duration (in seconds) defragmenter should sleep for between iterations.
+    // Duration (in seconds) defragmenter should sleep for between iterations.
     size_t getSleepTime() const;
 
     // Minimum age (measured in defragmenter task passes) that a document
@@ -123,17 +123,19 @@ private:
     // can run for, before being paused.
     size_t getChunkDurationMS() const;
 
-    /// Return the current number of mapped bytes from the allocator.
+    // Return the current number of mapped bytes from the allocator.
     size_t getMappedBytes();
 
-    /// Reference to EP stats, used to check on mem_used.
-    EPStats &stats;
+    // Opaque marker indicating how far through the storagepool we have visited.
+    StoragePool::Position store_position;
 
-    // Opaque marker indicating how far through the epStore we have visited.
-    EventuallyPersistentStore::Position epstore_position;
-
-    /// Visitor object in use.
+    // Visitor object in use.
     DefragmentVisitor* visitor;
+
+    // the pool owning this task
+    StoragePool* my_pool;
+
+    ALLOCATOR_HOOKS_API* alloc_hooks;
 };
 
 #endif /* DEFRAGMENTER_H_ */

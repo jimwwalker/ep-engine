@@ -16,9 +16,7 @@
  */
 #include "config.h"
 
-#include "bgfetcher.h"
 #include "ep_engine.h"
-#include "flusher.h"
 #include "tasks.h"
 #include "warmup.h"
 #include "ep_engine.h"
@@ -55,10 +53,6 @@ void GlobalTask::snooze(const double secs) {
         setState(TASK_SNOOZED, TASK_RUNNING);
         waketime += hrtime_t(secs * 1000000000);
     }
-}
-
-bool FlusherTask::run() {
-    return flusher->step(this);
 }
 
 bool VBSnapshotTask::run() {
@@ -99,10 +93,6 @@ bool StatSnap::run() {
     }
     ExecutorPool::get()->snooze(taskId, 60);
     return true;
-}
-
-bool BgFetcherTask::run() {
-    return bgfetcher->run(this);
 }
 
 bool FlushAllTask::run() {

@@ -29,7 +29,6 @@
 #include <vector>
 
 #include "atomic.h"
-#include "bgfetcher.h"
 #include "bloomfilter.h"
 #include "checkpoint.h"
 #include "common.h"
@@ -40,18 +39,6 @@
 const size_t MIN_CHK_FLUSH_TIMEOUT = 10; // 10 sec.
 const size_t MAX_CHK_FLUSH_TIMEOUT = 30; // 30 sec.
 static const int64_t INITIAL_DRIFT = -140737488355328; //lowest possible 48-bit integer
-
-struct HighPriorityVBEntry {
-    HighPriorityVBEntry() :
-        cookie(NULL), id(0), start(gethrtime()), isBySeqno_(false) { }
-    HighPriorityVBEntry(const void *c, uint64_t idNum, bool isBySeqno) :
-        cookie(c), id(idNum), start(gethrtime()), isBySeqno_(isBySeqno) { }
-
-    const void *cookie;
-    uint64_t id;
-    hrtime_t start;
-    bool isBySeqno_;
-};
 
 /**
  * Function object that returns true if the given vbucket is acceptable.
@@ -143,7 +130,7 @@ public:
 
     VBucket(int i, vbucket_state_t newState, EPStats &st,
             CheckpointConfig &chkConfig, KVShard *kvshard,
-            HashTable &hashTable,
+            HashTable &hashTable, StoragePoolShard *sps,
             int64_t lastSeqno, uint64_t lastSnapStart,
             uint64_t lastSnapEnd, FailoverTable *table,
             shared_ptr<Callback<uint16_t> > cb,
@@ -183,7 +170,8 @@ public:
         shard(kvshard),
         bFilter(NULL),
         tempFilter(NULL),
-        rollbackItemCount(0)
+        rollbackItemCount(0),
+        storagePoolShard(sps)
     {
         backfill.isBackfillPhase = false;
         pendingOpsStart = 0;
@@ -357,8 +345,7 @@ public:
     }
 
     bool getBGFetchItems(vb_bgfetch_queue_t &fetches);
-    void queueBGFetchItem(const ItemKey &key, VBucketBGFetchItem *fetch,
-                          BgFetcher *bgFetcher);
+    void queueBGFetchItem(const ItemKey &key, VBucketBGFetchItem *fetch);
     size_t numPendingBGFetchItems(void) {
         // do a dirty read of number of fetch items
         return pendingBGFetches.size();
@@ -447,6 +434,8 @@ public:
 
     void addPersistenceNotification(shared_ptr<Callback<uint64_t> > cb);
     void notifySeqnoPersisted(uint64_t highseqno);
+    void notifyFlusher(bucket_id_t bid);
+    rel_time_t findNextCheckpointWakeup();
 
     void incrRollbackItemCount(uint64_t val) {
         rollbackItemCount.fetch_add(val, std::memory_order_relaxed);
@@ -494,12 +483,27 @@ public:
     AtomicValue<size_t>  fileSize;
 
 private:
+
+    class HighPriorityVBEntry {
+    public:
+        HighPriorityVBEntry(const void *c, uint64_t idNum, bool isBySeqno);
+
+        const void *cookie;
+        uint64_t id;
+        bool isBySeqno_;
+        rel_time_t creationTime;
+
+    private:
+        HighPriorityVBEntry() :
+            cookie(NULL), id(0), isBySeqno_(false), creationTime(ep_current_time()) { }
+    };
+
     template <typename T>
     void addStat(const char *nm, const T &val, ADD_STAT add_stat, const void *c);
 
     void fireAllOps(EventuallyPersistentEngine &engine, ENGINE_ERROR_CODE code);
 
-    void adjustCheckpointFlushTimeout(size_t wall_time);
+    void adjustCheckpointFlushTimeout(rel_time_t elapsedTime);
 
     int                      id;
     AtomicValue<vbucket_state_t>  state;
@@ -542,6 +546,8 @@ private:
     AtomicValue<uint64_t> rollbackItemCount;
 
     static size_t chkFlushTimeout;
+
+    StoragePoolShard* storagePoolShard;
 
     DISALLOW_COPY_AND_ASSIGN(VBucket);
 };

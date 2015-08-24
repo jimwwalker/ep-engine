@@ -36,7 +36,6 @@
 #include "backfill.h"
 #include "ep_engine.h"
 #include "failover-table.h"
-#include "flusher.h"
 #include "connmap.h"
 #include "htresizer.h"
 #include "memory_tracker.h"
@@ -139,6 +138,7 @@ extern "C" {
     static void EvpDestroy(ENGINE_HANDLE* handle, const bool force)
     {
         getHandle(handle)->destroy(force);
+        StoragePool::getStoragePool().engineShuttingDown(getHandle(handle));
         delete getHandle(handle);
         releaseHandle(NULL);
     }
@@ -545,24 +545,24 @@ extern "C" {
                 }
             } else if (strcmp(keyz, "defragmenter_enabled") == 0) {
                 if (strcmp(valz, "true") == 0) {
-                    e->getConfiguration().setDefragmenterEnabled(true);
+                    e->getStoragePool().getConfiguration().setDefragmenterEnabled(true);
                 } else {
-                    e->getConfiguration().setDefragmenterEnabled(false);
+                    e->getStoragePool().getConfiguration().setDefragmenterEnabled(false);
                 }
             } else if (strcmp(keyz, "defragmenter_interval") == 0) {
                 checkNumeric(valz);
                 validate(v, 1, std::numeric_limits<int>::max());
-                e->getConfiguration().setDefragmenterInterval(v);
+                e->getStoragePool().getConfiguration().setDefragmenterInterval(v);
             } else if (strcmp(keyz, "defragmenter_age_threshold") == 0) {
                 checkNumeric(valz);
                 validate(v, 0, std::numeric_limits<int>::max());
-                e->getConfiguration().setDefragmenterAgeThreshold(v);
+                e->getStoragePool().getConfiguration().setDefragmenterAgeThreshold(v);
             } else if (strcmp(keyz, "defragmenter_chunk_duration") == 0) {
                 checkNumeric(valz);
                 validate(v, 1, std::numeric_limits<int>::max());
-                e->getConfiguration().setDefragmenterChunkDuration(v);
+                e->getStoragePool().getConfiguration().setDefragmenterChunkDuration(v);
             } else if (strcmp(keyz, "defragmenter_run") == 0) {
-                e->runDefragmenterTask();
+                e->getStoragePool().runDefragmenterTask();
             } else if (strcmp(keyz, "compaction_write_queue_cap") == 0) {
                 checkNumeric(valz);
                 validate(v, 1, std::numeric_limits<int>::max());
@@ -1815,7 +1815,7 @@ extern "C" {
 
         ObjectRegistry::setStats(inital_tracking);
         EventuallyPersistentEngine *engine;
-        engine = new EventuallyPersistentEngine(get_server_api);
+        engine = StoragePool::getStoragePool().createEngine(get_server_api);
         ObjectRegistry::setStats(NULL);
 
         if (engine == NULL) {
@@ -1842,7 +1842,10 @@ extern "C" {
         Global clean-up should be performed from this method.
     */
     void destroy_engine() {
+        StoragePool::getStoragePool().shutdown();
+
         ExecutorPool::shutdown();
+
         // A single MemoryTracker exists for *all* buckets
         // and must be destroyed before unloading the shared object.
         MemoryTracker::destroyInstance();
@@ -1998,7 +2001,9 @@ EventuallyPersistentEngine::EventuallyPersistentEngine(
     ENGINE_HANDLE_V1::dcp.control = EvpDcpControl;
     ENGINE_HANDLE_V1::dcp.response_handler = EvpDcpResponseHandler;
 
-    serverApi = getServerApiFunc();
+    if (get_server_api != NULL) {
+        serverApi = getServerApiFunc();
+    }
     memset(&info, 0, sizeof(info));
     info.info.description = "EP engine v" VERSION;
     info.info.features[info.info.num_features++].feature = ENGINE_FEATURE_CAS;
@@ -2006,6 +2011,7 @@ EventuallyPersistentEngine::EventuallyPersistentEngine(
                                              ENGINE_FEATURE_PERSISTENT_STORAGE;
     info.info.features[info.info.num_features++].feature = ENGINE_FEATURE_LRU;
     info.info.features[info.info.num_features++].feature = ENGINE_FEATURE_DATATYPE;
+    bucketId = staticBucketID++;
 
     // TYNSET TODO: memcached will manage and pass in via create_instance
     bucketId = staticBucketID++;
@@ -2974,7 +2980,6 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::ConnHandlerCheckPoint(
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
 
     if (consumer->processCheckpointCommand(event, vbucket, checkpointId)) {
-        getEpStore()->wakeUpFlusher();
         ret = ENGINE_SUCCESS;
     }
     else {
@@ -3152,7 +3157,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doEngineStats(const void *cookie,
     add_casted_stat("ep_diskqueue_items",
                     epstats.diskQueueSize, add_stat, cookie);
     add_casted_stat("ep_flusher_state",
-                    epstore->getFlusher(0)->stateName(),
+                    getStoragePool().isFlushingPaused(getBucketId()) ? "paused" : "running",
                     add_stat, cookie);
     add_casted_stat("ep_commit_num", epstats.flusherCommits,
                     add_stat, cookie);
@@ -4535,10 +4540,6 @@ void EventuallyPersistentEngine::addLookupAllKeys(const void *cookie,
     allKeysLookups[cookie] = err;
 }
 
-void EventuallyPersistentEngine::runDefragmenterTask(void) {
-    epstore->runDefragmenterTask();
-}
-
 void EventuallyPersistentEngine::runAccessScannerTask(void) {
     epstore->runAccessScannerTask();
 }
@@ -5052,7 +5053,7 @@ EventuallyPersistentEngine::handleCheckpointCmds(const void *cookie,
         } else {
             uint64_t checkpointId = htonll(vb->checkpointManager.
                                            createNewCheckpoint());
-            getEpStore()->wakeUpFlusher();
+            vb->notifyFlusher(getBucketId());
 
             uint64_t persistedChkId = htonll(epstore->
                                    getLastPersistedCheckpointId(vb->getId()));
@@ -5080,10 +5081,11 @@ EventuallyPersistentEngine::handleCheckpointCmds(const void *cookie,
                 chk_id = ntohll(chk_id);
                 void *es = getEngineSpecific(cookie);
                 if (!es) {
+
                     vb->addHighPriorityVBEntry(chk_id, cookie, false);
                     storeEngineSpecific(cookie, this);
                     // Wake up the flusher if it is idle.
-                    getEpStore()->wakeUpFlusher();
+                    vb->notifyFlusher(getBucketId());
                     return ENGINE_EWOULDBLOCK;
                 } else {
                     storeEngineSpecific(cookie, NULL);
@@ -6340,6 +6342,10 @@ EventuallyPersistentEngine::~EventuallyPersistentEngine() {
     delete checkpointConfig;
     delete replicationThrottle;
     free(clusterConfig.config);
+}
+
+void EventuallyPersistentEngine::wakeFlusherForFlushAll() {
+    getStoragePool().wakeFlusherForFlushAll(getBucketId());
 }
 
 const std::string& EpEngineTaskable::getName() const {

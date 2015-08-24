@@ -120,58 +120,66 @@ SET(OBJECTREGISTRY_SOURCE src/objectregistry.cc)
 SET(CONFIG_SOURCE src/configuration.cc
   ${CMAKE_CURRENT_BINARY_DIR}/src/generated_configuration.cc)
 
+SET(SIZES_SOURCE src/sizes.cc)
+
+SET(EP_ENGINE_SOURCE
+    src/access_scanner.cc
+    src/atomic.cc
+    src/backfill.cc
+    src/bloomfilter.cc
+    src/checkpoint.cc
+    src/checkpoint_remover.cc
+    src/compress.cc
+    src/conflict_resolution.cc
+    src/dcp/backfill-manager.cc
+    src/dcp/backfill.cc
+    src/dcp/consumer.cc
+    src/dcp/flow-control.cc
+    src/dcp/flow-control-manager.cc
+    src/dcp/producer.cc
+    src/dcp/response.cc
+    src/dcp/stream.cc
+    src/defragmenter.cc
+    src/defragmenter_visitor.cc
+    src/ep.cc
+    src/ep_engine.cc
+    src/ep_time.c
+    src/executorpool.cc
+    src/ext_meta_parser.cc
+    src/failover-table.cc
+    src/htresizer.cc
+    src/item.cc
+    src/item_pager.cc
+    src/kvshard.cc
+    src/memory_tracker.cc
+    src/murmurhash3.cc
+    src/mutation_log.cc
+    src/mutex.cc
+    src/priority.cc
+    src/executorthread.cc
+    ${CMAKE_CURRENT_BINARY_DIR}/src/stats-info.c
+    src/stored-value.cc
+    src/tapconnection.cc
+    src/connmap.cc
+    src/replicationthrottle.cc
+    src/tasks.cc
+    src/taskqueue.cc
+    src/vbucket.cc
+    src/vbucketmap.cc
+    src/warmup.cc
+    src/storagepool.cc
+    src/storagepool_shard.cc
+    src/storagepool_fetcher.cc
+    src/storagepool_flusher.cc)
+
 ADD_LIBRARY(ep SHARED
-            src/access_scanner.cc
-            src/atomic.cc
-            src/backfill.cc
-            src/bgfetcher.cc
-            src/bloomfilter.cc
-            src/checkpoint.cc
-            src/checkpoint_remover.cc
-            src/compress.cc
-            src/conflict_resolution.cc
-            src/connmap.cc
-            src/dcp/backfill-manager.cc
-            src/dcp/backfill.cc
-            src/dcp/consumer.cc
-            src/dcp/flow-control.cc
-            src/dcp/flow-control-manager.cc
-            src/dcp/producer.cc
-            src/dcp/response.cc
-            src/dcp/stream.cc
-            src/defragmenter.cc
-            src/defragmenter_visitor.cc
-            src/ep.cc
-            src/ep_engine.cc
-            src/ep_time.c
-            src/executorpool.cc
-            src/executorthread.cc
-            src/ext_meta_parser.cc
-            src/failover-table.cc
-            src/flusher.cc
-            src/htresizer.cc
-            src/item.cc
-            src/item_pager.cc
-            src/kvshard.cc
-            src/memory_tracker.cc
-            src/murmurhash3.cc
-            src/mutation_log.cc
-            src/mutex.cc
-            src/priority.cc
-            src/replicationthrottle.cc
-            src/sizes.cc
-            ${CMAKE_CURRENT_BINARY_DIR}/src/stats-info.c
-            src/stored-value.cc
-            src/tapconnection.cc
-            src/tasks.cc
-            src/taskqueue.cc
-            src/vbucket.cc
-            src/vbucketmap.cc
-            src/warmup.cc
-            src/storagepool.cc
-            ${KVSTORE_SOURCE} ${COUCH_KVSTORE_SOURCE}
-            ${FOREST_KVSTORE_SOURCE} ${OBJECTREGISTRY_SOURCE}
-            ${CONFIG_SOURCE})
+            ${EP_ENGINE_SOURCE}
+            ${KVSTORE_SOURCE}
+            ${COUCH_KVSTORE_SOURCE}
+            ${FOREST_KVSTORE_SOURCE}
+            ${OBJECTREGISTRY_SOURCE}
+            ${CONFIG_SOURCE}
+            ${SIZES_SOURCE})
 
 SET_TARGET_PROPERTIES(ep PROPERTIES PREFIX "")
 TARGET_LINK_LIBRARIES(ep cJSON JSON_checker couchstore forestdb
@@ -208,22 +216,13 @@ TARGET_LINK_LIBRARIES(ep-engine_atomic_test platform)
 
 ADD_EXECUTABLE(ep-engine_checkpoint_test
   tests/module_tests/checkpoint_test.cc
-  src/atomic.cc
-  src/bloomfilter.cc
-  src/checkpoint.cc
-  src/compress.cc
-  src/failover-table.cc
-  src/item.cc
-  src/mutex.cc
-  src/murmurhash3.cc
-  src/stored-value.cc
-  src/testlogger.cc
-  src/vbucket.cc
-  src/vbucket.cc
-  src/storagepool.cc
-  tests/module_tests/test_memory_tracker.cc
-  ${OBJECTREGISTRY_SOURCE} ${CONFIG_SOURCE})
-TARGET_LINK_LIBRARIES(ep-engine_checkpoint_test ${SNAPPY_LIBRARIES} cJSON platform)
+  ${EP_ENGINE_SOURCE}
+  ${KVSTORE_SOURCE}
+  ${COUCH_KVSTORE_SOURCE}
+  ${FOREST_KVSTORE_SOURCE}
+  ${OBJECTREGISTRY_SOURCE}
+  ${CONFIG_SOURCE})
+TARGET_LINK_LIBRARIES(ep-engine_checkpoint_test ${SNAPPY_LIBRARIES} couchstore forestdb dirutils cJSON JSON_checker platform)
 
 ADD_EXECUTABLE(ep-engine_chunk_creation_test
   tests/module_tests/chunk_creation_test.cc)
@@ -300,29 +299,19 @@ ADD_LIBRARY(timing_tests SHARED tests/module_tests/timing_tests.cc)
 SET_TARGET_PROPERTIES(timing_tests PROPERTIES PREFIX "")
 TARGET_LINK_LIBRARIES(timing_tests platform)
 
-ADD_EXECUTABLE(ep-engine_sizes src/sizes.cc src/mutex.h src/mutex.cc src/testlogger.cc
+ADD_EXECUTABLE(ep-engine_sizes ${SIZES_SOURCE} src/mutex.h src/mutex.cc src/testlogger.cc
               ${OBJECTREGISTRY_SOURCE} ${CONFIG_SOURCE})
 TARGET_LINK_LIBRARIES(ep-engine_sizes platform)
 
 ADD_EXECUTABLE(ep-engine_defragmenter_test
-               tests/module_tests/defragmenter_test.cc
-               src/bloomfilter.cc
-               src/checkpoint.cc
-               src/compress.cc
-               src/configuration.cc
-               src/defragmenter_visitor.cc
-               src/ep_time.c
-               src/generated_configuration.cc
-               src/failover-table.cc
-               src/item.cc
-               src/murmurhash3.cc
-               src/mutex.cc
-               src/stored-value.cc
-               src/testlogger.cc
-               src/vbucket.cc
-               src/storagepool.cc
-               ${OBJECTREGISTRY_SOURCE})
-TARGET_LINK_LIBRARIES(ep-engine_defragmenter_test cJSON platform ${SNAPPY_LIBRARIES})
+  tests/module_tests/defragmenter_test.cc
+  ${EP_ENGINE_SOURCE}
+  ${KVSTORE_SOURCE}
+  ${COUCH_KVSTORE_SOURCE}
+  ${FOREST_KVSTORE_SOURCE}
+  ${OBJECTREGISTRY_SOURCE}
+  ${CONFIG_SOURCE})
+TARGET_LINK_LIBRARIES(ep-engine_defragmenter_test ${SNAPPY_LIBRARIES} couchstore forestdb dirutils cJSON JSON_checker platform)
 
 ADD_LIBRARY(ep_testsuite SHARED
    tests/ep_testsuite.cc

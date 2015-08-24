@@ -28,10 +28,10 @@
 #include <sstream>
 #include <vector>
 
-#include "bgfetcher.h"
 #include "callbacks.h"
 #include "kvstore.h"
 
+class EventuallyPersistentStore;
 
 /**
  * Base class encapsulating individual couchstore(vbucket) into a
@@ -53,15 +53,12 @@
  *   |                                 |
  *   | vbuckets: VBucket[] (partitions)|----> [(VBucket),(VBucket)..]
  *   |                                 |
- *   | flusher: Flusher                |
- *   | BGFetcher: bgFetcher            |
  *   |                                 |
  *   | rwUnderlying: KVStore (write)   |----> (CouchKVStore)
  *   | roUnderlying: KVStore (read)    |----> (CouchKVStore)
  *   -----------------------------------
  *
  */
-class Flusher;
 
 class KVShard {
     friend class VBucketMap;
@@ -71,11 +68,6 @@ public:
 
     KVStore *getRWUnderlying();
     KVStore *getROUnderlying();
-
-    Flusher *getFlusher();
-    BgFetcher *getBgFetcher();
-
-    void notifyFlusher();
 
     RCPtr<VBucket> getBucket(uint16_t id) const;
     void setBucket(const RCPtr<VBucket> &b);
@@ -137,14 +129,21 @@ public:
         return lowPrioritySnapshot;
     }
 
+    uint16_t getCommitInterval(void) {
+        return currCommitInterval;
+    }
+
+    uint16_t decrCommitInterval(void);
+
+    void resetCommitInterval(void) {
+        currCommitInterval = initCommitInterval;
+    }
+
 private:
     RCPtr<VBucket> *vbuckets;
 
     KVStore    *rwUnderlying;
     KVStore    *roUnderlying;
-
-    Flusher    *flusher;
-    BgFetcher  *bgFetcher;
 
     size_t maxVbuckets;
     uint16_t shardId;
@@ -153,6 +152,9 @@ private:
     AtomicValue<bool> lowPrioritySnapshot;
 
     KVStoreConfig kvConfig;
+
+    uint16_t                 initCommitInterval;
+    uint16_t                 currCommitInterval;
 
 public:
     AtomicValue<size_t> highPriorityCount;
@@ -165,13 +167,14 @@ public:
  */
 class NotifyFlusherCB: public Callback<uint16_t> {
 public:
-    NotifyFlusherCB(KVShard *sh)
-        : shard(sh) {}
+    NotifyFlusherCB(StoragePoolShard *sh, bucket_id_t bId)
+        : storagePoolShard(sh), bucketId(bId) {}
 
-    void callback(uint16_t &vb);
+    void callback(uint16_t &vbid);
 
 private:
-    KVShard *shard;
+    StoragePoolShard *storagePoolShard;
+    bucket_id_t bucketId;
 };
 
 #endif  // SRC_KVSHARD_H_

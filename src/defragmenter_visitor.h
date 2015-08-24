@@ -25,7 +25,7 @@ class ProgressTracker;
 /** Defragmentation visitor - visit all objects and defragment
  *
  */
-class DefragmentVisitor : public PauseResumeEPStoreVisitor,
+class DefragmentVisitor : public PauseResumeStoragePoolVisitor,
                           public PauseResumeHashTableVisitor {
 public:
     DefragmentVisitor(uint8_t age_threshold_);
@@ -36,13 +36,13 @@ public:
     void setDeadline(hrtime_t deadline_);
 
     // Implementation of PauseResumeEPStoreVisitor interface:
-    virtual bool visit(uint16_t vbucket_id, HashTable& ht);
+    virtual bool visit(uint16_t vbucket_id, HashTableStorage& ht);
 
     // Implementation of PauseResumeHashTableVisitor interface:
     virtual bool visit(StoredValue& v);
 
     // Returns the current hashtable position.
-    HashTable::Position getHashtablePosition() const;
+    HashTableStorage::Position getHashtablePosition() const;
 
     // Resets any held stats to zero.
     void clearStats();
@@ -71,7 +71,7 @@ private:
     uint16_t resume_vbucket_id;
 
     // When pausing / resuming, hashtable position to use.
-    HashTable::Position hashtable_position;
+    HashTableStorage::Position hashtable_position;
 
     /* Statistics */
     // Count of how many documents have been defrag'd.

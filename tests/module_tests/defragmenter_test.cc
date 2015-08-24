@@ -17,7 +17,6 @@
 
 #include "defragmenter_visitor.h"
 #include "storagepool.h"
-
 #include <iomanip>
 #include <locale>
 
@@ -48,10 +47,6 @@ public:
  * items were added.
  */
 static size_t populateVbucket(VBucket& vbucket, size_t ndocs) {
-
-    /* Set the hashTable to a sensible size */
-    vbucket.ht.resize(ndocs);
-
     /* Store items */
     char value[256];
     hrtime_t start = gethrtime();
@@ -78,7 +73,7 @@ static size_t populateVbucket(VBucket& vbucket, size_t ndocs) {
  * Setup a Defragmenter, then time how long it takes to visit them all
  * documents in the given vbucket, npasses times.
  */
-static size_t benchmarkDefragment(VBucket& vbucket, size_t passes,
+static size_t benchmarkDefragment(StoragePool &sp, VBucket& vbucket, size_t passes,
                                   uint8_t age_threshold,
                                   size_t chunk_duration_ms) {
     // Create and run visitor for the specified number of iterations, with
@@ -88,11 +83,13 @@ static size_t benchmarkDefragment(VBucket& vbucket, size_t passes,
     for (size_t i = 0; i < passes; i++) {
         // Loop until we get to the end; this may take multiple chunks depending
         // on the chunk_duration.
-        HashTable::Position pos;
-        while (pos != vbucket.ht.endPosition()) {
+
+        StoragePool::Position pos = sp.startPosition();
+
+        while (pos != sp.endPosition()) {
             visitor.setDeadline(gethrtime() +
                                  (chunk_duration_ms * 1000 * 1000));
-            pos = vbucket.ht.pauseResumeVisit(visitor, pos);
+            pos = sp.pauseResumeVisit(visitor, pos);
         }
     }
     hrtime_t end = gethrtime();
@@ -114,6 +111,7 @@ int main(void) {
     start_time = time(0);
     ep_abs_time = mock_abstime;
     ep_current_time = mock_current_time;
+    const size_t ndocs = 50000;
 
     putenv(strdup("ALLOW_NO_STATS_UPDATE=1"));
 
@@ -122,29 +120,34 @@ int main(void) {
     CheckpointConfig config;
     shared_ptr<Callback<uint16_t> > cb(new DummyCB());
 
-    HashTableStorage hts;
-    HashTable ht(0, &hts, stats);
-    VBucket vbucket(0, vbucket_state_active, stats, config, NULL, ht, 0, 0, 0, NULL,
-                    cb);
+    StoragePool sp;
+    HashTable& ht = sp.createHashTable(0, 0, stats);
+
+    /* Set the hashTable to a sensible size (before creating the vbucket) */
+    ht.resize(ndocs);
+
+    VBucket vbucket(0, vbucket_state_active, stats, config,
+                    NULL, ht, NULL, 0,
+                    0, 0, NULL, cb);
 
     const size_t one_minute = 60 * 1000;
 
-    size_t populateRate = populateVbucket(vbucket, 500000);
+    size_t populateRate = populateVbucket(vbucket, ndocs);
     printResult("populateRate", populateRate, "items/sec");
 
-    size_t visit_rate = benchmarkDefragment(vbucket, 1,
+    size_t visit_rate = benchmarkDefragment(sp, vbucket, 1,
                                             std::numeric_limits<uint8_t>::max(),
                                             one_minute);
     printResult("visitRate", visit_rate, "items/sec");
 
-    size_t defrag_always_rate = benchmarkDefragment(vbucket, 1, 0,
+    size_t defrag_always_rate = benchmarkDefragment(sp, vbucket, 1, 0,
                                                     one_minute);
     printResult("defragAlwaysRate", defrag_always_rate, "items/sec");
 
-    size_t defrag_age10_rate = benchmarkDefragment(vbucket, 1, 10,
+    size_t defrag_age10_rate = benchmarkDefragment(sp, vbucket, 1, 10,
                                                    one_minute);
     printResult("defragAge10Rate", defrag_age10_rate, "items/sec");
 
-    size_t defrag_age10_20ms_rate = benchmarkDefragment(vbucket, 1, 10, 20);
+    size_t defrag_age10_20ms_rate = benchmarkDefragment(sp, vbucket, 1, 10, 20);
     printResult("defragAge10Rate_20ms", defrag_age10_20ms_rate, "items/sec");
 }

@@ -34,11 +34,9 @@ enum task_state_t {
     TASK_DEAD
 };
 
-class BgFetcher;
 class CompareTasksByDueDate;
 class CompareTasksByPriority;
 class EventuallyPersistentEngine;
-class Flusher;
 class Warmup;
 class Taskable;
 
@@ -146,30 +144,6 @@ protected:
 };
 
 typedef SingleThreadedRCPtr<GlobalTask> ExTask;
-
-/**
- * A task for persisting items to disk.
- */
-class FlusherTask : public GlobalTask {
-public:
-    FlusherTask(EventuallyPersistentEngine *e, Flusher* f, const Priority &p,
-                uint16_t shardid, bool completeBeforeShutdown = true) :
-                GlobalTask(e, p, 0, completeBeforeShutdown), flusher(f) {
-        std::stringstream ss;
-        ss<<"Running a flusher loop: shard "<<shardid;
-        desc = ss.str();
-    }
-
-    bool run();
-
-    std::string getDescription() {
-        return desc;
-    }
-
-private:
-    Flusher* flusher;
-    std::string desc;
-};
 
 /**
  * A task for persisting VBucket state changes to disk and creating new
@@ -317,27 +291,6 @@ public:
 
 private:
     bool runOnce;
-};
-
-/**
- * A task for fetching items from disk.
- */
-class BgFetcherTask : public GlobalTask {
-public:
-    BgFetcherTask(EventuallyPersistentEngine *e, BgFetcher *b,
-                  const Priority &p, bool sleeptime = 0,
-                  bool completeBeforeShutdown = false) :
-        GlobalTask(e, p, sleeptime, completeBeforeShutdown),
-        bgfetcher(b) { }
-
-    bool run();
-
-    std::string getDescription() {
-        return std::string("Batching background fetch");
-    }
-
-private:
-    BgFetcher *bgfetcher;
 };
 
 /**

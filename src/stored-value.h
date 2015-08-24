@@ -938,7 +938,47 @@ private:
  */
 class HashTableStorage {
 public:
-       HashTableStorage(size_t s = 0, size_t l = 0)
+
+    /**
+     * Represents a position within the hashtable.
+     *
+     * Currently opaque (and constant), clients can pass them around but
+     * cannot reposition the iterator.
+     */
+    class Position {
+    public:
+        // Allow default construction positioned at the start,
+        // but nothing else.
+        Position() : ht_size(0), lock(0), hash_bucket(0) {}
+
+        bool operator==(const Position& other) const {
+            return (ht_size == other.ht_size) &&
+                   (lock == other.lock) &&
+                   (hash_bucket == other.hash_bucket);
+        }
+
+        bool operator!=(const Position& other) const {
+            return ! (*this == other);
+        }
+
+    private:
+        Position(size_t ht_size_, int lock_, int hash_bucket_)
+          : ht_size(ht_size_),
+            lock(lock_),
+            hash_bucket(hash_bucket_) {}
+
+        // Size of the hashtable when the position was created.
+        size_t ht_size;
+        // Lock ID we are up to.
+        size_t lock;
+        // hash bucket ID (under the given lock) we are up to.
+        size_t hash_bucket;
+
+        friend HashTableStorage;
+        friend std::ostream& operator<<(std::ostream& os, const Position& pos);
+    };
+
+    HashTableStorage(size_t s = 0, size_t l = 0)
          : numItems(0), visitors(0) {
         size = getNumBuckets(s);
         n_locks = getNumLocks(l);
@@ -1032,6 +1072,36 @@ public:
     HashTableStatVisitor clearBucketUnlocked(bucket_id_t deleteMe);
 
     /**
+     * Visit the items in this hashtable, starting the iteration from the
+     * given startPosition and allowing the visit to be paused at any point.
+     *
+     * During visitation, the visitor object can request that the visit
+     * is stopped after the current item. The position passed to the
+     * visitor can then be used to restart visiting at the *APPROXIMATE*
+     * same position as it paused.
+     * This is approximate as hashtable locks are released when the
+     * function returns, so any changes to the hashtable may cause the
+     * visiting to restart at the slightly different place.
+     *
+     * As a consequence, *DO NOT USE THIS METHOD* if you need to guarantee
+     * that all items are visited!
+     *
+     * @param visitor The visitor object to use.
+     * @param start_pos At what position to start in the hashtable.
+     * @return The final HashTable position visited; equal to
+     *         HashTable::end() if all items were visited otherwise the
+     *         position to resume from.
+     */
+    Position pauseResumeVisit(PauseResumeHashTableVisitor& visitor,
+                              Position& start_pos);
+
+    /**
+     * Return a position at the end of the hashtable. Has similar semantics
+     * as STL end() (i.e. one past the last element).
+     */
+    Position endPosition() const;
+
+    /**
      * Set the default number of buckets.
      */
     static void setDefaultNumBuckets(size_t n);
@@ -1072,45 +1142,6 @@ class HashTable {
 public:
 
     /**
-     * Represents a position within the hashtable.
-     *
-     * Currently opaque (and constant), clients can pass them around but
-     * cannot reposition the iterator.
-     */
-    class Position {
-    public:
-        // Allow default construction positioned at the start,
-        // but nothing else.
-        Position() : ht_size(0), lock(0), hash_bucket(0) {}
-
-        bool operator==(const Position& other) const {
-            return (ht_size == other.ht_size) &&
-                   (lock == other.lock) &&
-                   (hash_bucket == other.hash_bucket);
-        }
-
-        bool operator!=(const Position& other) const {
-            return ! (*this == other);
-        }
-
-    private:
-        Position(size_t ht_size_, int lock_, int hash_bucket_)
-          : ht_size(ht_size_),
-            lock(lock_),
-            hash_bucket(hash_bucket_) {}
-
-        // Size of the hashtable when the position was created.
-        size_t ht_size;
-        // Lock ID we are up to.
-        size_t lock;
-        // hash bucket ID (under the given lock) we are up to.
-        size_t hash_bucket;
-
-        friend class HashTable;
-        friend std::ostream& operator<<(std::ostream& os, const Position& pos);
-    };
-
-    /**
      * Create a HashTable.
      *
      * @param bucketId for the bucket owning this HashTable (safe deletion)
@@ -1137,9 +1168,14 @@ public:
     }
 
     size_t memorySize() {
+        /* TYNSET TODO:
+        Should we be returning storage sizes here? storage points
+        to a now 'global' hashtable that all buckets are using.
+        should it be attribute to each bucket's memoryOverhead */
         return sizeof(HashTable)
             + (storage->getSize() * sizeof(StoredValue*))
             + (storage->getNumLocks() * sizeof(Mutex));
+
     }
 
     /**
@@ -1794,36 +1830,6 @@ public:
      * Visit all items within this call with a depth visitor.
      */
     void visitDepth(HashTableDepthVisitor &visitor);
-
-    /**
-     * Visit the items in this hashtable, starting the iteration from the
-     * given startPosition and allowing the visit to be paused at any point.
-     *
-     * During visitation, the visitor object can request that the visit
-     * is stopped after the current item. The position passed to the
-     * visitor can then be used to restart visiting at the *APPROXIMATE*
-     * same position as it paused.
-     * This is approximate as hashtable locks are released when the
-     * function returns, so any changes to the hashtable may cause the
-     * visiting to restart at the slightly different place.
-     *
-     * As a consequence, *DO NOT USE THIS METHOD* if you need to guarantee
-     * that all items are visited!
-     *
-     * @param visitor The visitor object to use.
-     * @param start_pos At what position to start in the hashtable.
-     * @return The final HashTable position visited; equal to
-     *         HashTable::end() if all items were visited otherwise the
-     *         position to resume from.
-     */
-    Position pauseResumeVisit(PauseResumeHashTableVisitor& visitor,
-                              Position& start_pos);
-
-    /**
-     * Return a position at the end of the hashtable. Has similar semantics
-     * as STL end() (i.e. one past the last element).
-     */
-    Position endPosition() const;
 
     /**
      * Get the number of buckets that should be used for initialization.

@@ -38,7 +38,6 @@
 #include <vector>
 
 #include "atomic.h"
-#include "bgfetcher.h"
 #include "item_pager.h"
 #include "kvstore.h"
 #include "locks.h"
@@ -439,17 +438,6 @@ public:
 
     double getBGFetchDelay(void) { return (double)bgFetchDelay; }
 
-    void stopFlusher(void);
-
-    bool startFlusher(void);
-
-    bool pauseFlusher(void);
-    bool resumeFlusher(void);
-    void wakeUpFlusher(void);
-
-    bool startBgFetcher(void);
-    void stopBgFetcher(void);
-
     /**
      * Takes a snapshot of the current stats and persists them to disk.
      */
@@ -589,41 +577,6 @@ public:
         return ExecutorPool::get()->schedule(new VBCBAdaptor(this, visitor,
                                              lbl, prio, sleepTime), taskGroup);
     }
-
-    /**
-     * Visit the items in this epStore, starting the iteration from the
-     * given startPosition and allowing the visit to be paused at any point.
-     *
-     * During visitation, the visitor object can request that the visit
-     * is stopped after the current item. The position passed to the
-     * visitor can then be used to restart visiting at the *APPROXIMATE*
-     * same position as it paused.
-     * This is approximate as various locks are released when the
-     * function returns, so any changes to the underlying epStore may cause
-     * the visiting to restart at the slightly different place.
-     *
-     * As a consequence, *DO NOT USE THIS METHOD* if you need to guarantee
-     * that all items are visited!
-     *
-     * @param visitor The visitor object.
-     * @return The final epStore position visited; equal to
-     *         EventuallyPersistentStore::end() if all items were visited
-     *         otherwise the position to resume from.
-     */
-    Position pauseResumeVisit(PauseResumeEPStoreVisitor& visitor,
-                              Position& start_pos);
-
-
-    /**
-     * Return a position at the start of the epStore.
-     */
-    Position startPosition() const;
-
-    /**
-     * Return a position at the end of the epStore. Has similar semantics
-     * as STL end() (i.e. one past the last element).
-     */
-    Position endPosition() const;
 
     const Flusher* getFlusher(uint16_t shardId);
 
@@ -823,8 +776,6 @@ public:
             ExecutorPool::get()->wake(chkTask->getId());
         }
     }
-
-    void runDefragmenterTask();
 
     void runAccessScannerTask();
 
@@ -1035,23 +986,6 @@ private:
     std::list<CompTaskEntry> compactionTasks;
 
     DISALLOW_COPY_AND_ASSIGN(EventuallyPersistentStore);
-};
-
-/**
- * Base class for visiting an epStore with pause/resume support.
- */
-class PauseResumeEPStoreVisitor {
-public:
-    virtual ~PauseResumeEPStoreVisitor() {}
-
-    /**
-     * Visit a hashtable within an epStore.
-     *
-     * @param vbucket_id ID of the vbucket being visited.
-     * @param ht a reference to the hashtable.
-     * @return True if visiting should continue, otherwise false.
-     */
-    virtual bool visit(uint16_t vbucket_id, HashTable& ht) = 0;
 };
 
 #endif  // SRC_EP_H_

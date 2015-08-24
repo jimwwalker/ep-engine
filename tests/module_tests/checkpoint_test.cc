@@ -27,6 +27,7 @@
 #include "checkpoint.h"
 #include "stats.h"
 #include "vbucket.h"
+#include "ep_time.h"
 
 #ifdef _MSC_VER
 #define alarm(a)
@@ -46,7 +47,6 @@
 
 EPStats global_stats;
 CheckpointConfig checkpoint_config;
-StoragePool storagePool;
 
 struct thread_args {
     SyncObject *mutex;
@@ -59,13 +59,11 @@ struct thread_args {
 
 extern "C" {
 static rel_time_t basic_current_time(void) {
-    return 0;
+    return time(NULL);
 }
 
-rel_time_t (*ep_current_time)() = basic_current_time;
-
-time_t ep_real_time() {
-    return time(NULL);
+static time_t basic_abs_time(rel_time_t t) {
+    return t;
 }
 
 /**
@@ -184,10 +182,10 @@ void basic_chk_test() {
     HashTableStorage::setDefaultNumBuckets(5);
     HashTableStorage::setDefaultNumLocks(1);
     HashTableStorage hts;
-    HashTable ht(0, &hts, global_stats);
+    HashTable *ht = new HashTable(0, &hts, global_stats);
     shared_ptr<Callback<uint16_t> > cb(new DummyCB());
     RCPtr<VBucket> vbucket(new VBucket(0, vbucket_state_active, global_stats,
-                                       checkpoint_config, NULL, ht, 0, 0, 0, NULL,
+                                       checkpoint_config, NULL, *ht, NULL, 0, 0, 0, NULL,
                                        cb));
 
     CheckpointManager *checkpoint_manager = new CheckpointManager(global_stats, 0,
@@ -290,9 +288,9 @@ void basic_chk_test() {
 void test_reset_checkpoint_id() {
     shared_ptr<Callback<uint16_t> > cb(new DummyCB());
     HashTableStorage hts;
-    HashTable ht(0, &hts, global_stats);
+    HashTable *ht = new HashTable(0, &hts, global_stats);
     RCPtr<VBucket> vbucket(new VBucket(0, vbucket_state_active, global_stats,
-                                       checkpoint_config, NULL, ht, 0, 0, 0, NULL,
+                                       checkpoint_config, NULL, *ht, NULL, 0, 0, 0, NULL,
                                        cb));
 
     CheckpointManager *manager =
@@ -350,6 +348,8 @@ static char allow_no_stats_env[] = "ALLOW_NO_STATS_UPDATE=yeah";
 int main(int argc, char **argv) {
     (void)argc; (void)argv;
     putenv(allow_no_stats_env);
+    ep_current_time = basic_current_time;
+    ep_abs_time = basic_abs_time;
     basic_chk_test();
     test_reset_checkpoint_id();
 }

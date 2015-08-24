@@ -544,10 +544,10 @@ void HashTable::visitDepth(HashTableDepthVisitor &visitor) {
     cb_assert(visited == getSize());
 }
 
-HashTable::Position
-HashTable::pauseResumeVisit(PauseResumeHashTableVisitor& visitor,
-                            Position& start_pos) {
-    if ((numItems.load() + numTempItems.load()) == 0 || !isActive()) {
+HashTableStorage::Position
+HashTableStorage::pauseResumeVisit(PauseResumeHashTableVisitor& visitor,
+                                   Position& start_pos) {
+    if (numItems.load() == 0) {
         // Nothing to visit
         return endPosition();
     }
@@ -566,14 +566,14 @@ HashTable::pauseResumeVisit(PauseResumeHashTableVisitor& visitor,
     // (any) mutex, increment {visitors} and then release the mutex. This
     //avoids the race as if visitors >0 then Resizer will not attempt to resize.
     LockHolder lh(getMutex(0));
-    VisitorTracker vt = storage->getNewVisitorTracker();
+    VisitorTracker vt = getNewVisitorTracker();
     lh.unlock();
 
     // Start from the requested lock number if in range.
     size_t lock = (start_pos.lock < getNumLocks()) ? start_pos.lock : 0;
     size_t hash_bucket = 0;
 
-    for (; isActive() && !paused && lock < getNumLocks(); lock++) {
+    for (; !paused && lock < getNumLocks(); lock++) {
 
         // If the bucket position is *this* lock, then start from the
         // recorded bucket (as long as we haven't resized).
@@ -611,11 +611,11 @@ HashTable::pauseResumeVisit(PauseResumeHashTableVisitor& visitor,
     }
 
     // Return the *next* location that should be visited.
-    return HashTable::Position(getSize(), lock, hash_bucket);
+    return HashTableStorage::Position(getSize(), lock, hash_bucket);
 }
 
-HashTable::Position HashTable::endPosition() const  {
-    return HashTable::Position(getSize(), getNumLocks(), getSize());
+HashTableStorage::Position HashTableStorage::endPosition() const  {
+    return HashTableStorage::Position(getSize(), getNumLocks(), getSize());
 }
 
 add_type_t HashTable::unlocked_add(int &bucket_num,
@@ -834,7 +834,7 @@ Item* HashTable::getRandomKey(long rnd) {
     return ret;
 }
 
-std::ostream& operator<<(std::ostream& os, const HashTable::Position& pos) {
+std::ostream& operator<<(std::ostream& os, const HashTableStorage::Position& pos) {
     os << "{lock:" << pos.lock << " bucket:" << pos.hash_bucket << "/" << pos.ht_size << "}";
     return os;
 }

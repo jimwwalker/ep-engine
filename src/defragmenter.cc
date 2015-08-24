@@ -21,12 +21,13 @@
 #include "ep_engine.h"
 #include "stored-value.h"
 
-DefragmenterTask::DefragmenterTask(EventuallyPersistentEngine* e,
-                                   EPStats& stats_)
-  : GlobalTask(e, Priority::DefragmenterTaskPriority, false),
-    stats(stats_),
-    epstore_position(engine->getEpStore()->startPosition()),
-    visitor(NULL) {
+DefragmenterTask::DefragmenterTask(StoragePool* s,
+                                   ALLOCATOR_HOOKS_API* alloc)
+  : GlobalTask(s->getTaskable(), Priority::DefragmenterTaskPriority, 0.0, false),
+    store_position(s->startPosition()),
+    visitor(NULL),
+    my_pool(s),
+    alloc_hooks(alloc) {
 }
 
 DefragmenterTask::~DefragmenterTask() {
@@ -34,32 +35,30 @@ DefragmenterTask::~DefragmenterTask() {
 }
 
 bool DefragmenterTask::run(void) {
-    if (engine->getConfiguration().isDefragmenterEnabled()) {
+    if (my_pool->getConfiguration().isDefragmenterEnabled()) {
         // Get our visitor. If we didn't finish the previous pass,
         // then resume from where we last were, otherwise create a new visitor and
         // reset the position.
         if (visitor == NULL) {
             visitor = new DefragmentVisitor(getAgeThreshold());
-            epstore_position = engine->getEpStore()->startPosition();
+            store_position = my_pool->startPosition();
         }
 
         // Print start status.
         std::stringstream ss;
-        ss << getDescription() << " for bucket '" << engine->getName() << "'";
-        if (epstore_position == engine->getEpStore()->startPosition()) {
+        ss << getDescription() << " for pool ";
+        if (store_position == my_pool->startPosition()) {
             ss << " starting. ";
         } else {
-            ss << " resuming from " << epstore_position << ", ";
+            ss << " resuming from " << store_position << ", ";
             ss << visitor->getHashtablePosition() << ".";
         }
         ss << " Using chunk_duration=" << getChunkDurationMS() << " ms."
-           << " mem_used=" << stats.getTotalMemoryUsed()
            << ", mapped_bytes=" << getMappedBytes();
         LOG(EXTENSION_LOG_INFO, "%s", ss.str().c_str());
 
         // Disable thread-caching (as we are about to defragment, and hence don't
         // want any of the new Blobs in tcache).
-        ALLOCATOR_HOOKS_API* alloc_hooks = engine->getServerApi()->alloc_hooks;
         bool old_tcache = alloc_hooks->enable_thread_cache(false);
 
         // Prepare the visitor.
@@ -69,16 +68,12 @@ bool DefragmenterTask::run(void) {
         visitor->clearStats();
 
         // Do it - set off the visitor.
-        epstore_position = engine->getEpStore()->pauseResumeVisit
-                (*visitor, epstore_position);
+        store_position = my_pool->pauseResumeVisit
+                (*visitor, store_position);
         hrtime_t end = gethrtime();
 
         // Defrag complete. Restore thread caching.
         alloc_hooks->enable_thread_cache(old_tcache);
-
-        // Update stats
-        stats.defragNumMoved.fetch_add(visitor->getDefragCount());
-        stats.defragNumVisited.fetch_add(visitor->getVisitedCount());
 
         // Release any free memory we now have in the allocator back to the OS.
         // TODO: Benchmark this - is it necessary? How much of a slowdown does it
@@ -86,20 +81,19 @@ bool DefragmenterTask::run(void) {
         alloc_hooks->release_free_memory();
 
         // Check if the visitor completed a full pass.
-        bool completed = (epstore_position == engine->getEpStore()->endPosition());
+        bool completed = (store_position == my_pool->endPosition());
 
         // Print status.
         ss.str("");
-        ss << getDescription() << " for bucket '" << engine->getName() << "'";
+        ss << getDescription() << " for pool ";
         if (completed) {
             ss << " finished.";
         } else {
-            ss << " paused at position " << epstore_position << ".";
+            ss << " paused at position " << store_position << ".";
         }
         ss << " Took " << (end - start) / 1024 << " us."
            << " moved " << visitor->getDefragCount() << "/"
            << visitor->getVisitedCount() << " visited documents."
-           << " mem_used=" << stats.getTotalMemoryUsed()
            << ", mapped_bytes=" << getMappedBytes()
            << ". Sleeping for " << getSleepTime() << " seconds.";
         LOG(EXTENSION_LOG_INFO, "%s", ss.str().c_str());
@@ -112,9 +106,6 @@ bool DefragmenterTask::run(void) {
     }
 
     snooze(getSleepTime());
-    if (engine->getEpStats().isShutdown) {
-            return false;
-    }
     return true;
 }
 
@@ -129,20 +120,18 @@ std::string DefragmenterTask::getDescription(void) {
 }
 
 size_t DefragmenterTask::getSleepTime() const {
-    return engine->getConfiguration().getDefragmenterInterval();
+    return my_pool->getConfiguration().getDefragmenterInterval();
 }
 
 size_t DefragmenterTask::getAgeThreshold() const {
-    return engine->getConfiguration().getDefragmenterAgeThreshold();
+    return my_pool->getConfiguration().getDefragmenterAgeThreshold();
 }
 
 size_t DefragmenterTask::getChunkDurationMS() const {
-    return engine->getConfiguration().getDefragmenterChunkDuration();
+    return my_pool->getConfiguration().getDefragmenterChunkDuration();
 }
 
 size_t DefragmenterTask::getMappedBytes() {
-    ALLOCATOR_HOOKS_API* alloc_hooks = engine->getServerApi()->alloc_hooks;
-
     allocator_stats stats = {0};
     stats.ext_stats_size = alloc_hooks->get_extra_stats_size();
     stats.ext_stats = new allocator_ext_stat[stats.ext_stats_size];

@@ -279,9 +279,9 @@ void VBucket::addStat(const char *nm, const T &val, ADD_STAT add_stat,
 }
 
 void VBucket::queueBGFetchItem(const ItemKey &key,
-                               VBucketBGFetchItem *fetch,
-                               BgFetcher *bgFetcher) {
+                               VBucketBGFetchItem *fetch) {
     LockHolder lh(pendingBGFetchesLock);
+
     vb_bgfetch_item_ctx_t& bgfetch_itm_ctx = pendingBGFetches[key];
 
     if (bgfetch_itm_ctx.bgfetched_list.empty()) {
@@ -293,8 +293,13 @@ void VBucket::queueBGFetchItem(const ItemKey &key,
     if (!fetch->metaDataOnly) {
         bgfetch_itm_ctx.isMetaOnly = false;
     }
-    bgFetcher->addPendingVB(id);
+
     lh.unlock();
+    storagePoolShard->getFetcher()->addPendingVB(key.getBucketId(), id);
+}
+
+void VBucket::notifyFlusher(bucket_id_t bid) {
+    storagePoolShard->getFlusher()->addPendingVB(bid, id);
 }
 
 bool VBucket::getBGFetchItems(vb_bgfetch_queue_t &fetches) {
@@ -305,6 +310,10 @@ bool VBucket::getBGFetchItems(vb_bgfetch_queue_t &fetches) {
     return fetches.size() > 0;
 }
 
+VBucket::HighPriorityVBEntry::HighPriorityVBEntry(const void *c, uint64_t idNum, bool isBySeqno) :
+    cookie(c), id(idNum), isBySeqno_(isBySeqno), creationTime(ep_current_time()) {
+}
+
 void VBucket::addHighPriorityVBEntry(uint64_t id, const void *cookie,
                                      bool isBySeqno) {
     LockHolder lh(hpChksMutex);
@@ -313,6 +322,22 @@ void VBucket::addHighPriorityVBEntry(uint64_t id, const void *cookie,
     }
     hpChks.push_back(HighPriorityVBEntry(cookie, id, isBySeqno));
     numHpChks = hpChks.size();
+}
+
+//
+// Search for the nearest (in time) checkpoint timeout
+//
+rel_time_t VBucket::findNextCheckpointWakeup() {
+    LockHolder lh(hpChksMutex);
+    rel_time_t lowestWakeup = (rel_time_t)-1;
+
+    for (auto hpEntry : hpChks ) {
+
+        if ((hpEntry.creationTime + VBucket::getCheckpointFlushTimeout()) < lowestWakeup) {
+            lowestWakeup = hpEntry.creationTime + VBucket::getCheckpointFlushTimeout();
+        }
+    }
+    return lowestWakeup;
 }
 
 void VBucket::notifyCheckpointPersisted(EventuallyPersistentEngine &e,
@@ -328,12 +353,12 @@ void VBucket::notifyCheckpointPersisted(EventuallyPersistentEngine &e,
             continue;
         }
 
-        hrtime_t wall_time(gethrtime() - entry->start);
-        size_t spent = wall_time / 1000000000;
+        rel_time_t elapsedTime = ep_current_time() - entry->creationTime;
+
         if (entry->id <= idNum) {
             toNotify[entry->cookie] = ENGINE_SUCCESS;
-            stats.chkPersistenceHisto.add(wall_time / 1000);
-            adjustCheckpointFlushTimeout(wall_time / 1000000000);
+            stats.chkPersistenceHisto.add(elapsedTime * 1000);
+            adjustCheckpointFlushTimeout(elapsedTime);
             LOG(EXTENSION_LOG_NOTICE, "Notified the completion of checkpoint "
                 "persistence for vbucket %d, id %" PRIu64 ", cookie %p",
                 id, idNum, entry->cookie);
@@ -341,8 +366,8 @@ void VBucket::notifyCheckpointPersisted(EventuallyPersistentEngine &e,
             if (shard) {
                 --shard->highPriorityCount;
             }
-        } else if (spent > getCheckpointFlushTimeout()) {
-            adjustCheckpointFlushTimeout(spent);
+        } else if (elapsedTime > getCheckpointFlushTimeout()) {
+            adjustCheckpointFlushTimeout(elapsedTime);
             e.storeEngineSpecific(entry->cookie, NULL);
             toNotify[entry->cookie] = ENGINE_TMPFAIL;
             LOG(EXTENSION_LOG_WARNING, "Notified the timeout on checkpoint "
@@ -388,12 +413,12 @@ void VBucket::notifyAllPendingConnsFailed(EventuallyPersistentEngine &e) {
     fireAllOps(e);
 }
 
-void VBucket::adjustCheckpointFlushTimeout(size_t wall_time) {
+void VBucket::adjustCheckpointFlushTimeout(rel_time_t elapsedTime) {
     size_t middle = (MIN_CHK_FLUSH_TIMEOUT + MAX_CHK_FLUSH_TIMEOUT) / 2;
 
-    if (wall_time <= MIN_CHK_FLUSH_TIMEOUT) {
+    if (elapsedTime <= MIN_CHK_FLUSH_TIMEOUT) {
         chkFlushTimeout = MIN_CHK_FLUSH_TIMEOUT;
-    } else if (wall_time <= middle) {
+    } else if (elapsedTime <= middle) {
         chkFlushTimeout = middle;
     } else {
         chkFlushTimeout = MAX_CHK_FLUSH_TIMEOUT;

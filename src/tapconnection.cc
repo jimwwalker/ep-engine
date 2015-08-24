@@ -2152,6 +2152,7 @@ bool TapConsumer::processCheckpointCommand(uint8_t event, uint16_t vbucket,
         ret = false;
         break;
     }
+    vb->notifyFlusher(engine_.getBucketId());
     return ret;
 }
 

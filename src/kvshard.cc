@@ -20,7 +20,6 @@
 #include <functional>
 
 #include "ep_engine.h"
-#include "flusher.h"
 #include "kvshard.h"
 
 KVShard::KVShard(uint16_t id, EventuallyPersistentStore &store) :
@@ -29,14 +28,13 @@ KVShard::KVShard(uint16_t id, EventuallyPersistentStore &store) :
     kvConfig(store.getEPEngine().getConfiguration(), shardId),
     highPriorityCount(0)
 {
-    EPStats &stats = store.getEPEngine().getEpStats();
     Configuration &config = store.getEPEngine().getConfiguration();
     maxVbuckets = config.getMaxVbuckets();
 
     vbuckets = new RCPtr<VBucket>[maxVbuckets];
 
     std::string backend = kvConfig.getBackend();
-    uint16_t commitInterval = 1;
+    currCommitInterval = 1;
 
     if (backend.compare("couchdb") == 0) {
         rwUnderlying = KVStoreFactory::create(kvConfig,
@@ -49,22 +47,12 @@ KVShard::KVShard(uint16_t id, EventuallyPersistentStore &store) :
         rwUnderlying = KVStoreFactory::create(kvConfig,
                                               store.getEPEngine().getBucketId());
         roUnderlying = rwUnderlying;
-        commitInterval = config.getMaxVbuckets()/config.getMaxNumShards();
+        currCommitInterval = config.getMaxVbuckets()/config.getMaxNumShards();
     }
-
-    flusher = new Flusher(&store, this, commitInterval);
-    bgFetcher = new BgFetcher(&store, this, stats);
+    initCommitInterval = currCommitInterval;
 }
 
 KVShard::~KVShard() {
-    if (flusher->state() != stopped) {
-        flusher->stop(true);
-        LOG(EXTENSION_LOG_WARNING, "Terminating flusher while it is in %s",
-            flusher->stateName());
-    }
-    delete flusher;
-    delete bgFetcher;
-
     delete rwUnderlying;
 
     /* Only couchstore has a read write store and a read only. ForestDB
@@ -84,18 +72,6 @@ KVStore *KVShard::getRWUnderlying() {
 
 KVStore *KVShard::getROUnderlying() {
     return roUnderlying;
-}
-
-Flusher *KVShard::getFlusher() {
-    return flusher;
-}
-
-BgFetcher *KVShard::getBgFetcher() {
-    return bgFetcher;
-}
-
-void KVShard::notifyFlusher() {
-    flusher->notifyFlushEvent();
 }
 
 RCPtr<VBucket> KVShard::getBucket(uint16_t id) const {
@@ -150,8 +126,20 @@ bool KVShard::setLowPriorityVbSnapshotFlag(bool lowPriority) {
     return lowPrioritySnapshot.compare_exchange_strong(inverse, lowPriority);
 }
 
-void NotifyFlusherCB::callback(uint16_t &vb) {
-    if (shard->getBucket(vb)) {
-        shard->notifyFlusher();
+uint16_t KVShard::decrCommitInterval(void) {
+    cb_assert(currCommitInterval != 0);
+    --currCommitInterval;
+
+    //When the current commit interval hits zero, then reset the
+    //current commit interval to the initial value
+    if (!currCommitInterval) {
+        currCommitInterval = initCommitInterval;
+        return 0;
     }
+
+    return currCommitInterval;
+}
+
+void NotifyFlusherCB::callback(uint16_t &vb) {
+    storagePoolShard->getFlusher()->addPendingVB(bucketId, vb);
 }
