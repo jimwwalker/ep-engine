@@ -3429,6 +3429,12 @@ void EventuallyPersistentStore::queueDirty(RCPtr<VBucket> &vb,
                                            bool genBySeqno,
                                            bool setConflictMode) {
     if (vb) {
+        ReaderLockHolder(vb->getStateLock());
+        if (tapBackfill && vb->getState() != vbucket_state_replica) {
+            return;
+        } else if (vb->getState() != vbucket_state_active) {
+            return;
+        }
         if (setConflictMode && (v->getConflictResMode() != last_write_wins) &&
             vb->isTimeSyncEnabled()) {
             v->setConflictResMode(last_write_wins);
