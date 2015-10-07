@@ -791,7 +791,15 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::set(const Item &itm,
                                                  uint8_t nru) {
 
     RCPtr<VBucket> vb = getVBucket(itm.getVBucketId());
-    if (!vb || vb->getState() == vbucket_state_dead) {
+    if (!vb) {
+        ++stats.numNotMyVBuckets;
+        return ENGINE_NOT_MY_VBUCKET;
+    }
+
+    // Obtain read-lock on VB state to ensure VB state changes are interlocked
+    // with this set
+    ReaderLockHolder(vb->getStateLock());
+    if (vb->getState() == vbucket_state_dead) {
         ++stats.numNotMyVBuckets;
         return ENGINE_NOT_MY_VBUCKET;
     } else if (vb->getState() == vbucket_state_replica && !force) {
@@ -885,7 +893,15 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::add(const Item &itm,
                                                  const void *cookie)
 {
     RCPtr<VBucket> vb = getVBucket(itm.getVBucketId());
-    if (!vb || vb->getState() == vbucket_state_dead ||
+    if (!vb) {
+        ++stats.numNotMyVBuckets;
+        return ENGINE_NOT_MY_VBUCKET;
+    }
+
+    // Obtain read-lock on VB state to ensure VB state changes are interlocked
+    // with this add
+    ReaderLockHolder(vb->getStateLock());
+    if (vb->getState() == vbucket_state_dead ||
         vb->getState() == vbucket_state_replica) {
         ++stats.numNotMyVBuckets;
         return ENGINE_NOT_MY_VBUCKET;
@@ -952,7 +968,15 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::add(const Item &itm,
 ENGINE_ERROR_CODE EventuallyPersistentStore::replace(const Item &itm,
                                                      const void *cookie) {
     RCPtr<VBucket> vb = getVBucket(itm.getVBucketId());
-    if (!vb || vb->getState() == vbucket_state_dead ||
+    if (!vb) {
+        ++stats.numNotMyVBuckets;
+        return ENGINE_NOT_MY_VBUCKET;
+    }
+
+    // Obtain read-lock on VB state to ensure VB state changes are interlocked
+    // with this replace
+    ReaderLockHolder(vb->getStateLock());
+    if (vb->getState() == vbucket_state_dead ||
         vb->getState() == vbucket_state_replica) {
         ++stats.numNotMyVBuckets;
         return ENGINE_NOT_MY_VBUCKET;
@@ -1041,8 +1065,15 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::addTAPBackfillItem(
                                                         ExtendedMetaData *emd) {
 
     RCPtr<VBucket> vb = getVBucket(itm.getVBucketId());
-    if (!vb ||
-        vb->getState() == vbucket_state_dead ||
+    if (!vb) {
+        ++stats.numNotMyVBuckets;
+        return ENGINE_NOT_MY_VBUCKET;
+    }
+
+    // Obtain read-lock on VB state to ensure VB state changes are interlocked
+    // with this add-tapbackfill
+    ReaderLockHolder(vb->getStateLock());
+    if (vb->getState() == vbucket_state_dead ||
         vb->getState() == vbucket_state_active) {
         ++stats.numNotMyVBuckets;
         return ENGINE_NOT_MY_VBUCKET;
@@ -1779,6 +1810,7 @@ void EventuallyPersistentStore::completeBGFetch(const std::string &key,
                                 "storedvalue (which has key " + v->getKey() +
                                 ") should be resident after calling restoreValue()");
                     }
+                    ReaderLockHolder(vb->getStateLock());
                     if (vb->getState() == vbucket_state_active &&
                         v->getExptime() != gcb.val.getValue()->getExptime() &&
                         v->getCas() == gcb.val.getValue()->getCas()) {
@@ -1897,6 +1929,7 @@ void EventuallyPersistentStore::completeBGFetchMulti(uint16_t vbId,
                             "storedvalue (which has key " + v->getKey() +
                             ") should be resident after calling restoreValue()");
                     }
+                    ReaderLockHolder(vb->getStateLock());
                     if (vb->getState() == vbucket_state_active &&
                         v->getExptime() != fetchedValue->getExptime() &&
                         v->getCas() == fetchedValue->getCas()) {
@@ -2180,7 +2213,13 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setWithMeta(
                                                      bool isReplication)
 {
     RCPtr<VBucket> vb = getVBucket(itm.getVBucketId());
-    if (!vb || vb->getState() == vbucket_state_dead) {
+    if (!vb) {
+        ++stats.numNotMyVBuckets;
+        return ENGINE_NOT_MY_VBUCKET;
+    }
+
+    ReaderLockHolder(vb->getStateLock());
+    if (vb->getState() == vbucket_state_dead) {
         ++stats.numNotMyVBuckets;
         return ENGINE_NOT_MY_VBUCKET;
     } else if (vb->getState() == vbucket_state_replica && !force) {
@@ -2305,7 +2344,10 @@ GetValue EventuallyPersistentStore::getAndUpdateTtl(const std::string &key,
     if (!vb) {
         ++stats.numNotMyVBuckets;
         return GetValue(NULL, ENGINE_NOT_MY_VBUCKET);
-    } else if (vb->getState() == vbucket_state_dead) {
+    }
+
+    ReaderLockHolder(vb->getStateLock());
+    if (vb->getState() == vbucket_state_dead) {
         ++stats.numNotMyVBuckets;
         return GetValue(NULL, ENGINE_NOT_MY_VBUCKET);
     } else if (vb->getState() == vbucket_state_replica) {
