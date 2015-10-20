@@ -80,7 +80,6 @@ void ObjectRegistry::onCreateBlob(const Blob *blob)
        stats.currentSize.fetch_add(size);
        stats.totalValueSize.fetch_add(size);
        stats.numBlob++;
-       cb_assert(stats.currentSize.load() < GIGANTOR);
    }
 }
 
@@ -98,7 +97,6 @@ void ObjectRegistry::onDeleteBlob(const Blob *blob)
        stats.currentSize.fetch_sub(size);
        stats.totalValueSize.fetch_sub(size);
        stats.numBlob--;
-       cb_assert(stats.currentSize.load() < GIGANTOR);
    }
 }
 
@@ -115,7 +113,6 @@ void ObjectRegistry::onCreateStoredValue(const StoredValue *sv)
        }
        stats.numStoredVal++;
        stats.totalStoredValSize.fetch_add(size);
-       cb_assert(stats.currentSize.load() < GIGANTOR);
    }
 }
 
@@ -132,7 +129,6 @@ void ObjectRegistry::onDeleteStoredValue(const StoredValue *sv)
        }
        stats.totalStoredValSize.fetch_sub(size);
        stats.numStoredVal--;
-       cb_assert(stats.currentSize.load() < GIGANTOR);
    }
 }
 
@@ -143,7 +139,6 @@ void ObjectRegistry::onCreateItem(const Item *pItem)
    if (verifyEngine(engine)) {
        EPStats &stats = engine->getEpStats();
        stats.memOverhead.fetch_add(pItem->size() - pItem->getValMemSize());
-       cb_assert(stats.memOverhead.load() < GIGANTOR);
        stats.numItem++;
    }
 }
@@ -154,7 +149,6 @@ void ObjectRegistry::onDeleteItem(const Item *pItem)
    if (verifyEngine(engine)) {
        EPStats &stats = engine->getEpStats();
        stats.memOverhead.fetch_sub(pItem->size() - pItem->getValMemSize());
-       cb_assert(stats.memOverhead.load() < GIGANTOR);
        stats.numItem--;
    }
 }
@@ -189,12 +183,6 @@ bool ObjectRegistry::memoryAllocated(size_t mem) {
     }
     EPStats &stats = engine->getEpStats();
     stats.totalMemory.fetch_add(mem);
-    if (stats.memoryTrackerEnabled && stats.totalMemory.load() >= GIGANTOR) {
-        LOG(EXTENSION_LOG_WARNING,
-            "Total memory in memoryAllocated() >= GIGANTOR !!! "
-            "Disable the memory tracker...\n");
-        stats.memoryTrackerEnabled.store(false);
-    }
     return true;
 }
 
@@ -208,15 +196,5 @@ bool ObjectRegistry::memoryDeallocated(size_t mem) {
     }
     EPStats &stats = engine->getEpStats();
     stats.totalMemory.fetch_sub(mem);
-    if (stats.memoryTrackerEnabled && stats.totalMemory.load() >= GIGANTOR) {
-        EXTENSION_LOG_LEVEL logSeverity = EXTENSION_LOG_WARNING;
-        if (stats.isShutdown && !stats.forceShutdown) {
-            logSeverity = EXTENSION_LOG_INFO;
-        }
-        LOG(logSeverity,
-            "Total memory in memoryDeallocated() >= GIGANTOR !!! "
-            "Disable the memory tracker...\n");
-        stats.memoryTrackerEnabled.store(false);
-    }
     return true;
 }

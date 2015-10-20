@@ -319,7 +319,6 @@ HashTableStatVisitor HashTable::clear(bool deactivate) {
     }
 
     stats.currentSize.fetch_sub(rv.memSize - rv.valSize);
-    cb_assert(stats.currentSize.load() < GIGANTOR);
 
     numTotalItems.store(0);
     numItems.store(0);
@@ -388,7 +387,6 @@ void HashTable::resize(size_t newSize) {
     values = newValues;
 
     stats.memOverhead.fetch_add(memorySize());
-    cb_assert(stats.memOverhead.load() < GIGANTOR);
 }
 
 static size_t distance(size_t a, size_t b) {
@@ -605,30 +603,22 @@ void StoredValue::setMutationMemoryThreshold(double memThreshold) {
 
 void StoredValue::increaseCacheSize(HashTable &ht, size_t by) {
     ht.cacheSize.fetch_add(by);
-    cb_assert(ht.cacheSize.load() < GIGANTOR);
     ht.memSize.fetch_add(by);
-    cb_assert(ht.memSize.load() < GIGANTOR);
 }
 
 void StoredValue::reduceCacheSize(HashTable &ht, size_t by) {
     ht.cacheSize.fetch_sub(by);
-    cb_assert(ht.cacheSize.load() < GIGANTOR);
     ht.memSize.fetch_sub(by);
-    cb_assert(ht.memSize.load() < GIGANTOR);
 }
 
 void StoredValue::increaseMetaDataSize(HashTable &ht, EPStats &st, size_t by) {
     ht.metaDataMemory.fetch_add(by);
-    cb_assert(ht.metaDataMemory.load() < GIGANTOR);
     st.currentSize.fetch_add(by);
-    cb_assert(st.currentSize.load() < GIGANTOR);
 }
 
 void StoredValue::reduceMetaDataSize(HashTable &ht, EPStats &st, size_t by) {
     ht.metaDataMemory.fetch_sub(by);
-    cb_assert(ht.metaDataMemory.load() < GIGANTOR);
     st.currentSize.fetch_sub(by);
-    cb_assert(st.currentSize.load() < GIGANTOR);
 }
 
 /**

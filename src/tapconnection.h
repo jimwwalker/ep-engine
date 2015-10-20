@@ -996,7 +996,6 @@ protected:
             TapLogElement log(seqno, qi);
             ackLog_.push_back(log);
             stats.memOverhead.fetch_add(sizeof(TapLogElement));
-            cb_assert(stats.memOverhead.load() < GIGANTOR);
         }
     }
 
@@ -1011,7 +1010,6 @@ protected:
             TapLogElement log(seqno, e);
             ackLog_.push_back(log);
             stats.memOverhead.fetch_add(sizeof(TapLogElement));
-            cb_assert(stats.memOverhead.load() < GIGANTOR);
         }
     }
 
