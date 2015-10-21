@@ -100,7 +100,7 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
         return ENGINE_DISCONNECT;
     }
 
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     RCPtr<VBucket> vb = engine_.getVBucket(vbucket);
     if (!vb) {
         LOG(EXTENSION_LOG_WARNING, "%s (vb %d) Stream request failed because "
@@ -326,7 +326,7 @@ ENGINE_ERROR_CODE DcpProducer::step(struct dcp_message_producers* producers) {
 ENGINE_ERROR_CODE DcpProducer::bufferAcknowledgement(uint32_t opaque,
                                                      uint16_t vbucket,
                                                      uint32_t buffer_bytes) {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     if (log) {
         bool wasFull = log->isFull();
 
@@ -345,7 +345,7 @@ ENGINE_ERROR_CODE DcpProducer::bufferAcknowledgement(uint32_t opaque,
 ENGINE_ERROR_CODE DcpProducer::control(uint32_t opaque, const void* key,
                                        uint16_t nkey, const void* value,
                                        uint32_t nvalue) {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     const char* param = static_cast<const char*>(key);
     std::string keyStr(static_cast<const char*>(key), nkey);
     std::string valueStr(static_cast<const char*>(value), nvalue);
@@ -403,7 +403,7 @@ ENGINE_ERROR_CODE DcpProducer::handleResponse(
             reinterpret_cast<protocol_binary_response_dcp_stream_req*>(resp);
         uint32_t opaque = pkt->message.header.response.opaque;
 
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         stream_t active_stream;
         std::map<uint16_t, stream_t>::iterator itr;
         for (itr = streams.begin() ; itr != streams.end(); ++itr) {
@@ -452,7 +452,7 @@ ENGINE_ERROR_CODE DcpProducer::closeStream(uint32_t opaque, uint16_t vbucket) {
         return ENGINE_DISCONNECT;
     }
 
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     std::map<uint16_t, stream_t>::iterator itr;
     if ((itr = streams.find(vbucket)) == streams.end()) {
         LOG(EXTENSION_LOG_WARNING, "%s (vb %d) Cannot close stream because no "
@@ -483,7 +483,7 @@ ENGINE_ERROR_CODE DcpProducer::closeStream(uint32_t opaque, uint16_t vbucket) {
 void DcpProducer::addStats(ADD_STAT add_stat, const void *c) {
     Producer::addStats(add_stat, c);
 
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
 
     addStat("items_sent", getItemsSent(), add_stat, c);
     addStat("items_remaining", getItemsRemaining_UNLOCKED(), add_stat, c);
@@ -509,7 +509,7 @@ void DcpProducer::addStats(ADD_STAT add_stat, const void *c) {
 
 void DcpProducer::addTakeoverStats(ADD_STAT add_stat, const void* c,
                                    uint16_t vbid) {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     std::map<uint16_t, stream_t>::iterator itr = streams.find(vbid);
     if (itr != streams.end()) {
         Stream *s = itr->second.get();
@@ -523,7 +523,7 @@ void DcpProducer::addTakeoverStats(ADD_STAT add_stat, const void* c,
 }
 
 void DcpProducer::aggregateQueueStats(ConnCounter* aggregator) {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     if (!aggregator) {
         LOG(EXTENSION_LOG_WARNING, "%s Pointer to the queue stats aggregator"
             " is NULL!!!", logHeader());
@@ -536,7 +536,7 @@ void DcpProducer::aggregateQueueStats(ConnCounter* aggregator) {
 }
 
 void DcpProducer::notifySeqnoAvailable(uint16_t vbucket, uint64_t seqno) {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     std::map<uint16_t, stream_t>::iterator itr = streams.find(vbucket);
     if (itr != streams.end() && itr->second->isActive()) {
         stream_t stream = itr->second;
@@ -546,7 +546,7 @@ void DcpProducer::notifySeqnoAvailable(uint16_t vbucket, uint64_t seqno) {
 }
 
 void DcpProducer::vbucketStateChanged(uint16_t vbucket, vbucket_state_t state) {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     std::map<uint16_t, stream_t>::iterator itr = streams.find(vbucket);
     if (itr != streams.end()) {
         stream_t stream = itr->second;
@@ -556,7 +556,7 @@ void DcpProducer::vbucketStateChanged(uint16_t vbucket, vbucket_state_t state) {
 }
 
 void DcpProducer::closeAllStreams() {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     std::list<uint16_t> vblist;
     while (!streams.empty()) {
         std::map<uint16_t, stream_t>::iterator itr = streams.begin();
@@ -584,7 +584,7 @@ const char* DcpProducer::getType() const {
 }
 
 DcpResponse* DcpProducer::getNextItem() {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
 
     setPaused(false);
     while (!ready.empty()) {
@@ -641,7 +641,7 @@ void DcpProducer::setDisconnect(bool disconnect) {
     ConnHandler::setDisconnect(disconnect);
 
     if (disconnect) {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         std::map<uint16_t, stream_t>::iterator itr = streams.begin();
         for (; itr != streams.end(); ++itr) {
             itr->second->setDead(END_STREAM_DISCONNECTED);
@@ -650,7 +650,7 @@ void DcpProducer::setDisconnect(bool disconnect) {
 }
 
 void DcpProducer::notifyStreamReady(uint16_t vbucket, bool schedule) {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
 
     std::list<uint16_t>::iterator iter =
         std::find(ready.begin(), ready.end(), vbucket);
@@ -701,7 +701,7 @@ void DcpProducer::setTimeForNoop() {
 }
 
 void DcpProducer::clearQueues() {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     std::map<uint16_t, stream_t>::iterator itr = streams.begin();
     for (; itr != streams.end(); ++itr) {
         itr->second->clear();
@@ -742,7 +742,7 @@ size_t DcpProducer::getTotalBytes() {
 }
 
 std::list<uint16_t> DcpProducer::getVBList() {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     std::list<uint16_t> vblist;
     std::map<uint16_t, stream_t>::iterator itr = streams.begin();
     for (; itr != streams.end(); ++itr) {

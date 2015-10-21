@@ -399,7 +399,7 @@ void TapProducer::setBackfillAge(uint64_t age, bool reconnect) {
 void TapProducer::setVBucketFilter(const std::vector<uint16_t> &vbuckets,
                                    bool notifyCompletion)
 {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     VBucketFilter diff;
 
     std::vector<uint16_t>::const_iterator itr;
@@ -566,7 +566,7 @@ void TapProducer::clearQueues_UNLOCKED() {
 }
 
 void TapProducer::rollback() {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     LOG(EXTENSION_LOG_WARNING,
         "%s Connection is re-established. Rollback unacked messages...",
         logHeader());
@@ -714,7 +714,7 @@ void TapProducer::suspendedConnection_UNLOCKED(bool value)
 }
 
 void TapProducer::suspendedConnection(bool value) {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     suspendedConnection_UNLOCKED(value);
 }
 
@@ -774,7 +774,7 @@ ENGINE_ERROR_CODE TapProducer::processAck(uint32_t s,
                                           uint16_t status,
                                           const std::string &msg)
 {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     std::list<TapLogElement>::iterator iter = ackLog_.begin();
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
 
@@ -1041,7 +1041,7 @@ void TapProducer::queueBGFetch_UNLOCKED(const std::string &key, uint64_t id, uin
 }
 
 void TapProducer::completeBGFetchJob(Item *itm, uint16_t vbid, bool implicitEnqueue) {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     std::map<uint16_t, CheckpointState>::iterator it = checkpointState_.find(vbid);
 
     // implicitEnqueue is used for the optimized disk fetch wherein we
@@ -1094,7 +1094,7 @@ Item* TapProducer::nextBgFetchedItem_UNLOCKED() {
 void TapProducer::addStats(ADD_STAT add_stat, const void *c) {
     Producer::addStats(add_stat, c);
 
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     addStat("qlen", getQueueSize_UNLOCKED(), add_stat, c);
     addStat("qlen_high_pri", vBucketHighPriority.size(), add_stat, c);
     addStat("qlen_low_pri", vBucketLowPriority.size(), add_stat, c);
@@ -1166,7 +1166,7 @@ void TapProducer::addStats(ADD_STAT add_stat, const void *c) {
 }
 
 void TapProducer::aggregateQueueStats(ConnCounter* aggregator) {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     if (!aggregator) {
         LOG(EXTENSION_LOG_WARNING,
             "%s Pointer to the queue stats aggregator is NULL!!!", logHeader());
@@ -1397,7 +1397,7 @@ void TapProducer::scheduleBackfill_UNLOCKED(const std::vector<uint16_t> &vblist)
 }
 
 VBucketEvent TapProducer::checkDumpOrTakeOverCompletion() {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     VBucketEvent ev(TAP_PAUSE, 0, vbucket_state_active);
 
     checkBackfillCompletion_UNLOCKED();
@@ -1532,7 +1532,7 @@ size_t TapProducer::getQueueSize_UNLOCKED() {
 }
 
 void TapProducer::flush() {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
 
     LOG(EXTENSION_LOG_WARNING, "%s Clear tap queues as part of flush operation",
         logHeader());
@@ -1542,7 +1542,7 @@ void TapProducer::flush() {
 }
 
 void TapProducer::appendQueue(std::list<queued_item> *q) {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     size_t count = 0;
     std::list<queued_item>::iterator it = q->begin();
     for (; it != q->end(); ++it) {
@@ -1559,7 +1559,7 @@ void TapProducer::appendQueue(std::list<queued_item> *q) {
 }
 
 bool TapProducer::runBackfill(VBucketFilter &vbFilter) {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     bool rv = doRunBackfill;
     if (doRunBackfill) {
         doRunBackfill = false;
@@ -1619,7 +1619,7 @@ void TapProducer::evaluateFlags()
 
 
 bool TapProducer::requestAck(uint16_t event, uint16_t vbucket) {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
 
     if (!supportsAck()) {
         // If backfill was scheduled before, check if the backfill is completed or not.
@@ -1664,7 +1664,7 @@ bool TapProducer::requestAck(uint16_t event, uint16_t vbucket) {
 }
 
 void TapProducer::registerCursor(const std::map<uint16_t, uint64_t> &lastCheckpointIds) {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
 
     uint64_t current_time = (uint64_t)ep_real_time();
     std::vector<uint16_t> backfill_vbuckets;
@@ -1776,7 +1776,7 @@ void TapProducer::registerCursor(const std::map<uint16_t, uint64_t> &lastCheckpo
 
 Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
                             uint8_t &nru) {
-    LockHolder lh(queueLock);
+    SpinLockHolder lh(&queueLock);
     Item *itm = NULL;
 
     // Check if there are any checkpoint start / end messages to be sent to the TAP client.

@@ -813,7 +813,7 @@ public:
     virtual size_t getBackfillQueueSize() = 0;
 
     void incrBackfillRemaining(size_t incr) {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         totalBackfillBacklogs += incr;
     }
 
@@ -822,7 +822,7 @@ public:
     virtual bool windowIsFull() = 0;
 
     const VBucketFilter &getVBucketFilter() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return vbucketFilter;
     }
 
@@ -832,7 +832,7 @@ protected:
     friend class ConnMap;
 
     //! Lock held during queue operations.
-    Mutex queueLock;
+    SpinLock queueLock;
     //! Filter for the vbuckets we want.
     VBucketFilter vbucketFilter;
     //! Total backfill backlogs
@@ -873,7 +873,7 @@ public:
     void setTimeForNoop();
 
     void completeBackfill() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         if (pendingBackfillCounter > 0) {
             --pendingBackfillCounter;
         }
@@ -881,12 +881,12 @@ public:
     }
 
     void scheduleDiskBackfill() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         ++diskBackfillCounter;
     }
 
     void completeDiskBackfill() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         if (diskBackfillCounter > 0) {
             --diskBackfillCounter;
         }
@@ -909,7 +909,7 @@ public:
      * Find out how many items are still remaining from backfill.
      */
     size_t getBackfillRemaining() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return getBackfillRemaining_UNLOCKED();
     }
 
@@ -919,7 +919,7 @@ public:
      * of total backfill backlogs.
      */
     size_t getBackfillQueueSize() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return getBackfillQueueSize_UNLOCKED();
     }
 
@@ -927,7 +927,7 @@ public:
      * Return the live replication queue size.
      */
     size_t getQueueSize() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return getQueueSize_UNLOCKED();
     }
 
@@ -939,7 +939,7 @@ public:
     }
 
     void clearQueues() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         clearQueues_UNLOCKED();
     }
 
@@ -987,7 +987,7 @@ protected:
      * @return true if the the queue was empty
      */
     bool addEvent(const queued_item &it) {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return addEvent_UNLOCKED(it);
     }
 
@@ -1001,7 +1001,7 @@ protected:
     }
 
     void addLogElement(const queued_item &qi) {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         addLogElement_UNLOCKED(qi);
     }
 
@@ -1032,7 +1032,7 @@ protected:
      * send data over the tap connection.
      */
     void addVBucketHighPriority(VBucketEvent &ev) {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         addVBucketHighPriority_UNLOCKED(ev);
     }
 
@@ -1042,7 +1042,7 @@ protected:
     VBucketEvent nextVBucketHighPriority_UNLOCKED();
 
     VBucketEvent nextVBucketHighPriority() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return nextVBucketHighPriority_UNLOCKED();
     }
 
@@ -1056,7 +1056,7 @@ protected:
      * doesn't have any other events to send.
      */
     void addVBucketLowPriority(VBucketEvent &ev) {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         addVBucketLowPriority_UNLOCKED(ev);
     }
 
@@ -1066,7 +1066,7 @@ protected:
     VBucketEvent nextVBucketLowPriority_UNLOCKED();
 
     VBucketEvent nextVBucketLowPriority() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return nextVBucketLowPriority_UNLOCKED();
     }
 
@@ -1079,14 +1079,14 @@ protected:
      * are used for synchronizing checkpoints between tap producer and consumer.
      */
     void addCheckpointMessage(const queued_item &qi) {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         addCheckpointMessage_UNLOCKED(qi);
     }
 
     queued_item nextCheckpointMessage_UNLOCKED();
 
     queued_item nextCheckpointMessage() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return nextCheckpointMessage_UNLOCKED();
     }
 
@@ -1109,22 +1109,22 @@ protected:
     }
 
     bool idle() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return idle_UNLOCKED();
     }
 
     bool hasItemFromDisk() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return hasItemFromDisk_UNLOCKED();
     }
 
     bool hasItemFromVBHashtable() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return hasItemFromVBHashtable_UNLOCKED();
     }
 
     bool emptyQueue() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return emptyQueue_UNLOCKED();
     }
 
@@ -1139,7 +1139,7 @@ protected:
     }
 
     size_t getRemaingOnDisk() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return bgJobIssued - bgJobCompleted;
     }
 
@@ -1160,13 +1160,13 @@ protected:
      */
     size_t getRemainingOnCheckpoints_UNLOCKED();
     size_t getRemainingOnCheckpoints() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return getRemainingOnCheckpoints_UNLOCKED();
     }
 
     bool hasNextFromCheckpoints_UNLOCKED();
     bool hasNextFromCheckpoints() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return hasNextFromCheckpoints_UNLOCKED();
     }
 
@@ -1187,7 +1187,7 @@ protected:
     void appendQueue(std::list<queued_item> *q);
 
     bool isPendingDiskBackfill() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return diskBackfillCounter > 0;
     }
 
@@ -1199,7 +1199,7 @@ protected:
     }
 
     bool isPendingBackfill() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return isPendingBackfill_UNLOCKED();
     }
 
@@ -1211,14 +1211,14 @@ protected:
     }
 
     bool isBackfillCompleted() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return isBackfillCompleted_UNLOCKED();
     }
 
     void scheduleBackfill_UNLOCKED(const std::vector<uint16_t> &vblist);
 
     void scheduleBackfill(const std::vector<uint16_t> &vblist) {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         scheduleBackfill_UNLOCKED(vblist);
     }
 
@@ -1234,7 +1234,7 @@ protected:
     }
 
     bool mayCompleteDumpOrTakeover(void) {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return mayCompleteDumpOrTakeover_UNLOCKED();
     }
 
@@ -1292,7 +1292,7 @@ protected:
 
     bool checkBackfillCompletion_UNLOCKED();
     bool checkBackfillCompletion() {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return checkBackfillCompletion_UNLOCKED();
     }
 
@@ -1302,7 +1302,7 @@ protected:
                           bool notifyCompletion = false);
 
     bool checkVBucketFilter(uint16_t vbucket) {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return vbucketFilter(vbucket);
     }
 
@@ -1312,7 +1312,7 @@ protected:
     void registerCursor(const std::map<uint16_t, uint64_t> &lastCheckpointIds);
 
     size_t getTapAckLogSize(void) {
-        LockHolder lh(queueLock);
+        SpinLockHolder lh(&queueLock);
         return ackLog_.size();
     }
 
