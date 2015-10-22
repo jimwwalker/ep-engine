@@ -25,45 +25,11 @@
 
 class DcpResponse;
 
-class BufferLog {
-public:
-    BufferLog(uint32_t bytes)
-        : max_bytes(bytes), bytes_sent(0) {}
-
-    ~BufferLog() {}
-
-    uint32_t getBufferSize() {
-        return max_bytes;
-    }
-
-    void setBufferSize(uint32_t maxBytes) {
-        max_bytes = maxBytes;
-    }
-
-    uint32_t getBytesSent() {
-        return bytes_sent;
-    }
-
-    bool isFull() {
-        return max_bytes <= bytes_sent;
-    }
-
-    void insert(DcpResponse* response);
-
-    void free(uint32_t bytes_to_free);
-
-private:
-    uint32_t max_bytes;
-    uint32_t bytes_sent;
-};
-
 class DcpProducer : public Producer {
 public:
 
     DcpProducer(EventuallyPersistentEngine &e, const void *cookie,
                 const std::string &n, bool notifyOnly);
-
-    ~DcpProducer();
 
     ENGINE_ERROR_CODE streamRequest(uint32_t flags, uint32_t opaque,
                                     uint16_t vbucket, uint64_t start_seqno,
@@ -132,11 +98,82 @@ public:
 
     void notifyStreamReady(uint16_t vbucket, bool schedule);
 
+    class BufferLog {
+    public:
+
+        /*
+            BufferLog has 3 states.
+            Disabled - if no flow-control is in-use. This is indicated by setting
+             the size to 0 (i.e. setBufferSize(0)).
+
+            SpaceAvailable - there is space available in the buffer for an insert.
+             Note that BufferLog has always allowed you to insert a n-byte op if
+             n-1 bytes space is available.
+
+            Full - inserts have taken the number of bytes available over the max.
+        */
+        enum State {
+            Disabled,
+            Full,
+            SpaceAvailable
+        };
+
+        BufferLog()
+            : maxBytes(0), bytesSent(0), ackedBytes(0) {}
+
+        void setBufferSize(size_t maxBytes);
+
+        void addStats(const DcpProducer& myProducer, ADD_STAT add_stat, const void *c);
+
+        /*
+            Return true if the buffer is disabled or there is space.
+        */
+        bool insert(size_t bytes);
+
+        /*
+            Returns the state of the log *before* acknowledgement of 'bytes'.
+        */
+        State acknowledge(size_t bytes);
+
+        State getState();
+
+    private:
+
+        bool isEnabled_UNLOCKED() {
+            return maxBytes != 0;
+        }
+
+        bool isFull_UNLOCKED() {
+            return bytesSent >= maxBytes;
+        }
+
+        void release_UNLOCKED(size_t bytes);
+
+        /*
+            Get the BufferLog state without any locks.
+        */
+        State getState_UNLOCKED();
+
+        RWLock logLock;
+        size_t maxBytes;
+        size_t bytesSent;
+        size_t ackedBytes;
+    };
+
+    /*
+        Insert response into producer's buffer log.
+
+        If the log is disabled or has space returns true.
+        Else return false.
+    */
+    bool bufferLogInsert(size_t bytes);
+
 private:
 
     DcpResponse* getNextItem();
 
-    size_t getItemsRemaining_UNLOCKED();
+    size_t getItemsRemaining();
+    stream_t findStreamByVbid(uint16_t vbid);
 
     ENGINE_ERROR_CODE maybeSendNoop(struct dcp_message_producers* producers);
 
@@ -152,13 +189,21 @@ private:
 
     bool notifyOnly;
     rel_time_t lastSendTime;
-    BufferLog* log;
-    std::list<uint16_t> ready;
+    BufferLog log;
+
+    // Guards all accesses to streams map. If only reading elements in streams
+    // (i.e. not adding / removing elements) then can acquire ReadLock, even
+    // if a non-const method is called on stream_t.
+    RWLock streamsMutex;
+
+    std::vector<AtomicValue<bool> > vbReady;
+
     std::map<uint16_t, stream_t> streams;
+
     AtomicValue<size_t> itemsSent;
     AtomicValue<size_t> totalBytesSent;
-    AtomicValue<size_t> ackedBytes;
 
+    size_t roundRobinVbReady;
     static const uint32_t defaultNoopInerval;
 };
 
