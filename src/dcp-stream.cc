@@ -263,7 +263,7 @@ void Stream::addStats(ADD_STAT add_stat, const void *c) {
     add_casted_stat(buffer, stateName(state_), add_stat, c);
 }
 
-ActiveStream::ActiveStream(EventuallyPersistentEngine* e, DcpProducer* p,
+ActiveStream::ActiveStream(EventuallyPersistentEngine* e, DcpProducer& p,
                            const std::string &n, uint32_t flags,
                            uint32_t opaque, uint16_t vb, uint64_t st_seqno,
                            uint64_t en_seqno, uint64_t vb_uuid,
@@ -284,13 +284,13 @@ ActiveStream::ActiveStream(EventuallyPersistentEngine* e, DcpProducer* p,
 
     if (start_seqno_ >= end_seqno_) {
         endStream(END_STREAM_OK);
-        itemsReady = true;
+        itemsReady.store(true);
     }
 
     type_ = STREAM_ACTIVE;
 
     LOG(EXTENSION_LOG_WARNING, "%s (vb %d) %sstream created with start seqno "
-        "%llu and end seqno %llu", producer->logHeader(), vb, type, st_seqno,
+        "%llu and end seqno %llu", producer.logHeader(), vb, type, st_seqno,
         en_seqno);
 }
 
@@ -321,7 +321,7 @@ DcpResponse* ActiveStream::next() {
             break;
         default:
             LOG(EXTENSION_LOG_WARNING, "%s (vb %d) Invalid state '%s'",
-                producer->logHeader(), vb_, stateName(state_));
+                producer.logHeader(), vb_, stateName(state_));
             abort();
     }
 
@@ -330,7 +330,7 @@ DcpResponse* ActiveStream::next() {
         return next();
     }
 
-    itemsReady = response ? true : false;
+    itemsReady.store(response ? true : false);
     return response;
 }
 
@@ -344,7 +344,7 @@ void ActiveStream::markDiskSnapshot(uint64_t startSeqno, uint64_t endSeqno) {
     firstMarkerSent = true;
 
     LOG(EXTENSION_LOG_WARNING, "%s (vb %d) Sending disk snapshot with start "
-        "seqno %llu and end seqno %llu", producer->logHeader(), vb_, startSeqno,
+        "seqno %llu and end seqno %llu", producer.logHeader(), vb_, startSeqno,
         endSeqno);
     pushToReadyQ(new SnapshotMarker(opaque_, vb_, startSeqno, endSeqno,
                                    MARKER_FLAG_DISK));
@@ -361,10 +361,10 @@ void ActiveStream::markDiskSnapshot(uint64_t startSeqno, uint64_t endSeqno) {
         curChkSeqno = result.first;
     }
 
-    if (!itemsReady) {
-        itemsReady = true;
-        lh.unlock();
-        producer->notifyStreamReady(vb_, false);
+    lh.unlock();
+    bool inverse = false;
+    if (itemsReady.compare_exchange_strong(inverse, true)) {
+        producer.notifyStreamReady(vb_, false);
     }
 }
 
@@ -373,11 +373,10 @@ void ActiveStream::backfillReceived(Item* itm) {
     if (state_ == STREAM_BACKFILLING) {
         pushToReadyQ(new MutationResponse(itm, opaque_));
         lastReadSeqno = itm->getBySeqno();
-
-        if (!itemsReady) {
-            itemsReady = true;
-            lh.unlock();
-            producer->notifyStreamReady(vb_, false);
+        lh.unlock();
+        bool inverse = false;
+        if (itemsReady.compare_exchange_strong(inverse, true)) {
+            producer.notifyStreamReady(vb_, false);
         }
     } else {
         delete itm;
@@ -385,30 +384,23 @@ void ActiveStream::backfillReceived(Item* itm) {
 }
 
 void ActiveStream::completeBackfill() {
-    LockHolder lh(streamMutex);
-
     if (state_ == STREAM_BACKFILLING) {
         isBackfillTaskRunning = false;
         LOG(EXTENSION_LOG_WARNING, "%s (vb %d) Backfill complete, %d items read"
-            " from disk, last seqno read: %ld", producer->logHeader(), vb_,
+            " from disk, last seqno read: %ld", producer.logHeader(), vb_,
             itemsFromBackfill, lastReadSeqno);
-
-        if (!itemsReady) {
-            itemsReady = true;
-            lh.unlock();
-            producer->notifyStreamReady(vb_, false);
+        bool inverse = false;
+        if (itemsReady.compare_exchange_strong(inverse, true)) {
+            producer.notifyStreamReady(vb_, false);
         }
     }
 }
 
 void ActiveStream::snapshotMarkerAckReceived() {
-    LockHolder lh (streamMutex);
-    waitForSnapshot--;
-
-    if (!itemsReady && waitForSnapshot == 0) {
-        itemsReady = true;
-        lh.unlock();
-        producer->notifyStreamReady(vb_, true);
+    bool inverse = false;
+    if (--waitForSnapshot == 0 &&
+        itemsReady.compare_exchange_strong(inverse, true)) {
+        producer.notifyStreamReady(vb_, true);
     }
 }
 
@@ -422,21 +414,21 @@ void ActiveStream::setVBucketStateAckRecieved() {
             takeoverState = vbucket_state_active;
             transitionState(STREAM_TAKEOVER_SEND);
             LOG(EXTENSION_LOG_INFO, "%s (vb %d) Receive ack for set vbucket "
-                "state to pending message", producer->logHeader(), vb_);
+                "state to pending message", producer.logHeader(), vb_);
         } else {
             LOG(EXTENSION_LOG_INFO, "%s (vb %d) Receive ack for set vbucket "
-                "state to active message", producer->logHeader(), vb_);
+                "state to active message", producer.logHeader(), vb_);
             endStream(END_STREAM_OK);
         }
 
-        if (!itemsReady) {
-            itemsReady = true;
-            lh.unlock();
-            producer->notifyStreamReady(vb_, true);
+        lh.unlock();
+        bool inverse = false;
+        if (itemsReady.compare_exchange_strong(inverse, true)) {
+            producer.notifyStreamReady(vb_, true);
         }
     } else {
         LOG(EXTENSION_LOG_WARNING, "%s (vb %d) Unexpected ack for set vbucket "
-            "op on stream '%s' state '%s'", producer->logHeader(), vb_,
+            "op on stream '%s' state '%s'", producer.logHeader(), vb_,
             name_.c_str(), stateName(state_));
     }
 }
@@ -498,9 +490,11 @@ DcpResponse* ActiveStream::takeoverSendPhase() {
     if (waitForSnapshot != 0) {
         return NULL;
     }
-
-    DcpResponse* resp = new SetVBucketState(opaque_, vb_, takeoverState);
-    transitionState(STREAM_TAKEOVER_WAIT);
+    DcpResponse* resp = NULL;
+    if (producer.bufferLogInsert(SetVBucketState::baseMsgBytes)) {
+        resp = new SetVBucketState(opaque_, vb_, takeoverState);
+        transitionState(STREAM_TAKEOVER_WAIT);
+    }
     return resp;
 }
 
@@ -528,7 +522,7 @@ void ActiveStream::addStats(ADD_STAT add_stat, const void *c) {
     snprintf(buffer, bsize, "%s:stream_%d_ready_queue_memory", name_.c_str(), vb_);
     add_casted_stat(buffer, getReadyQueueMemory(), add_stat, c);
     snprintf(buffer, bsize, "%s:stream_%d_items_ready", name_.c_str(), vb_);
-    add_casted_stat(buffer, itemsReady ? "true" : "false", add_stat, c);
+    add_casted_stat(buffer, itemsReady.load() ? "true" : "false", add_stat, c);
 }
 
 void ActiveStream::addTakeoverStats(ADD_STAT add_stat, const void *cookie) {
@@ -575,19 +569,21 @@ void ActiveStream::addTakeoverStats(ADD_STAT add_stat, const void *cookie) {
 DcpResponse* ActiveStream::nextQueuedItem() {
     if (!readyQ.empty()) {
         DcpResponse* response = readyQ.front();
-        if (response->getEvent() == DCP_MUTATION ||
-            response->getEvent() == DCP_DELETION ||
-            response->getEvent() == DCP_EXPIRATION) {
-            lastSentSeqno = dynamic_cast<MutationResponse*>(response)->getBySeqno();
+        if (producer.bufferLogInsert(response->getMessageSize())) {
+            if (response->getEvent() == DCP_MUTATION ||
+                response->getEvent() == DCP_DELETION ||
+                response->getEvent() == DCP_EXPIRATION) {
+                lastSentSeqno = dynamic_cast<MutationResponse*>(response)->getBySeqno();
 
-            if (state_ == STREAM_BACKFILLING) {
-                itemsFromBackfill++;
-            } else {
-                itemsFromMemory++;
+                if (state_ == STREAM_BACKFILLING) {
+                    itemsFromBackfill++;
+                } else {
+                    itemsFromMemory++;
+                }
             }
+            popFromReadyQ();
+            return response;
         }
-        popFromReadyQ();
-        return response;
     }
     return NULL;
 }
@@ -676,22 +672,20 @@ void ActiveStream::snapshot(std::list<MutationResponse*>& items, bool mark) {
 uint32_t ActiveStream::setDead(end_stream_status_t status) {
     LockHolder lh(streamMutex);
     endStream(status);
-
-    if (!itemsReady && status != END_STREAM_DISCONNECTED) {
-        itemsReady = true;
-        lh.unlock();
-        producer->notifyStreamReady(vb_, true);
+    lh.unlock();
+    bool inverse = false;
+    if (status != END_STREAM_DISCONNECTED &&
+        itemsReady.compare_exchange_strong(inverse, true)) {
+        producer.notifyStreamReady(vb_, true);
     }
     return 0;
 }
 
 void ActiveStream::notifySeqnoAvailable(uint64_t seqno) {
-    LockHolder lh(streamMutex);
     if (state_ != STREAM_DEAD) {
-        if (!itemsReady) {
-            itemsReady = true;
-            lh.unlock();
-            producer->notifyStreamReady(vb_, true);
+        bool inverse = false;
+        if (itemsReady.compare_exchange_strong(inverse, true)) {
+            producer.notifyStreamReady(vb_, true);
         }
     }
 }
@@ -704,7 +698,7 @@ void ActiveStream::endStream(end_stream_status_t reason) {
         transitionState(STREAM_DEAD);
         LOG(EXTENSION_LOG_WARNING, "%s (vb %d) Stream closing, %llu items sent"
             " from disk, %llu items sent from memory, %llu was last seqno sent"
-            " %s is the reason", producer->logHeader(), vb_, itemsFromBackfill,
+            " %s is the reason", producer.logHeader(), vb_, itemsFromBackfill,
             itemsFromMemory, lastSentSeqno, getEndStreamStatusStr(reason));
     }
 }
@@ -758,7 +752,7 @@ void ActiveStream::scheduleBackfill() {
             } else {
                 transitionState(STREAM_IN_MEMORY);
             }
-            itemsReady = true;
+            itemsReady.store(true);
         }
     }
 }
@@ -782,7 +776,7 @@ const char* ActiveStream::getEndStreamStatusStr(end_stream_status_t status)
 
 void ActiveStream::transitionState(stream_state_t newState) {
     LOG(EXTENSION_LOG_DEBUG, "%s (vb %d) Transitioning from %s to %s",
-        producer->logHeader(), vb_, stateName(state_), stateName(newState));
+        producer.logHeader(), vb_, stateName(state_), stateName(newState));
 
     if (state_ == newState) {
         return;
@@ -808,7 +802,7 @@ void ActiveStream::transitionState(stream_state_t newState) {
             break;
         default:
             LOG(EXTENSION_LOG_WARNING, "%s (vb %d) Invalid Transition from %s "
-                "to %s", producer->logHeader(), vb_, stateName(state_),
+                "to %s", producer.logHeader(), vb_, stateName(state_),
                 stateName(newState));
             abort();
     }
@@ -851,10 +845,10 @@ size_t ActiveStream::getItemsRemaining() {
 
 const char* ActiveStream::logHeader()
 {
-    return producer->logHeader();
+    return producer.logHeader();
 }
 
-NotifierStream::NotifierStream(EventuallyPersistentEngine* e, DcpProducer* p,
+NotifierStream::NotifierStream(EventuallyPersistentEngine* e, DcpProducer& p,
                                const std::string &name, uint32_t flags,
                                uint32_t opaque, uint16_t vb, uint64_t st_seqno,
                                uint64_t en_seqno, uint64_t vb_uuid,
@@ -868,13 +862,13 @@ NotifierStream::NotifierStream(EventuallyPersistentEngine* e, DcpProducer* p,
     if (vbucket && static_cast<uint64_t>(vbucket->getHighSeqno()) > st_seqno) {
         pushToReadyQ(new StreamEndResponse(opaque_, END_STREAM_OK, vb_));
         transitionState(STREAM_DEAD);
-        itemsReady = true;
+        itemsReady.store(true);
     }
 
     type_ = STREAM_NOTIFIER;
 
     LOG(EXTENSION_LOG_WARNING, "%s (vb %d) stream created with start seqno "
-        "%llu and end seqno %llu", producer->logHeader(), vb, st_seqno,
+        "%llu and end seqno %llu", producer.logHeader(), vb, st_seqno,
         en_seqno);
 }
 
@@ -884,10 +878,10 @@ uint32_t NotifierStream::setDead(end_stream_status_t status) {
         transitionState(STREAM_DEAD);
         if (status != END_STREAM_DISCONNECTED) {
             pushToReadyQ(new StreamEndResponse(opaque_, status, vb_));
-            if (!itemsReady) {
-                itemsReady = true;
-                lh.unlock();
-                producer->notifyStreamReady(vb_, true);
+            lh.unlock();
+            bool inverse = false;
+            if (itemsReady.compare_exchange_strong(inverse, true)) {
+                producer.notifyStreamReady(vb_, true);
             }
         }
     }
@@ -899,10 +893,10 @@ void NotifierStream::notifySeqnoAvailable(uint64_t seqno) {
     if (state_ != STREAM_DEAD && start_seqno_ < seqno) {
         pushToReadyQ(new StreamEndResponse(opaque_, END_STREAM_OK, vb_));
         transitionState(STREAM_DEAD);
-        if (!itemsReady) {
-            itemsReady = true;
-            lh.unlock();
-            producer->notifyStreamReady(vb_, true);
+        lh.unlock();
+        bool inverse = false;
+        if (itemsReady.compare_exchange_strong(inverse, true)) {
+            producer.notifyStreamReady(vb_, true);
         }
     }
 }
@@ -911,19 +905,21 @@ DcpResponse* NotifierStream::next() {
     LockHolder lh(streamMutex);
 
     if (readyQ.empty()) {
-        itemsReady = false;
+        itemsReady.store(false);
         return NULL;
     }
 
     DcpResponse* response = readyQ.front();
-    popFromReadyQ();
+    if (producer.bufferLogInsert(response->getMessageSize())) {
+       popFromReadyQ();
+    }
 
     return response;
 }
 
 void NotifierStream::transitionState(stream_state_t newState) {
     LOG(EXTENSION_LOG_DEBUG, "%s (vb %d) Transitioning from %s to %s",
-        producer->logHeader(), vb_, stateName(state_), stateName(newState));
+        producer.logHeader(), vb_, stateName(state_), stateName(newState));
 
     if (state_ == newState) {
         return;
@@ -935,7 +931,7 @@ void NotifierStream::transitionState(stream_state_t newState) {
             break;
         default:
             LOG(EXTENSION_LOG_WARNING, "%s (vb %d) Invalid Transition from %s "
-                "to %s", producer->logHeader(), vb_, stateName(state_),
+                "to %s", producer.logHeader(), vb_, stateName(state_),
                 stateName(newState));
             abort();
     }
@@ -957,7 +953,7 @@ PassiveStream::PassiveStream(EventuallyPersistentEngine* e, DcpConsumer* c,
     LockHolder lh(streamMutex);
     pushToReadyQ(new StreamRequest(vb, opaque, flags, st_seqno, en_seqno,
                                   vb_uuid, snap_start_seqno, snap_end_seqno));
-    itemsReady = true;
+    itemsReady.store(true);
     type_ = STREAM_PASSIVE;
 
     const char* type = (flags & DCP_ADD_STREAM_FLAG_TAKEOVER) ? "takeover" : "";
@@ -996,9 +992,9 @@ void PassiveStream::acceptStream(uint16_t status, uint32_t add_opaque) {
             transitionState(STREAM_DEAD);
         }
         pushToReadyQ(new AddStreamResponse(add_opaque, opaque_, status));
-        if (!itemsReady) {
-            itemsReady = true;
-            lh.unlock();
+        lh.unlock();
+        bool inverse = false;
+        if (itemsReady.compare_exchange_strong(inverse, true)) {
             consumer->notifyStreamReady(vb_);
         }
     }
@@ -1020,9 +1016,9 @@ void PassiveStream::reconnectStream(RCPtr<VBucket> &vb,
     pushToReadyQ(new StreamRequest(vb_, new_opaque, flags_, start_seqno,
                                   end_seqno_, vb_uuid_, snap_start_seqno_,
                                   snap_end_seqno_));
-    if (!itemsReady) {
-        itemsReady = true;
-        lh.unlock();
+    lh.unlock();
+    bool inverse = false;
+    if (itemsReady.compare_exchange_strong(inverse, true)) {
         consumer->notifyStreamReady(vb_);
     }
 }
@@ -1303,9 +1299,9 @@ void PassiveStream::processSetVBucketState(SetVBucketState* state) {
 
     LockHolder lh (streamMutex);
     pushToReadyQ(new SetVBucketStateResponse(opaque_, ENGINE_SUCCESS));
-    if (!itemsReady) {
-        itemsReady = true;
-        lh.unlock();
+    lh.unlock();
+    bool inverse = false;
+    if (itemsReady.compare_exchange_strong(inverse, true)) {
         consumer->notifyStreamReady(vb_);
     }
 }
@@ -1329,9 +1325,9 @@ void PassiveStream::handleSnapshotEnd(RCPtr<VBucket>& vb, uint64_t byseqno) {
         if (cur_snapshot_ack) {
             LockHolder lh(streamMutex);
             pushToReadyQ(new SnapshotMarkerResponse(opaque_, ENGINE_SUCCESS));
-            if (!itemsReady) {
-                itemsReady = true;
-                lh.unlock();
+            lh.unlock();
+            bool inverse = false;
+            if (itemsReady.compare_exchange_strong(inverse, true)) {
                 consumer->notifyStreamReady(vb_);
             }
             cur_snapshot_ack = false;
@@ -1351,7 +1347,7 @@ void PassiveStream::addStats(ADD_STAT add_stat, const void *c) {
     snprintf(buf, bsize, "%s:stream_%d_buffer_bytes", name_.c_str(), vb_);
     add_casted_stat(buf, buffer.bytes, add_stat, c);
     snprintf(buf, bsize, "%s:stream_%d_items_ready", name_.c_str(), vb_);
-    add_casted_stat(buf, itemsReady ? "true" : "false", add_stat, c);
+    add_casted_stat(buf, itemsReady.load() ? "true" : "false", add_stat, c);
     snprintf(buf, bsize, "%s:stream_%d_last_received_seqno", name_.c_str(), vb_);
     add_casted_stat(buf, last_seqno, add_stat, c);
     snprintf(buf, bsize, "%s:stream_%d_ready_queue_memory", name_.c_str(), vb_);
@@ -1372,7 +1368,7 @@ DcpResponse* PassiveStream::next() {
     LockHolder lh(streamMutex);
 
     if (readyQ.empty()) {
-        itemsReady = false;
+        itemsReady.store(false);
         return NULL;
     }
 
