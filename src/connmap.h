@@ -420,12 +420,45 @@ private:
 
 };
 
+struct ProducerNotification {
+    uint16_t vbid;
+    uint64_t seqno;
+};
+
+class DcpProducerNotifier : public GlobalTask {
+public:
+    DcpProducerNotifier(EventuallyPersistentEngine *e,
+                        DcpConnMap &dcm,
+                        double sleep = 1) :
+        GlobalTask(e, Priority::TapConnNotificationPriority, sleep, true),
+        dcpConnMap(dcm),
+        sleepTime(sleep) { }
+
+    std::string getDescription() {
+        std::string rv("Notifying DCP producers on store operations");
+        return rv;
+    }
+
+    bool run();
+
+    bool needWakeup() {
+        bool expected = false;
+        return running.compare_exchange_strong(expected, true);
+    }
+
+private:
+    DcpConnMap &dcpConnMap;
+    double sleepTime;
+    AtomicValue<bool> running;
+};
 
 class DcpConnMap : public ConnMap {
 
 public:
 
     DcpConnMap(EventuallyPersistentEngine &engine);
+
+    ~DcpConnMap();
 
     /**
      * Find or build a dcp connection for the given cookie and with
@@ -459,6 +492,13 @@ public:
 
     ENGINE_ERROR_CODE addPassiveStream(ConnHandler* conn, uint32_t opaque,
                                        uint16_t vbucket, uint32_t flags);
+
+    bool notifyProducers();
+
+    void startProducerNotifier();
+    void wakeProducerNotifier();
+    void stopProducerNotifier();
+
 private:
 
     void disconnect_UNLOCKED(const void *cookie);
@@ -466,6 +506,10 @@ private:
     void closeAllStreams_UNLOCKED();
 
     std::list<connection_t> deadConnections;
+
+    DcpProducerNotifier* producerNotifier;
+    std::vector<AtomicValue<bool> > vbIsNotifying;
+    std::vector<AtomicValue<int> > vbSeqno;
 };
 
 
