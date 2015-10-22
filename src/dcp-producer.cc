@@ -43,6 +43,7 @@ DcpProducer::DcpProducer(EventuallyPersistentEngine &e, const void *cookie,
                          const std::string &name, bool isNotifier)
     : Producer(e, cookie, name), rejectResp(NULL),
       notifyOnly(isNotifier), lastSendTime(ep_current_time()), log(NULL),
+      vbReady(e.getConfiguration().getMaxVbuckets()),
       itemsSent(0), totalBytesSent(0), ackedBytes(0) {
     setSupportAck(true);
     setReserved(true);
@@ -150,7 +151,7 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
                 return ENGINE_KEY_EEXISTS;
             } else {
                 streams.erase(vbucket);
-                ready.remove(vbucket);
+                vbReady[vbucket] = false;
                 // Don't need to add an entry to vbucket-to-conns map
                 add_vb_conn_map = false;
             }
@@ -199,8 +200,7 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
                                             snap_start_seqno, snap_end_seqno);
         static_cast<ActiveStream*>(streams[vbucket].get())->setActive();
     }
-
-    ready.push_back(vbucket);
+    vbReady[vbucket] = true;
     lh.unlock();
     if (add_vb_conn_map) {
         connection_t conn(this);
@@ -483,7 +483,7 @@ ENGINE_ERROR_CODE DcpProducer::closeStream(uint32_t opaque, uint16_t vbucket) {
     {
         WriterLockHolder wlh(streamsMutex);
         streams.erase(vbucket);
-        ready.remove(vbucket);
+        vbReady[vbucket]=false;
     }
 
     return ret;
@@ -491,8 +491,6 @@ ENGINE_ERROR_CODE DcpProducer::closeStream(uint32_t opaque, uint16_t vbucket) {
 
 void DcpProducer::addStats(ADD_STAT add_stat, const void *c) {
     Producer::addStats(add_stat, c);
-
-    LockHolder lh(queueLock);
 
     addStat("items_sent", getItemsSent(), add_stat, c);
     addStat("items_remaining", getItemsRemaining(), add_stat, c);
@@ -510,6 +508,7 @@ void DcpProducer::addStats(ADD_STAT add_stat, const void *c) {
         addStat("flow_control", "disabled", add_stat, c);
     }
 
+    ReaderLockHolder rlh(streamsMutex);
     std::map<uint16_t, stream_t>::iterator itr;
     for (itr = streams.begin(); itr != streams.end(); ++itr) {
         itr->second->addStats(add_stat, c);
@@ -528,7 +527,6 @@ void DcpProducer::addTakeoverStats(ADD_STAT add_stat, const void* c,
 }
 
 void DcpProducer::aggregateQueueStats(ConnCounter* aggregator) {
-    LockHolder lh(queueLock);
     if (!aggregator) {
         LOG(EXTENSION_LOG_WARNING, "%s Pointer to the queue stats aggregator"
             " is NULL!!!", logHeader());
@@ -564,7 +562,7 @@ void DcpProducer::closeAllStreams() {
             uint16_t vbid = itr->first;
             itr->second->setDead(END_STREAM_DISCONNECTED);
             streams.erase(vbid);
-            ready.remove(vbid);
+            vbReady[vbid]=false;
             vblist.push_back(vbid);
         }
     }
@@ -586,58 +584,61 @@ const char* DcpProducer::getType() const {
 }
 
 DcpResponse* DcpProducer::getNextItem() {
-    LockHolder lh(queueLock);
-
     setPaused(false);
-    while (!ready.empty()) {
+    static size_t roundRobinVbReady = 0;
+    if (roundRobinVbReady >= vbReady.size()) {
+        roundRobinVbReady = 0;
+    }
+    for (; roundRobinVbReady < vbReady.size(); roundRobinVbReady++) {
         if (log && log->isFull()) {
             setPaused(true);
             return NULL;
         }
 
-        uint16_t vbucket = ready.front();
-        ready.pop_front();
+        bool expected = true;
+        if (vbReady[roundRobinVbReady].compare_exchange_strong(expected, false)) {
+            uint16_t vbucket = roundRobinVbReady;
+            vbucket = roundRobinVbReady;
+            DcpResponse *op = NULL;
+            {
+                ReaderLockHolder rlh(streamsMutex);
+                if (streams.find(vbucket) == streams.end()) {
+                    continue;
+                }
+                op = streams[vbucket]->next();
+            }
 
-        DcpResponse *op = NULL;
-        {
-            ReaderLockHolder rlh(streamsMutex);
-            if (streams.find(vbucket) == streams.end()) {
+            if (!op) {
                 continue;
             }
-            op = streams[vbucket]->next();
+
+            switch (op->getEvent()) {
+                case DCP_SNAPSHOT_MARKER:
+                case DCP_MUTATION:
+                case DCP_DELETION:
+                case DCP_EXPIRATION:
+                case DCP_STREAM_END:
+                case DCP_SET_VBUCKET:
+                    break;
+                default:
+                    LOG(EXTENSION_LOG_WARNING, "%s Producer is attempting to write"
+                        " an unexpected event %d", logHeader(), op->getEvent());
+                    abort();
+            }
+
+            if (log) {
+                log->insert(op);
+            }
+            vbReady[vbucket]=true;
+            if (op->getEvent() == DCP_MUTATION || op->getEvent() == DCP_DELETION ||
+               op->getEvent() == DCP_EXPIRATION) {
+               itemsSent++;
+            }
+
+            totalBytesSent = totalBytesSent + op->getMessageSize();
+
+            return op;
         }
-
-        if (!op) {
-            continue;
-        }
-
-        switch (op->getEvent()) {
-            case DCP_SNAPSHOT_MARKER:
-            case DCP_MUTATION:
-            case DCP_DELETION:
-            case DCP_EXPIRATION:
-            case DCP_STREAM_END:
-            case DCP_SET_VBUCKET:
-                break;
-            default:
-                LOG(EXTENSION_LOG_WARNING, "%s Producer is attempting to write"
-                    " an unexpected event %d", logHeader(), op->getEvent());
-                abort();
-        }
-
-        if (log) {
-            log->insert(op);
-        }
-        ready.push_back(vbucket);
-
-        if (op->getEvent() == DCP_MUTATION || op->getEvent() == DCP_DELETION ||
-            op->getEvent() == DCP_EXPIRATION) {
-            itemsSent++;
-        }
-
-        totalBytesSent = totalBytesSent + op->getMessageSize();
-
-        return op;
     }
 
     setPaused(true);
@@ -657,19 +658,11 @@ void DcpProducer::setDisconnect(bool disconnect) {
 }
 
 void DcpProducer::notifyStreamReady(uint16_t vbucket, bool schedule) {
-    LockHolder lh(queueLock);
-
-    std::list<uint16_t>::iterator iter =
-        std::find(ready.begin(), ready.end(), vbucket);
-    if (iter != ready.end()) {
-        return;
-    }
-
-    ready.push_back(vbucket);
-    lh.unlock();
-
-    if (!log || (log && !log->isFull())) {
-        engine_.getDcpConnMap().notifyPausedConnection(this, schedule);
+    bool expected = false;
+    if (vbReady[vbucket].compare_exchange_strong(expected, true)) {
+        if (!log || (log && !log->isFull())) {
+            engine_.getDcpConnMap().notifyPausedConnection(this, schedule);
+        }
     }
 }
 
@@ -730,7 +723,6 @@ size_t DcpProducer::getItemsSent() {
 
 size_t DcpProducer::getItemsRemaining() {
     size_t remainingSize = 0;
-
     ReaderLockHolder rlh(streamsMutex);
     std::map<uint16_t, stream_t>::iterator itr = streams.begin();
     for (; itr != streams.end(); ++itr) {
