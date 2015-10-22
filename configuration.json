@@ -483,6 +483,11 @@
                     "min": 0
                 }
             }
+        },
+        "dcp_producer_notifier_yield_limit": {
+            "default": "10",
+            "descr": "The number of notifications before DcpProducerNotifier::run yields.",
+            "type": "size_t"
         }
     }
 }

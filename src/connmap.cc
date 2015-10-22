@@ -194,6 +194,9 @@ void ConnMap::initialize(conn_notifier_type ntype) {
     connNotifier_->start();
     ExTask connMgr = new ConnManager(&engine, this);
     ExecutorPool::get()->schedule(connMgr, NONIO_TASK_IDX);
+    if (ntype == DCP_CONN_NOTIFIER) {
+        dynamic_cast<DcpConnMap *>(this)->startProducerNotifier();
+    }
 }
 
 ConnMap::~ConnMap() {
@@ -925,11 +928,55 @@ void TAPSessionStats::clearStats(const std::string &name) {
     stats.erase(idle_stat);
 }
 
-DcpConnMap::DcpConnMap(EventuallyPersistentEngine &e)
-    : ConnMap(e) {
+bool DcpProducerNotifier::run() {
+    if (engine->getEpStats().isShutdown) {
+        return false;
+    }
 
+    bool expected = true;
+    int goes = 0;
+    double sleepTime = 0.0;
+
+    do {
+        dcpConnMap.notifyProducers();
+        goes++;
+        // Gives n wakeups before letting someone else have a go
+        if (goes == config.getDcpProducerNotifierYieldLimit()) {
+            sleepTime = 0.0;
+        } else {
+            // sleep forever
+            sleepTime = INT_MAX;
+        }
+        snooze(sleepTime);
+    } while(goes < 10 && running.compare_exchange_strong(expected, false));
+    return true;
 }
 
+DcpConnMap::DcpConnMap(EventuallyPersistentEngine &e)
+  : ConnMap(e),
+    producerNotifier(NULL),
+    vbIsNotifying(e.getConfiguration().getMaxVbuckets()),
+    vbSeqno(e.getConfiguration().getMaxVbuckets()) {
+}
+
+DcpConnMap::~DcpConnMap() {
+    stopProducerNotifier();
+}
+
+void DcpConnMap::startProducerNotifier() {
+    producerNotifier = new DcpProducerNotifier(&engine, *this);
+    ExecutorPool::get()->schedule(producerNotifier, NONIO_TASK_IDX);
+}
+
+void DcpConnMap::wakeProducerNotifier() {
+    if (producerNotifier->needWakeup()) {
+        ExecutorPool::get()->wake(producerNotifier->getId());
+    }
+}
+
+void DcpConnMap::stopProducerNotifier() {
+    ExecutorPool::get()->cancel(producerNotifier->getId());
+}
 
 DcpConsumer *DcpConnMap::newConsumer(const void* cookie,
                                      const std::string &name)
@@ -1176,9 +1223,32 @@ void DcpConnMap::notifyVBConnections(uint16_t vbid, uint64_t bySeqno)
     SpinLockHolder lh(&vbConnLocks[lock_num]);
 
     std::list<connection_t> &conns = vbConns[vbid];
-    std::list<connection_t>::iterator it = conns.begin();
-    for (; it != conns.end(); ++it) {
-        DcpProducer *conn = static_cast<DcpProducer*>((*it).get());
-        conn->notifySeqnoAvailable(vbid, bySeqno);
+    if (!conns.empty()) {
+        vbSeqno[vbid] = bySeqno;
+        vbIsNotifying[vbid] = true;
+        wakeProducerNotifier();
     }
+}
+
+bool DcpConnMap::notifyProducers() {
+    for (size_t ii = 0; ii < vbIsNotifying.size(); ii++) {
+        bool expected = true;
+        if (vbIsNotifying[ii].compare_exchange_strong(expected, false)) {
+            size_t lock_num = ii % vbConnLockNum;
+            SpinLockHolder lh(&vbConnLocks[lock_num]);
+            std::list<connection_t> &conns = vbConns[ii];
+
+            if (!conns.empty()) {
+                std::list<connection_t>::iterator it = conns.begin();
+                for (; it != conns.end(); ++it) {
+                    DcpProducer *conn = static_cast<DcpProducer*>((*it).get());
+                    if (conn) {
+                        conn->notifySeqnoAvailable(ii, vbSeqno[ii]);
+                    }
+                }
+            }
+        }
+    }
+
+    return true;
 }
