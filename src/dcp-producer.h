@@ -136,7 +136,9 @@ private:
 
     DcpResponse* getNextItem();
 
-    size_t getItemsRemaining_UNLOCKED();
+    size_t getItemsRemaining();
+
+    stream_t findStreamByVbid(uint16_t vbid);
 
     ENGINE_ERROR_CODE maybeSendNoop(struct dcp_message_producers* producers);
 
@@ -154,7 +156,13 @@ private:
     rel_time_t lastSendTime;
     BufferLog* log;
     std::list<uint16_t> ready;
+
+    // Guards all accesses to streams map. If only reading elements in streams
+    // (i.e. not adding / removing elements) then can acquire ReadLock, even
+    // if a non-const method is called on stream_t.
+    RWLock streamsMutex;
     std::map<uint16_t, stream_t> streams;
+
     AtomicValue<size_t> itemsSent;
     AtomicValue<size_t> totalBytesSent;
     AtomicValue<size_t> ackedBytes;
