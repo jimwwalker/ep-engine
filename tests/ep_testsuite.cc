@@ -3893,6 +3893,7 @@ static enum test_result test_dcp_notifier(ENGINE_HANDLE *h,
         h1->release(h, NULL, i);
     }
 
+    wait_for_stat_to_be(h, h1, "ep_dcp_pending_notifications", 0);
     // Should get a stream end
     dcp_step(h, h1, cookie);
     check(dcp_last_op == PROTOCOL_BINARY_CMD_DCP_STREAM_END,
