@@ -145,7 +145,7 @@ protected:
     stream_state_t state_;
     stream_type_t type_;
 
-    bool itemsReady;
+    AtomicValue<bool> itemsReady;
     Mutex streamMutex;
     std::queue<DcpResponse*> readyQ;
 
@@ -159,7 +159,7 @@ private:
 class ActiveStream : public Stream {
 public:
     ActiveStream(EventuallyPersistentEngine* e, dcp_producer_t p,
-                 const std::string &name, uint32_t flags, uint32_t opaque,
+                const std::string &name, uint32_t flags, uint32_t opaque,
                  uint16_t vb, uint64_t st_seqno, uint64_t en_seqno,
                  uint64_t vb_uuid, uint64_t snap_start_seqno,
                  uint64_t snap_end_seqno);
@@ -249,11 +249,13 @@ private:
     //! Whether ot not this is the first snapshot marker sent
     bool firstMarkerSent;
 
-    int waitForSnapshot;
+    AtomicValue<int> waitForSnapshot;
 
     EventuallyPersistentEngine* engine;
+
     dcp_producer_t producer;
-    bool isBackfillTaskRunning;
+
+    AtomicValue<bool> isBackfillTaskRunning;
 };
 
 class NotifierStream : public Stream {
