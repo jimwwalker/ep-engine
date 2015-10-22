@@ -26,24 +26,80 @@
 
 const uint32_t DcpProducer::defaultNoopInerval = 20;
 
-void BufferLog::insert(DcpResponse* response) {
-    cb_assert(!isFull());
-    bytes_sent += response->getMessageSize();
+DcpProducer::BufferLog::State DcpProducer::BufferLog::getState() {
+    ReaderLockHolder rlh(logLock);
+    return getState_UNLOCKED();
 }
 
-void BufferLog::free(uint32_t bytes_to_free) {
-    if (bytes_sent >= bytes_to_free) {
-        bytes_sent -= bytes_to_free;
+DcpProducer::BufferLog::State DcpProducer::BufferLog::getState_UNLOCKED() {
+    if (isEnabled_UNLOCKED()) {
+        if (isFull_UNLOCKED()) {
+            return Full;
+        } else {
+            return SpaceAvailable;
+        }
+    }
+    return Disabled;
+}
+
+void DcpProducer::BufferLog::setBufferSize(size_t maxBytes) {
+    WriterLockHolder lh(logLock);
+    this->maxBytes = maxBytes;
+    if (maxBytes == 0) {
+        bytesSent = 0;
+        ackedBytes = 0;
+    }
+}
+
+bool DcpProducer::BufferLog::insert(size_t bytes) {
+    WriterLockHolder wlh(logLock);
+    bool inserted = false;
+    if (isEnabled_UNLOCKED()) {
+        cb_assert(!isFull_UNLOCKED());
+        if ((bytesSent + bytes) < maxBytes) {
+            bytesSent += bytesSent;
+            inserted = true;
+        }
+    }
+    return inserted;
+}
+
+void DcpProducer::BufferLog::release_UNLOCKED(size_t bytes) {
+    if (bytesSent >= bytes) {
+        bytesSent -= bytes;
     } else {
-        bytes_sent = 0;
+        bytesSent = 0;
+    }
+}
+
+DcpProducer::BufferLog::State DcpProducer::BufferLog::acknowledge(size_t bytes) {
+    WriterLockHolder wlh(logLock);
+    State rval = getState_UNLOCKED();
+    if (rval != Disabled) {
+        release_UNLOCKED(bytes);
+        ackedBytes += bytes;
+    }
+    return rval;
+}
+
+void DcpProducer::BufferLog::addStats(const DcpProducer& myProducer, ADD_STAT add_stat, const void *c) {
+    ReaderLockHolder rlh(logLock);
+    if (isEnabled_UNLOCKED()) {
+        myProducer.addStat("max_buffer_bytes", maxBytes, add_stat, c);
+        myProducer.addStat("unacked_bytes", bytesSent, add_stat, c);
+        myProducer.addStat("total_acked_bytes", ackedBytes, add_stat, c);
+        myProducer.addStat("flow_control", "enabled", add_stat, c);
+    } else {
+        myProducer.addStat("flow_control", "disabled", add_stat, c);
     }
 }
 
 DcpProducer::DcpProducer(EventuallyPersistentEngine &e, const void *cookie,
                          const std::string &name, bool isNotifier)
     : Producer(e, cookie, name), rejectResp(NULL),
-      notifyOnly(isNotifier), lastSendTime(ep_current_time()), log(NULL),
-      itemsSent(0), totalBytesSent(0), ackedBytes(0) {
+      notifyOnly(isNotifier), lastSendTime(ep_current_time()),
+      vbReady(e.getConfiguration().getMaxVbuckets()),
+      itemsSent(0), totalBytesSent(0), roundRobinVbReady(0) {
     setSupportAck(true);
     setReserved(true);
     setPaused(true);
@@ -80,12 +136,6 @@ DcpProducer::DcpProducer(EventuallyPersistentEngine &e, const void *cookie,
     noopCtx.enabled = false;
 }
 
-DcpProducer::~DcpProducer() {
-    if (log) {
-        delete log;
-    }
-}
-
 ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
                                              uint32_t opaque,
                                              uint16_t vbucket,
@@ -100,7 +150,6 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
         return ENGINE_DISCONNECT;
     }
 
-    LockHolder lh(queueLock);
     RCPtr<VBucket> vb = engine_.getVBucket(vbucket);
     if (!vb) {
         LOG(EXTENSION_LOG_WARNING, "%s (vb %d) Stream request failed because "
@@ -150,7 +199,7 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
                 return ENGINE_KEY_EEXISTS;
             } else {
                 streams.erase(vbucket);
-                ready.remove(vbucket);
+                vbReady[vbucket].store(false);
                 // Don't need to add an entry to vbucket-to-conns map
                 add_vb_conn_map = false;
             }
@@ -187,21 +236,20 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
 
     if (notifyOnly) {
         WriterLockHolder wlh(streamsMutex);
-        streams[vbucket] = new NotifierStream(&engine_, this, getName(), flags,
+        streams[vbucket] = new NotifierStream(&engine_, *this, getName(), flags,
                                               opaque, vbucket, notifySeqno,
                                               end_seqno, vbucket_uuid,
                                               snap_start_seqno, snap_end_seqno);
     } else {
         WriterLockHolder wlh(streamsMutex);
-        streams[vbucket] = new ActiveStream(&engine_, this, getName(), flags,
+        streams[vbucket] = new ActiveStream(&engine_, *this, getName(), flags,
                                             opaque, vbucket, start_seqno,
                                             end_seqno, vbucket_uuid,
                                             snap_start_seqno, snap_end_seqno);
         static_cast<ActiveStream*>(streams[vbucket].get())->setActive();
     }
+    vbReady[vbucket].store(true);
 
-    ready.push_back(vbucket);
-    lh.unlock();
     if (add_vb_conn_map) {
         connection_t conn(this);
         engine_.getDcpConnMap().addVBConnByVBId(conn, vbucket);
@@ -331,26 +379,15 @@ ENGINE_ERROR_CODE DcpProducer::step(struct dcp_message_producers* producers) {
 ENGINE_ERROR_CODE DcpProducer::bufferAcknowledgement(uint32_t opaque,
                                                      uint16_t vbucket,
                                                      uint32_t buffer_bytes) {
-    LockHolder lh(queueLock);
-    if (log) {
-        bool wasFull = log->isFull();
-
-        ackedBytes.fetch_add(buffer_bytes);
-        log->free(buffer_bytes);
-        lh.unlock();
-
-        if (wasFull) {
-            engine_.getDcpConnMap().notifyPausedConnection(this, true);
-        }
+    if (log.acknowledge(buffer_bytes) == BufferLog::Full) {
+        engine_.getDcpConnMap().notifyPausedConnection(this, true);
     }
-
     return ENGINE_SUCCESS;
 }
 
 ENGINE_ERROR_CODE DcpProducer::control(uint32_t opaque, const void* key,
                                        uint16_t nkey, const void* value,
                                        uint32_t nvalue) {
-    LockHolder lh(queueLock);
     const char* param = static_cast<const char*>(key);
     std::string keyStr(static_cast<const char*>(key), nkey);
     std::string valueStr(static_cast<const char*>(value), nvalue);
@@ -360,16 +397,7 @@ ENGINE_ERROR_CODE DcpProducer::control(uint32_t opaque, const void* key,
         if (parseUint32(valueStr.c_str(), &size)) {
             /* Size 0 implies the client (DCP consumer) does not support
                flow control */
-            if (!log && size) {
-                log = new BufferLog(size);
-            } else if (log && log->getBufferSize() != size) {
-                if (size) {
-                    log->setBufferSize(size);
-                } else {
-                    delete log;
-                    log = NULL;
-                }
-            }
+            log.setBufferSize(size);
             return ENGINE_SUCCESS;
         }
     } else if (strncmp(param, "stream_buffer_size", nkey) == 0) {
@@ -458,7 +486,6 @@ ENGINE_ERROR_CODE DcpProducer::closeStream(uint32_t opaque, uint16_t vbucket) {
         return ENGINE_DISCONNECT;
     }
 
-    LockHolder lh(queueLock);
     stream_t stream = findStreamByVbid(vbucket);
     ENGINE_ERROR_CODE ret;
     if (!stream) {
@@ -466,14 +493,12 @@ ENGINE_ERROR_CODE DcpProducer::closeStream(uint32_t opaque, uint16_t vbucket) {
             "stream exists for this vbucket", logHeader(), vbucket);
         return ENGINE_KEY_ENOENT;
     } else if (!stream->isActive()) {
-        lh.unlock();
         LOG(EXTENSION_LOG_WARNING, "%s (vb %d) Cannot close stream because "
             "stream is already marked as dead", logHeader(), vbucket);
         connection_t conn(this);
         engine_.getDcpConnMap().removeVBConnByVBId(conn, vbucket);
         ret = ENGINE_KEY_ENOENT;
     } else {
-        lh.unlock();
         stream->setDead(END_STREAM_CLOSED);
         connection_t conn(this);
         engine_.getDcpConnMap().removeVBConnByVBId(conn, vbucket);
@@ -483,7 +508,7 @@ ENGINE_ERROR_CODE DcpProducer::closeStream(uint32_t opaque, uint16_t vbucket) {
     {
         WriterLockHolder wlh(streamsMutex);
         streams.erase(vbucket);
-        ready.remove(vbucket);
+        vbReady[vbucket].store(false);
     }
 
     return ret;
@@ -492,8 +517,6 @@ ENGINE_ERROR_CODE DcpProducer::closeStream(uint32_t opaque, uint16_t vbucket) {
 void DcpProducer::addStats(ADD_STAT add_stat, const void *c) {
     Producer::addStats(add_stat, c);
 
-    LockHolder lh(queueLock);
-
     addStat("items_sent", getItemsSent(), add_stat, c);
     addStat("items_remaining", getItemsRemaining(), add_stat, c);
     addStat("total_bytes_sent", getTotalBytes(), add_stat, c);
@@ -501,15 +524,9 @@ void DcpProducer::addStats(ADD_STAT add_stat, const void *c) {
     addStat("noop_enabled", noopCtx.enabled, add_stat, c);
     addStat("noop_wait", noopCtx.pendingRecv, add_stat, c);
 
-    if (log) {
-        addStat("max_buffer_bytes", log->getBufferSize(), add_stat, c);
-        addStat("unacked_bytes", log->getBytesSent(), add_stat, c);
-        addStat("total_acked_bytes", ackedBytes, add_stat, c);
-        addStat("flow_control", "enabled", add_stat, c);
-    } else {
-        addStat("flow_control", "disabled", add_stat, c);
-    }
+    log.addStats(*this, add_stat, c);
 
+    ReaderLockHolder rlh(streamsMutex);
     std::map<uint16_t, stream_t>::iterator itr;
     for (itr = streams.begin(); itr != streams.end(); ++itr) {
         itr->second->addStats(add_stat, c);
@@ -528,7 +545,6 @@ void DcpProducer::addTakeoverStats(ADD_STAT add_stat, const void* c,
 }
 
 void DcpProducer::aggregateQueueStats(ConnCounter* aggregator) {
-    LockHolder lh(queueLock);
     if (!aggregator) {
         LOG(EXTENSION_LOG_WARNING, "%s Pointer to the queue stats aggregator"
             " is NULL!!!", logHeader());
@@ -555,7 +571,6 @@ void DcpProducer::vbucketStateChanged(uint16_t vbucket, vbucket_state_t state) {
 }
 
 void DcpProducer::closeAllStreams() {
-    LockHolder lh(queueLock);
     std::list<uint16_t> vblist;
     {
         WriterLockHolder wlh(streamsMutex);
@@ -564,11 +579,10 @@ void DcpProducer::closeAllStreams() {
             uint16_t vbid = itr->first;
             itr->second->setDead(END_STREAM_DISCONNECTED);
             streams.erase(vbid);
-            ready.remove(vbid);
+            vbReady[vbid].store(false);
             vblist.push_back(vbid);
         }
     }
-    lh.unlock();
 
     connection_t conn(this);
     std::list<uint16_t>::iterator it = vblist.begin();
@@ -586,58 +600,66 @@ const char* DcpProducer::getType() const {
 }
 
 DcpResponse* DcpProducer::getNextItem() {
-    LockHolder lh(queueLock);
-
     setPaused(false);
-    while (!ready.empty()) {
-        if (log && log->isFull()) {
+    if (roundRobinVbReady >= vbReady.size()) {
+        roundRobinVbReady = 0;
+    }
+    for (; roundRobinVbReady < vbReady.size(); roundRobinVbReady++) {
+
+        if (log.getState() == BufferLog::Full) {
             setPaused(true);
             return NULL;
         }
 
-        uint16_t vbucket = ready.front();
-        ready.pop_front();
+        bool expected = true;
+        if (vbReady[roundRobinVbReady].compare_exchange_strong(expected, false)) {
+            uint16_t vbucket = roundRobinVbReady;
+            vbucket = roundRobinVbReady;
+            DcpResponse *op = NULL;
+            std::map<uint16_t, stream_t>::iterator it;
+            stream_t stream;
+            {
+                ReaderLockHolder rlh(streamsMutex);
+                it = streams.find(vbucket);
+                if (it == streams.end()) {
+                    continue;
+                }
+                stream.reset(it->second);
+            }
 
-        DcpResponse *op = NULL;
-        {
-            ReaderLockHolder rlh(streamsMutex);
-            if (streams.find(vbucket) == streams.end()) {
+            // Return the next operation
+            // When an op is returned it is assumed our bufferLog has been updated.
+            op = stream->next();
+
+            if (!op) {
                 continue;
             }
-            op = streams[vbucket]->next();
+
+            switch (op->getEvent()) {
+                case DCP_SNAPSHOT_MARKER:
+                case DCP_MUTATION:
+                case DCP_DELETION:
+                case DCP_EXPIRATION:
+                case DCP_STREAM_END:
+                case DCP_SET_VBUCKET:
+                    break;
+                default:
+                    LOG(EXTENSION_LOG_WARNING, "%s Producer is attempting to write"
+                        " an unexpected event %d", logHeader(), op->getEvent());
+                    abort();
+            }
+
+            vbReady[vbucket].store(true);
+
+            if (op->getEvent() == DCP_MUTATION || op->getEvent() == DCP_DELETION ||
+               op->getEvent() == DCP_EXPIRATION) {
+               itemsSent++;
+            }
+
+            totalBytesSent.fetch_add(op->getMessageSize());
+
+            return op;
         }
-
-        if (!op) {
-            continue;
-        }
-
-        switch (op->getEvent()) {
-            case DCP_SNAPSHOT_MARKER:
-            case DCP_MUTATION:
-            case DCP_DELETION:
-            case DCP_EXPIRATION:
-            case DCP_STREAM_END:
-            case DCP_SET_VBUCKET:
-                break;
-            default:
-                LOG(EXTENSION_LOG_WARNING, "%s Producer is attempting to write"
-                    " an unexpected event %d", logHeader(), op->getEvent());
-                abort();
-        }
-
-        if (log) {
-            log->insert(op);
-        }
-        ready.push_back(vbucket);
-
-        if (op->getEvent() == DCP_MUTATION || op->getEvent() == DCP_DELETION ||
-            op->getEvent() == DCP_EXPIRATION) {
-            itemsSent++;
-        }
-
-        totalBytesSent = totalBytesSent + op->getMessageSize();
-
-        return op;
     }
 
     setPaused(true);
@@ -657,19 +679,11 @@ void DcpProducer::setDisconnect(bool disconnect) {
 }
 
 void DcpProducer::notifyStreamReady(uint16_t vbucket, bool schedule) {
-    LockHolder lh(queueLock);
-
-    std::list<uint16_t>::iterator iter =
-        std::find(ready.begin(), ready.end(), vbucket);
-    if (iter != ready.end()) {
-        return;
-    }
-
-    ready.push_back(vbucket);
-    lh.unlock();
-
-    if (!log || (log && !log->isFull())) {
-        engine_.getDcpConnMap().notifyPausedConnection(this, schedule);
+    bool expected = false;
+    if (vbReady[vbucket].compare_exchange_strong(expected, true)) {
+        if (log.getState() != BufferLog::Full) {
+            engine_.getDcpConnMap().notifyPausedConnection(this, schedule);
+        }
     }
 }
 
@@ -730,7 +744,6 @@ size_t DcpProducer::getItemsSent() {
 
 size_t DcpProducer::getItemsRemaining() {
     size_t remainingSize = 0;
-
     ReaderLockHolder rlh(streamsMutex);
     std::map<uint16_t, stream_t>::iterator itr = streams.begin();
     for (; itr != streams.end(); ++itr) {
@@ -775,4 +788,8 @@ bool DcpProducer::windowIsFull() {
 
 void DcpProducer::flush() {
     abort(); // Not Implemented
+}
+
+bool DcpProducer::bufferLogInsert(size_t bytes) {
+    return log.insert(bytes);
 }
