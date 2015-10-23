@@ -31,6 +31,7 @@ class DcpProducer;
 class DcpResponse;
 
 typedef enum {
+    STREAM_UNINITIALISED,
     STREAM_PENDING,
     STREAM_BACKFILLING,
     STREAM_IN_MEMORY,
@@ -94,7 +95,14 @@ public:
 
     uint64_t getSnapEndSeqno() { return snap_end_seqno_; }
 
-    stream_state_t getState() { return state_; }
+    RWLock& getStateLock() { return stateLock; }
+
+    RWLock& getReadyQLock() { return readyQLock; }
+
+    stream_state_t getState() const { return state_; }
+
+    // stateLock must be held as writer
+    void setState(stream_state_t state) { state_ = state; }
 
     stream_type_t getType() { return type_; }
 
@@ -138,11 +146,13 @@ protected:
     uint64_t vb_uuid_;
     uint64_t snap_start_seqno_;
     uint64_t snap_end_seqno_;
+    RWLock stateLock;
     stream_state_t state_;
     stream_type_t type_;
 
-    bool itemsReady;
+    AtomicValue<bool> itemsReady;
     Mutex streamMutex;
+    RWLock readyQLock;
     std::queue<DcpResponse*> readyQ;
 
     const static uint64_t dcpMaxSeqno;
@@ -170,7 +180,8 @@ public:
 
     void setActive() {
         LockHolder lh(streamMutex);
-        if (state_ == STREAM_PENDING) {
+        WriterLockHolder wlh(getStateLock());
+        if (getState() == STREAM_PENDING) {
             transitionState(STREAM_BACKFILLING);
         }
     }
@@ -205,11 +216,11 @@ private:
 
     void transitionState(stream_state_t newState);
 
-    DcpResponse* backfillPhase();
+    DcpResponse* backfillPhase(stream_state_t& newState);
 
-    DcpResponse* inMemoryPhase();
+    DcpResponse* inMemoryPhase(stream_state_t& newState);
 
-    DcpResponse* takeoverSendPhase();
+    DcpResponse* takeoverSendPhase(stream_state_t& newState);
 
     DcpResponse* takeoverWaitPhase();
 
@@ -221,9 +232,9 @@ private:
 
     void snapshot(std::list<MutationResponse*>& snapshot, bool mark);
 
-    void endStream(end_stream_status_t reason);
+    stream_state_t endStream(end_stream_status_t reason);
 
-    void scheduleBackfill();
+    stream_state_t scheduleBackfill();
 
     const char* getEndStreamStatusStr(end_stream_status_t status);
 
@@ -245,7 +256,7 @@ private:
     //! Whether ot not this is the first snapshot marker sent
     bool firstMarkerSent;
 
-    int waitForSnapshot;
+    AtomicValue<int> waitForSnapshot;
 
     EventuallyPersistentEngine* engine;
     DcpProducer* producer;
