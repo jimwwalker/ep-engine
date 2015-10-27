@@ -26,6 +26,7 @@
 #include <algorithm>
 #include <iostream>
 #include <sstream>
+#include <mutex>
 
 #include "mock/mock_dcp.h"
 
@@ -34,6 +35,7 @@
 
 extern "C" bool abort_msg(const char *expr, const char *msg, int line);
 
+std::mutex vals_mutex;
 std::map<std::string, std::string> vals;
 bool dump_stats = false;
 protocol_binary_response_status last_status =
@@ -740,6 +742,7 @@ bool verify_vbucket_missing(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
 
     // Try up to three times to verify the bucket is missing.  Bucket
     // state changes are async.
+    std::lock_guard<std::mutex> m(vals_mutex);
     vals.clear();
     check(h1->get_stats(h, NULL, NULL, 0, add_stats) == ENGINE_SUCCESS,
           "Failed to get stats.");
@@ -794,7 +797,7 @@ void sendDcpAck(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
 }
 
 int get_int_stat(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1, const char *statname,
-                 const char *statkey) {
+                 const char *statkey) {  std::lock_guard<std::mutex> m(vals_mutex);
     vals.clear();
     check(h1->get_stats(h, NULL, statkey, statkey == NULL ? 0 : strlen(statkey),
                         add_stats) == ENGINE_SUCCESS, "Failed to get stats.");
@@ -804,6 +807,7 @@ int get_int_stat(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1, const char *statname,
 
 uint64_t get_ull_stat(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1, const char *statname,
                       const char *statkey) {
+    std::lock_guard<std::mutex> lh(vals_mutex);
     vals.clear();
     check(h1->get_stats(h, NULL, statkey, statkey == NULL ? 0 : strlen(statkey),
                         add_stats) == ENGINE_SUCCESS, "Failed to get stats.");
@@ -813,6 +817,7 @@ uint64_t get_ull_stat(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1, const char *statna
 
 std::string get_str_stat(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1,
                          const char *statname, const char *statkey) {
+      std::lock_guard<std::mutex> m(vals_mutex);
     vals.clear();
     check(h1->get_stats(h, NULL, statkey, statkey == NULL ? 0 : strlen(statkey),
                         add_stats) == ENGINE_SUCCESS, "Failed to get stats.");
@@ -872,6 +877,7 @@ bool wait_for_warmup_complete(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
             break;
         }
         decayingSleep(&sleepTime);
+          std::lock_guard<std::mutex> m(vals_mutex);
         vals.clear();
     }
     return true;
