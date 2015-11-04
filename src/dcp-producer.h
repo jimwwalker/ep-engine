@@ -168,6 +168,8 @@ private:
     AtomicValue<size_t> totalBytesSent;
     AtomicValue<size_t> ackedBytes;
 
+    ActiveStreamCheckpointProcessorTask* checkpointCreatorTask;
+
     static const uint32_t defaultNoopInerval;
 };
 

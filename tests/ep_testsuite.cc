@@ -3466,9 +3466,10 @@ static void dcp_stream(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1, const char *name,
         ENGINE_ERROR_CODE err = h1->dcp.step(h, cookie, producers);
         if (err == ENGINE_DISCONNECT) {
             done = true;
-        } else {
+        } else {//printf("%d %d\n", dcp_last_op, err);
             switch (dcp_last_op) {
                 case PROTOCOL_BINARY_CMD_DCP_MUTATION:
+                    //printf("mutation\n");
                     check(last_by_seqno < dcp_last_byseqno, "Expected bigger seqno");
                     check(dcp_last_nru == exp_nru_value, "Expected different NRU value");
                     last_by_seqno = dcp_last_byseqno;
@@ -11403,6 +11404,17 @@ MEMCACHED_PUBLIC_API
 engine_test_t* get_tests(void) {
 
     TestCase tc[] = {
+        //TestCase("Baseline latency", perf_latency_baseline,
+        //          test_setup, teardown,
+        //          "backend=couchdb;dbname=./perf_test;ht_size=393209",
+        //          prepare, cleanup),
+        // TestCase("DCP impact on front-end latency", perf_latency_dcp_impact,
+        //          test_setup, teardown,
+        //          "backend=couchdb;dbname=./perf_test;ht_size=393209",
+        //          prepare, cleanup),
+
+        // TestCase(NULL, NULL, NULL, NULL,
+        //          "backend=couchdb;dbname=./perf_test", prepare, cleanup),
         TestCase("validate engine handle", test_validate_engine_handle,
                  NULL, teardown, NULL, prepare, cleanup),
 

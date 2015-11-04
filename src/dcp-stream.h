@@ -162,13 +162,15 @@ private:
     uint64_t readyQueueMemory;
 };
 
+class ActiveStreamCheckpointProcessorTask;
+
 class ActiveStream : public Stream {
 public:
     ActiveStream(EventuallyPersistentEngine* e, DcpProducer* p,
                  const std::string &name, uint32_t flags, uint32_t opaque,
                  uint16_t vb, uint64_t st_seqno, uint64_t en_seqno,
                  uint64_t vb_uuid, uint64_t snap_start_seqno,
-                 uint64_t snap_end_seqno);
+                 uint64_t snap_end_seqno, ActiveStreamCheckpointProcessorTask& task);
 
     ~ActiveStream() {
         LockHolder lh(streamMutex);
@@ -212,6 +214,9 @@ public:
 
     const char* logHeader();
 
+    // Runs on ActiveStreamCheckpointProcessorTask
+    void nextCheckpointItemTask();
+
 private:
 
     void transitionState(stream_state_t newState);
@@ -228,7 +233,7 @@ private:
 
     DcpResponse* nextQueuedItem();
 
-    void nextCheckpointItem();
+    bool nextCheckpointItem();
 
     void snapshot(std::deque<MutationResponse*>& snapshot, bool mark);
 
@@ -261,6 +266,30 @@ private:
     EventuallyPersistentEngine* engine;
     DcpProducer* producer;
     bool isBackfillTaskRunning;
+
+    ActiveStreamCheckpointProcessorTask& checkpointCreatorTask;
+};
+
+
+class ActiveStreamCheckpointProcessorTask : public GlobalTask {
+public:
+    ActiveStreamCheckpointProcessorTask(EventuallyPersistentEngine& e)
+      : GlobalTask(&e, Priority::TapConnNotificationPriority, INT_MAX, false),
+      running(false) { }
+
+    std::string getDescription() {
+        std::string rv("Process checkpoint(s) for DCP producer");
+        return rv;
+    }
+
+    bool run();
+    void schedule(ActiveStream* stream);
+    void wakeup();
+
+private:
+    Mutex workQueueLock;
+    std::deque<ActiveStream*> queue;
+    AtomicValue<bool> running;
 };
 
 class NotifierStream : public Stream {
