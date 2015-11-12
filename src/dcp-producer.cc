@@ -45,7 +45,7 @@ DcpProducer::DcpProducer(EventuallyPersistentEngine &e, const void *cookie,
       notifyOnly(isNotifier), lastSendTime(ep_current_time()), log(NULL),
       vbReady(e.getConfiguration().getMaxVbuckets()),
       itemsSent(0), totalBytesSent(0), ackedBytes(0),
-      roundRobinVbReady(0) {
+      roundRobinVbReady(0), checkpointCreatorTask(NULL) {
     setSupportAck(true);
     setReserved(true);
     setPaused(true);
@@ -80,6 +80,10 @@ DcpProducer::DcpProducer(EventuallyPersistentEngine &e, const void *cookie,
     noopCtx.noopInterval = defaultNoopInerval;
     noopCtx.pendingRecv = false;
     noopCtx.enabled = false;
+
+    // 1 task per producer
+    checkpointCreatorTask = new ActiveStreamCheckpointProcessorTask(e);
+    ExecutorPool::get()->schedule(checkpointCreatorTask, AUXIO_TASK_IDX);
 }
 
 DcpProducer::~DcpProducer() {
@@ -198,7 +202,8 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
         streams[vbucket] = new ActiveStream(&engine_, this, getName(), flags,
                                             opaque, vbucket, start_seqno,
                                             end_seqno, vbucket_uuid,
-                                            snap_start_seqno, snap_end_seqno);
+                                            snap_start_seqno, snap_end_seqno,
+                                            *checkpointCreatorTask);
         static_cast<ActiveStream*>(streams[vbucket].get())->setActive();
     }
     vbReady[vbucket] = true;

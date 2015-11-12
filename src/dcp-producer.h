@@ -167,8 +167,8 @@ private:
     AtomicValue<size_t> itemsSent;
     AtomicValue<size_t> totalBytesSent;
     AtomicValue<size_t> ackedBytes;
-
     size_t roundRobinVbReady;
+    ActiveStreamCheckpointProcessorTask* checkpointCreatorTask;
     static const uint32_t defaultNoopInerval;
 };
 

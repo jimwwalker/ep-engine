@@ -229,14 +229,15 @@ ActiveStream::ActiveStream(EventuallyPersistentEngine* e, DcpProducer* p,
                            const std::string &n, uint32_t flags,
                            uint32_t opaque, uint16_t vb, uint64_t st_seqno,
                            uint64_t en_seqno, uint64_t vb_uuid,
-                           uint64_t snap_start_seqno, uint64_t snap_end_seqno)
+                           uint64_t snap_start_seqno, uint64_t snap_end_seqno,
+                           ActiveStreamCheckpointProcessorTask& task)
     :  Stream(n, flags, opaque, vb, st_seqno, en_seqno, vb_uuid,
               snap_start_seqno, snap_end_seqno),
        lastReadSeqno(st_seqno), lastSentSeqno(st_seqno), curChkSeqno(st_seqno),
        takeoverState(vbucket_state_pending), backfillRemaining(0),
        itemsFromBackfill(0), itemsFromMemory(0), firstMarkerSent(false),
        waitForSnapshot(0), engine(e), producer(p),
-       isBackfillTaskRunning(false) {
+       isBackfillTaskRunning(false), checkpointCreatorTask(task) {
 
     const char* type = "";
     if (flags_ & DCP_ADD_STREAM_FLAG_TAKEOVER) {
@@ -463,7 +464,9 @@ DcpResponse* ActiveStream::inMemoryPhase(stream_state_t& newState) {
         if (lastSentSeqno >= end_seqno_) {
             newState = endStream(END_STREAM_OK);
         } else {
-            nextCheckpointItem();
+            if (nextCheckpointItem()) {
+                return NULL;
+            }
         }
         return nextQueuedItem();
     }
@@ -476,9 +479,13 @@ DcpResponse* ActiveStream::takeoverSendPhase(stream_state_t& newState) {
     if ((response = nextQueuedItem()) != NULL) {
         return response;
     } else {
-        nextCheckpointItem();
+
         if ((response = nextQueuedItem()) != NULL) {
             return response;
+        }
+
+        if (nextCheckpointItem()) {
+            return NULL;
         }
     }
 
@@ -582,7 +589,69 @@ DcpResponse* ActiveStream::nextQueuedItem() {
     return response;
 }
 
-void ActiveStream::nextCheckpointItem() {
+bool ActiveStream::nextCheckpointItem() {
+    RCPtr<VBucket> vbucket = engine->getVBucket(vb_);
+    if (vbucket && vbucket->checkpointManager.getNumItemsForTAPConnection(name_) > 0) {
+        // schedule this stream to build the next checkpoint
+        checkpointCreatorTask.schedule(this);
+        return true;
+    }
+    return false;
+}
+
+bool ActiveStreamCheckpointProcessorTask::run() {
+    if (engine->getEpStats().isShutdown) {
+        return false;
+    }
+
+    double snoozeTime = 0.0;
+    // The task must not run forever, so process a maximum number of
+    // snapshots before sleeping for 0 (allowing another task to run).
+    for (int ii = 0; ii < 10; ii++) {
+        ActiveStream* stream = NULL;
+        snoozeTime = 0.0;
+        {
+            // Lock whilst checking the queue
+            LockHolder lh(workQueueLock);
+            if (!queue.empty()) {
+                stream = queue.front();
+                queue.pop_front();
+                snoozeTime = 0.0;
+            } else {
+                // The queue is empty so snooze until woken
+                snoozeTime = INT_MAX;
+            }
+        }
+
+        if (stream) {
+            stream->nextCheckpointItemTask();
+        } else {
+            break;
+        }
+    }
+
+    running = false;
+    snooze(snoozeTime);
+    return true;
+}
+
+void ActiveStreamCheckpointProcessorTask::wakeup() {
+    ExecutorPool::get()->wake(getId());
+}
+
+void ActiveStreamCheckpointProcessorTask::schedule(ActiveStream* stream) {
+    {
+        LockHolder lh(workQueueLock);
+        queue.push_back(stream);
+    }
+
+    bool expected = false;
+    if (running.compare_exchange_strong(expected, true)) {
+        wakeup();
+    }
+}
+
+void ActiveStream::nextCheckpointItemTask() {
     RCPtr<VBucket> vbucket = engine->getVBucket(vb_);
     if (!vbucket) {
         /* The entity deleting the vbucket must set stream to dead,
@@ -591,7 +660,6 @@ void ActiveStream::nextCheckpointItem() {
            point here */
         return;
     }
-
     bool mark = false;
     std::deque<queued_item> items;
     std::deque<MutationResponse*> mutations;
@@ -601,6 +669,7 @@ void ActiveStream::nextCheckpointItem() {
     }
 
     if (items.empty()) {
+        producer->notifyStreamReady(vb_, true);
         return;
     }
 
@@ -627,10 +696,12 @@ void ActiveStream::nextCheckpointItem() {
     if (mutations.empty()) {
         // If we only got checkpoint start or ends check to see if there are
         // any more snapshots before pausing the stream.
-        nextCheckpointItem();
+        nextCheckpointItemTask();
     } else {
         snapshot(mutations, mark);
     }
+    // ...notify...
+    producer->notifyStreamReady(vb_, true);
 }
 
 void ActiveStream::snapshot(std::deque<MutationResponse*>& items, bool mark) {
