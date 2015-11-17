@@ -53,12 +53,13 @@ void DcpProducer::BufferLog::setBufferSize(size_t maxBytes) {
 
 bool DcpProducer::BufferLog::insert(size_t bytes) {
     WriterLockHolder wlh(logLock);
-    bool inserted = false;
+    bool inserted = true;
     if (isEnabled_UNLOCKED()) {
         cb_assert(!isFull_UNLOCKED());
         if ((bytesSent + bytes) < maxBytes) {
             bytesSent += bytesSent;
-            inserted = true;
+        } else {
+            inserted = false;
         }
     }
     return inserted;

@@ -126,9 +126,9 @@ public:
         void addStats(const DcpProducer& myProducer, ADD_STAT add_stat, const void *c);
 
         /*
-            Insert the response and return the log state after the insert.
+            Return true if the buffer is disabled or there is space.
         */
-        bool insert(size_t);
+        bool insert(size_t bytes);
 
         /*
             Returns the state of the log *before* acknowledgement of 'bytes'.
@@ -163,9 +163,8 @@ public:
     /*
         Insert response into producer's buffer log.
 
-        If log is enabled and it fits, returns true, else false.
-
-        On true, the insert succeeded and the bytes are now in the log.
+        If the log is disabled or has space returns true.
+        Else return false.
     */
     bool bufferLogInsert(size_t bytes);
 
