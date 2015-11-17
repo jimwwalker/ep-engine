@@ -19,6 +19,7 @@
 #define SRC_DCP_STREAM_H_ 1
 
 #include "config.h"
+#include "dcp-response.h"
 
 #include <queue>
 
@@ -31,6 +32,7 @@ class DcpProducer;
 class DcpResponse;
 
 typedef enum {
+    STREAM_UNINITIALISED,
     STREAM_PENDING,
     STREAM_BACKFILLING,
     STREAM_IN_MEMORY,
@@ -76,7 +78,9 @@ public:
            uint64_t vb_uuid, uint64_t snap_start_seqno,
            uint64_t snap_end_seqno);
 
-    virtual ~Stream() {}
+    virtual ~Stream() {
+        clear();
+    }
 
     uint32_t getFlags() { return flags_; }
 
@@ -94,7 +98,12 @@ public:
 
     uint64_t getSnapEndSeqno() { return snap_end_seqno_; }
 
-    stream_state_t getState() { return state_; }
+    RWLock& getStateLock() { return stateLock; }
+
+    stream_state_t getState() const { return state_; }
+
+    // stateLock must be held as writer
+    void setState(stream_state_t state) { state_ = state; }
 
     stream_type_t getType() { return type_; }
 
@@ -111,23 +120,79 @@ public:
     }
 
     void clear() {
-        LockHolder lh(streamMutex);
-        clear_UNLOCKED();
+        readyQ.clear();
     }
 
 protected:
 
+    class DcpResponseQueue {
+    public:
+        DcpResponseQueue()
+          :  queueMemory(0) {}
+
+        void push_back(DcpResponse* response) {
+            WriterLockHolder lh(queueLock);
+            queue.push(response);
+            queueMemory += response->getMessageSize();
+        }
+
+        DcpResponse* pop_front() {
+            WriterLockHolder lh(queueLock);
+            DcpResponse* rval = NULL;
+            if (!queue.empty()) {
+                rval = queue.front();
+                queue.pop();
+                queueMemory -= rval->getMessageSize();
+            }
+            return rval;
+        }
+
+        DcpResponse* front() {
+            ReaderLockHolder lh(queueLock);
+            if (queue.empty()) {
+                return NULL;
+            } else {
+                return queue.front();
+            }
+        }
+
+        size_t clear() {
+            WriterLockHolder lh(queueLock);
+            while (!queue.empty()) {
+                delete queue.front();
+                queue.pop();
+            }
+            size_t rval = queueMemory;
+            queueMemory = 0;
+            return rval;
+        }
+
+        size_t getQueueMemory() {
+            return queueMemory;
+        }
+
+        size_t getQueueSize() {
+            ReaderLockHolder lh(queueLock);
+            return queue.size();
+        }
+
+        void addStats(ADD_STAT add_stat, const char* label, const void* c) {
+            ReaderLockHolder lh(queueLock);
+            const int bsize = 128;
+            char buf[bsize];
+            snprintf(buf, bsize, "%s_memory", label);
+            add_casted_stat(buf, queueMemory, add_stat, c);
+            snprintf(buf, bsize, "%s_size", label);
+            add_casted_stat(buf, queue.size(), add_stat, c);
+        }
+
+    private:
+        std::queue<DcpResponse*> queue;
+        RWLock queueLock;
+        size_t queueMemory;
+    };
+
     const char* stateName(stream_state_t st) const;
-
-    void clear_UNLOCKED();
-
-    /* To be called after getting streamMutex lock */
-    void pushToReadyQ(DcpResponse* resp);
-
-    /* To be called after getting streamMutex lock */
-    void popFromReadyQ(void);
-
-    uint64_t getReadyQueueMemory(void);
 
     const std::string &name_;
     uint32_t flags_;
@@ -138,18 +203,15 @@ protected:
     uint64_t vb_uuid_;
     uint64_t snap_start_seqno_;
     uint64_t snap_end_seqno_;
+    RWLock stateLock;
     stream_state_t state_;
     stream_type_t type_;
 
-    bool itemsReady;
-    Mutex streamMutex;
-    std::queue<DcpResponse*> readyQ;
+    AtomicValue<bool> itemsReady;
+
+    DcpResponseQueue readyQ;
 
     const static uint64_t dcpMaxSeqno;
-
-private:
-    /* This tracks the memory occupied by elements in the readyQ */
-    uint64_t readyQueueMemory;
 };
 
 class ActiveStream : public Stream {
@@ -161,16 +223,15 @@ public:
                  uint64_t snap_end_seqno);
 
     ~ActiveStream() {
-        LockHolder lh(streamMutex);
+        ReaderLockHolder lh(getStateLock());
         transitionState(STREAM_DEAD);
-        clear_UNLOCKED();
     }
 
     DcpResponse* next();
 
     void setActive() {
-        LockHolder lh(streamMutex);
-        if (state_ == STREAM_PENDING) {
+        WriterLockHolder wlh(getStateLock());
+        if (getState() == STREAM_PENDING) {
             transitionState(STREAM_BACKFILLING);
         }
     }
@@ -205,11 +266,11 @@ private:
 
     void transitionState(stream_state_t newState);
 
-    DcpResponse* backfillPhase();
+    DcpResponse* backfillPhase(stream_state_t& newState);
 
-    DcpResponse* inMemoryPhase();
+    DcpResponse* inMemoryPhase(stream_state_t& newState);
 
-    DcpResponse* takeoverSendPhase();
+    DcpResponse* takeoverSendPhase(stream_state_t& newState);
 
     DcpResponse* takeoverWaitPhase();
 
@@ -221,9 +282,9 @@ private:
 
     void snapshot(std::list<MutationResponse*>& snapshot, bool mark);
 
-    void endStream(end_stream_status_t reason);
+    stream_state_t endStream(end_stream_status_t reason);
 
-    void scheduleBackfill();
+    stream_state_t scheduleBackfill();
 
     const char* getEndStreamStatusStr(end_stream_status_t status);
 
@@ -245,11 +306,11 @@ private:
     //! Whether ot not this is the first snapshot marker sent
     bool firstMarkerSent;
 
-    int waitForSnapshot;
+    AtomicValue<int> waitForSnapshot;
 
     EventuallyPersistentEngine* engine;
     DcpProducer& producer;
-    bool isBackfillTaskRunning;
+    AtomicValue<bool> isBackfillTaskRunning;
 };
 
 class NotifierStream : public Stream {
@@ -261,9 +322,8 @@ public:
                    uint64_t snap_end_seqno);
 
     ~NotifierStream() {
-        LockHolder lh(streamMutex);
+        ReaderLockHolder lh(getStateLock());
         transitionState(STREAM_DEAD);
-        clear_UNLOCKED();
     }
 
     DcpResponse* next();
@@ -326,8 +386,6 @@ private:
 
     void transitionState(stream_state_t newState);
 
-    uint32_t clearBuffer();
-
     const char* getEndStreamStatusStr(end_stream_status_t status);
 
     EventuallyPersistentEngine* engine;
@@ -339,14 +397,7 @@ private:
     snapshot_type_t cur_snapshot_type;
     bool cur_snapshot_ack;
     bool saveSnapshot;
-
-    struct Buffer {
-        Buffer() : bytes(0), items(0) {}
-        size_t bytes;
-        size_t items;
-        Mutex bufMutex;
-        std::queue<DcpResponse*> messages;
-    } buffer;
+    DcpResponseQueue buffer;
 };
 
 typedef RCPtr<Stream> stream_t;
