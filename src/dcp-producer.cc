@@ -220,6 +220,7 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
             } else {
                 streams.erase(vbucket);
                 vbReady[vbucket].store(false);
+                ready.remove(vbucket);
                 // Don't need to add an entry to vbucket-to-conns map
                 add_vb_conn_map = false;
             }
@@ -260,6 +261,7 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
                                               opaque, vbucket, notifySeqno,
                                               end_seqno, vbucket_uuid,
                                               snap_start_seqno, snap_end_seqno);
+        ready.push_back(vbucket);
     } else {
         WriterLockHolder wlh(streamsMutex);
         streams[vbucket] = new ActiveStream(&engine_, this, getName(), flags,
@@ -268,12 +270,13 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
                                             snap_start_seqno, snap_end_seqno,
                                             checkpointCreatorTask);
         static_cast<ActiveStream*>(streams[vbucket].get())->setActive();
+        ready.push_back(vbucket);
     }
-    vbReady[vbucket].store(true);
-    bool inverse = false;
-    if (notifiedVbReady.compare_exchange_strong(inverse, true)) {
-        log.unpauseIfSpaceAvailable();
-    }
+//    vbReady[vbucket].store(true);
+ //   bool inverse = false;
+ ///   if (notifiedVbReady.compare_exchange_strong(inverse, true)) {
+ //       log.unpauseIfSpaceAvailable();
+    //}
 
     if (add_vb_conn_map) {
         connection_t conn(this);
@@ -621,6 +624,69 @@ const char* DcpProducer::getType() const {
 }
 
 DcpResponse* DcpProducer::getNextItem() {
+    //LockHolder lh(queueLock);
+    WriterLockHolder rlh(streamsMutex);
+
+    setPaused(false);
+    while (!ready.empty()) {
+        if (log.pauseIfFull()) {
+            return NULL;
+        }
+
+        uint16_t vbucket = ready.front();
+        ready.pop_front();
+
+        std::map<uint16_t, stream_t>::iterator it;
+        stream_t stream;
+        {
+         //   ReaderLockHolder rlh(streamsMutex);
+            it = streams.find(vbucket);
+            if (it == streams.end()) {
+                continue;
+            }
+            stream.reset(it->second);
+        }
+
+        DcpResponse* op = stream->next();
+        if (!op) {
+            continue;
+        }
+
+        switch (op->getEvent()) {
+            case DCP_SNAPSHOT_MARKER:
+            case DCP_MUTATION:
+            case DCP_DELETION:
+            case DCP_EXPIRATION:
+            case DCP_STREAM_END:
+            case DCP_SET_VBUCKET:
+                break;
+            default:
+                LOG(EXTENSION_LOG_WARNING, "%s Producer is attempting to write"
+                    " an unexpected event %d", logHeader(), op->getEvent());
+                abort();
+        }
+
+     //   if (log) {
+       //     log->insert(op);
+     //   }
+        ready.push_back(vbucket);
+
+        if (op->getEvent() == DCP_MUTATION || op->getEvent() == DCP_DELETION ||
+            op->getEvent() == DCP_EXPIRATION) {
+            itemsSent++;
+        }
+
+        totalBytesSent = totalBytesSent + op->getMessageSize();
+
+        return op;
+    }
+
+    setPaused(true);
+    return NULL;
+}
+
+#if 0
+DcpResponse* DcpProducer::getNextItem() {
     setPaused(false);
     bool inverse = true;
     do {
@@ -692,6 +758,7 @@ DcpResponse* DcpProducer::getNextItem() {
     setPaused(true);
     return NULL;
 }
+#endif
 
 void DcpProducer::setDisconnect(bool disconnect) {
     ConnHandler::setDisconnect(disconnect);
@@ -706,11 +773,19 @@ void DcpProducer::setDisconnect(bool disconnect) {
 }
 
 void DcpProducer::notifyStreamReady(uint16_t vbucket, bool schedule) {
-    bool expected = false;
-    if (vbReady[vbucket].compare_exchange_strong(expected, true) &&
-        notifiedVbReady.compare_exchange_strong(expected, true)) {
-        log.unpauseIfSpaceAvailable();
+    {
+        WriterLockHolder rlh(streamsMutex);
+
+        std::list<uint16_t>::iterator iter =
+        std::find(ready.begin(), ready.end(), vbucket);
+        if (iter != ready.end()) {
+            return;
+        }
+
+       ready.push_back(vbucket);
     }
+
+    log.unpauseIfSpaceAvailable();
 }
 
 void DcpProducer::notifyPaused(bool schedule) {
