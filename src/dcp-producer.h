@@ -211,6 +211,8 @@ private:
     RWLock streamsMutex;
 
     std::vector<AtomicValue<bool> > vbReady;
+    std::list<uint16_t> ready;
+    AtomicValue<bool> notifiedVbReady;
 
     std::map<uint16_t, stream_t> streams;
 
