@@ -184,6 +184,44 @@ public:
 
 private:
 
+    class DcpProducerReadyQueue {
+    public:
+        bool find(uint16_t vbucket) {
+            LockHolder lh(lock);
+            return (queuedValues.count(vbucket) > 0);
+        }
+
+        bool pop_front(uint16_t &frontValue) {
+            LockHolder lh(lock);
+            if (!readyQueue.empty()) {
+                frontValue = readyQueue.front();
+                readyQueue.pop();
+                queuedValues.erase(frontValue);
+                return true;
+            }
+            return false;
+        }
+
+        void push_back(uint16_t vbucket) {
+            LockHolder lh(lock);
+            readyQueue.push(vbucket);
+            queuedValues.insert(vbucket);
+        }
+
+    private:
+        Mutex lock;
+
+        /* a queue of vbuckets that are ready for producing */
+        std::queue<uint16_t> readyQueue;
+
+        /**
+         * maintain a std::set of values that are in the readyQueue. find() is
+         * performed by front-end threads so we want it to be efficient so just
+         * a set lookup is required.
+         */
+        std::set<uint16_t> queuedValues;
+    };
+
     DcpResponse* getNextItem();
 
     size_t getItemsRemaining();
@@ -209,15 +247,13 @@ private:
     // (i.e. not adding / removing elements) then can acquire ReadLock, even
     // if a non-const method is called on stream_t.
     RWLock streamsMutex;
-
-    std::vector<AtomicValue<bool> > vbReady;
+    DcpProducerReadyQueue ready;
 
     std::map<uint16_t, stream_t> streams;
 
     AtomicValue<size_t> itemsSent;
     AtomicValue<size_t> totalBytesSent;
 
-    size_t roundRobinVbReady;
     static const uint32_t defaultNoopInerval;
 };
 
