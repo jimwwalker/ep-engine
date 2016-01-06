@@ -210,15 +210,14 @@ private:
     // if a non-const method is called on stream_t.
     RWLock streamsMutex;
 
-    std::vector<AtomicValue<bool> > vbReady;
-    AtomicValue<bool> notifiedVbReady;
+    Mutex readyLock;
+    std::list<uint16_t> ready;
 
     std::map<uint16_t, stream_t> streams;
 
     AtomicValue<size_t> itemsSent;
     AtomicValue<size_t> totalBytesSent;
 
-    size_t roundRobinVbReady;
     static const uint32_t defaultNoopInerval;
 };
 
