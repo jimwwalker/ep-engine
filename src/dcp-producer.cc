@@ -110,8 +110,7 @@ DcpProducer::DcpProducer(EventuallyPersistentEngine &e, const void *cookie,
                          const std::string &name, bool isNotifier)
     : Producer(e, cookie, name), rejectResp(NULL),
       notifyOnly(isNotifier), lastSendTime(ep_current_time()), log(*this),
-      vbReady(e.getConfiguration().getMaxVbuckets()), notifiedVbReady(false),
-      itemsSent(0), totalBytesSent(0), roundRobinVbReady(0) {
+      itemsSent(0), totalBytesSent(0) {
     setSupportAck(true);
     setReserved(true);
     setPaused(true);
@@ -219,7 +218,7 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
                 return ENGINE_KEY_EEXISTS;
             } else {
                 streams.erase(vbucket);
-                vbReady[vbucket].store(false);
+
                 // Don't need to add an entry to vbucket-to-conns map
                 add_vb_conn_map = false;
             }
@@ -269,11 +268,9 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
                                             checkpointCreatorTask);
         static_cast<ActiveStream*>(streams[vbucket].get())->setActive();
     }
-    vbReady[vbucket].store(true);
-    bool inverse = false;
-    if (notifiedVbReady.compare_exchange_strong(inverse, true)) {
-        log.unpauseIfSpaceAvailable();
-    }
+
+    ready.push_back(vbucket);
+    log.unpauseIfSpaceAvailable();
 
     if (add_vb_conn_map) {
         connection_t conn(this);
@@ -622,72 +619,56 @@ const char* DcpProducer::getType() const {
 
 DcpResponse* DcpProducer::getNextItem() {
     setPaused(false);
-    bool inverse = true;
-    do {
-        if (roundRobinVbReady >= vbReady.size()) {
-            roundRobinVbReady = 0;
+    uint16_t vbucket = 0;
+    while (ready.pop_front(vbucket)) {
+
+        if (log.pauseIfFull()) {
+            ready.push_back(vbucket);
+            return NULL;
         }
-        for (; roundRobinVbReady < vbReady.size(); roundRobinVbReady++) {
 
-            if (log.pauseIfFull()) {
-                return NULL;
+        std::map<uint16_t, stream_t>::iterator it;
+        stream_t stream;
+        {
+            ReaderLockHolder rlh(streamsMutex);
+            it = streams.find(vbucket);
+            if (it == streams.end()) {
+                continue;
             }
-
-            bool expected = true;
-            if (vbReady[roundRobinVbReady].compare_exchange_strong(expected, false)) {
-                uint16_t vbucket = roundRobinVbReady;
-                DcpResponse *op = NULL;
-                std::map<uint16_t, stream_t>::iterator it;
-                stream_t stream;
-                {
-                    ReaderLockHolder rlh(streamsMutex);
-                    it = streams.find(vbucket);
-                    if (it == streams.end()) {
-                        continue;
-                    }
-                    stream.reset(it->second);
-                }
-
-                // Return the next operation
-                // When an op is returned it is assumed
-                // our bufferLog has been updated.
-                op = stream->next();
-
-                if (!op) {
-                    continue;
-                }
-
-                switch (op->getEvent()) {
-                    case DCP_SNAPSHOT_MARKER:
-                    case DCP_MUTATION:
-                    case DCP_DELETION:
-                    case DCP_EXPIRATION:
-                    case DCP_STREAM_END:
-                    case DCP_SET_VBUCKET:
-                        break;
-                    default:
-                        LOG(EXTENSION_LOG_WARNING, "%s Producer is attempting to "
-                                "write an unexpected event %d",
-                                logHeader(), op->getEvent());
-                        abort();
-                }
-
-                vbReady[vbucket].store(true);
-                notifiedVbReady.store(true);
-                ++roundRobinVbReady;
-
-                if (op->getEvent() == DCP_MUTATION ||
-                    op->getEvent() == DCP_DELETION ||
-                    op->getEvent() == DCP_EXPIRATION) {
-                    itemsSent++;
-                }
-
-                totalBytesSent.fetch_add(op->getMessageSize());
-
-                return op;
-            }
+            stream.reset(it->second);
         }
-    } while (notifiedVbReady.compare_exchange_strong(inverse, false));
+
+        DcpResponse* op = stream->next();
+        if (!op) {
+            // stream is empty, try popping another vbucket from 'ready'
+            continue;
+        }
+
+        switch (op->getEvent()) {
+            case DCP_SNAPSHOT_MARKER:
+            case DCP_MUTATION:
+            case DCP_DELETION:
+            case DCP_EXPIRATION:
+            case DCP_STREAM_END:
+            case DCP_SET_VBUCKET:
+                break;
+            default:
+                LOG(EXTENSION_LOG_WARNING, "%s Producer is attempting to write"
+                    " an unexpected event %d", logHeader(), op->getEvent());
+                abort();
+        }
+
+        ready.push_back(vbucket);
+
+        if (op->getEvent() == DCP_MUTATION || op->getEvent() == DCP_DELETION ||
+            op->getEvent() == DCP_EXPIRATION) {
+            itemsSent++;
+        }
+
+        totalBytesSent = totalBytesSent + op->getMessageSize();
+
+        return op;
+    }
 
     setPaused(true);
     return NULL;
@@ -706,9 +687,8 @@ void DcpProducer::setDisconnect(bool disconnect) {
 }
 
 void DcpProducer::notifyStreamReady(uint16_t vbucket, bool schedule) {
-    bool expected = false;
-    if (vbReady[vbucket].compare_exchange_strong(expected, true) &&
-        notifiedVbReady.compare_exchange_strong(expected, true)) {
+    if (!ready.find(vbucket)) {
+        ready.push_back(vbucket);
         log.unpauseIfSpaceAvailable();
     }
 }
