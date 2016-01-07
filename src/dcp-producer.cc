@@ -220,7 +220,7 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
             } else {
                 streams.erase(vbucket);
                 vbReady[vbucket].store(false);
-                ready.remove(vbucket);
+
                 // Don't need to add an entry to vbucket-to-conns map
                 add_vb_conn_map = false;
             }
@@ -261,7 +261,8 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
                                               opaque, vbucket, notifySeqno,
                                               end_seqno, vbucket_uuid,
                                               snap_start_seqno, snap_end_seqno);
-        ready.push_back(vbucket);
+        LockHolder lh(queueL);
+        ready.push(streams[vbucket]);
     } else {
         WriterLockHolder wlh(streamsMutex);
         streams[vbucket] = new ActiveStream(&engine_, this, getName(), flags,
@@ -270,7 +271,8 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
                                             snap_start_seqno, snap_end_seqno,
                                             checkpointCreatorTask);
         static_cast<ActiveStream*>(streams[vbucket].get())->setActive();
-        ready.push_back(vbucket);
+        LockHolder lh(queueL);
+        ready.push(streams[vbucket]);
     }
 
     if (add_vb_conn_map) {
@@ -621,35 +623,31 @@ const char* DcpProducer::getType() const {
 }
 
 DcpResponse* DcpProducer::getNextItem() {
-    //LockHolder lh(queueLock);
-    WriterLockHolder rlh(streamsMutex);
-
     setPaused(false);
+
+    LockHolder lh(queueL);
     while (!ready.empty()) {
         if (log.pauseIfFull()) {
             return NULL;
         }
 
-        uint16_t vbucket = ready.front();
-        ready.pop_front();
+        stream_t stream = ready.front();
+        ready.pop();
 
-        std::map<uint16_t, stream_t>::iterator it;
-        stream_t stream;
-        {
-         //   ReaderLockHolder rlh(streamsMutex);
-            it = streams.find(vbucket);
-            if (it == streams.end()) {
-                continue;
-            }
-            stream.reset(it->second);
-        }
+        lh.unlock();
 
         DcpResponse* op = stream->next();
+
+        lh.lock();
         if (!op) {
+            // stream is now done
+            inReady.erase(stream->getVBucket());
             continue;
+        } else {
+            ready.push(stream);
         }
 
-        switch (op->getEvent()) {
+       switch (op->getEvent()) {
             case DCP_SNAPSHOT_MARKER:
             case DCP_MUTATION:
             case DCP_DELETION:
@@ -662,11 +660,6 @@ DcpResponse* DcpProducer::getNextItem() {
                     " an unexpected event %d", logHeader(), op->getEvent());
                 abort();
         }
-
-     //   if (log) {
-       //     log->insert(op);
-     //   }
-        ready.push_back(vbucket);
 
         if (op->getEvent() == DCP_MUTATION || op->getEvent() == DCP_DELETION ||
             op->getEvent() == DCP_EXPIRATION) {
@@ -682,76 +675,6 @@ DcpResponse* DcpProducer::getNextItem() {
     return NULL;
 }
 
-#if 0
-DcpResponse* DcpProducer::getNextItem() {
-    setPaused(false);
-    if (roundRobinVbReady >= vbReady.size()) {
-        roundRobinVbReady = 0;
-    }
-    for (; roundRobinVbReady < vbReady.size(); roundRobinVbReady++) {
-
-        if (log.pauseIfFull()) {
-            return NULL;
-        }
-
-        bool expected = true;
-        if (vbReady[roundRobinVbReady].compare_exchange_strong(expected, false)) {
-            uint16_t vbucket = roundRobinVbReady;
-            DcpResponse *op = NULL;
-            std::map<uint16_t, stream_t>::iterator it;
-            stream_t stream;
-            {
-                ReaderLockHolder rlh(streamsMutex);
-                it = streams.find(vbucket);
-                if (it == streams.end()) {
-                    continue;
-                }
-                stream.reset(it->second);
-            }
-
-            // Return the next operation
-            // When an op is returned it is assumed
-            // our bufferLog has been updated.
-            op = stream->next();
-
-            if (!op) {
-                continue;
-            }
-
-            switch (op->getEvent()) {
-                case DCP_SNAPSHOT_MARKER:
-                case DCP_MUTATION:
-                case DCP_DELETION:
-                case DCP_EXPIRATION:
-                case DCP_STREAM_END:
-                case DCP_SET_VBUCKET:
-                    break;
-                default:
-                    LOG(EXTENSION_LOG_WARNING, "%s Producer is attempting to "
-                        "write an unexpected event %d",
-                        logHeader(), op->getEvent());
-                    abort();
-            }
-
-            vbReady[vbucket].store(true);
-
-            if (op->getEvent() == DCP_MUTATION ||
-                op->getEvent() == DCP_DELETION ||
-                op->getEvent() == DCP_EXPIRATION) {
-               itemsSent++;
-            }
-
-            totalBytesSent.fetch_add(op->getMessageSize());
-
-            return op;
-        }
-    }
-
-    setPaused(true);
-    return NULL;
-}
-#endif
-
 void DcpProducer::setDisconnect(bool disconnect) {
     ConnHandler::setDisconnect(disconnect);
 
@@ -765,19 +688,26 @@ void DcpProducer::setDisconnect(bool disconnect) {
 }
 
 void DcpProducer::notifyStreamReady(uint16_t vbucket, bool schedule) {
-
     {
-        WriterLockHolder rlh(streamsMutex);
-
-        std::list<uint16_t>::iterator iter =
-        std::find(ready.begin(), ready.end(), vbucket);
-        if (iter != ready.end()) {
+        LockHolder lh(queueL);
+        if (inReady.count(vbucket) == 0) {
+            // stream is not in the readyQueue
+            // find the stream and add it
+            stream_t stream = findStreamByVbid(vbucket);
+            if (stream) {
+                inReady.insert(vbucket);
+                ready.push(stream);
+            } else {
+                // no stream to add
+                return;
+            }
+        } else {
+            // alredy in queue, just return nothing more todo.
             return;
         }
-
-       ready.push_back(vbucket);
     }
 
+    // Wakeup thread to send
     log.unpauseIfSpace();
 }
 

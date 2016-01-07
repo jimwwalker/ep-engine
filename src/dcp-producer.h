@@ -22,6 +22,7 @@
 
 #include "tapconnection.h"
 #include "dcp-stream.h"
+#include <unordered_set>
 
 class DcpResponse;
 
@@ -211,7 +212,9 @@ private:
     RWLock streamsMutex;
 
     std::vector<AtomicValue<bool> > vbReady;
-    std::list<uint16_t> ready;
+    std::queue<stream_t> ready;
+    std::unordered_set<uint16_t> inReady;
+    Mutex queueL;
     AtomicValue<bool> notifiedVbReady;
 
     std::map<uint16_t, stream_t> streams;
