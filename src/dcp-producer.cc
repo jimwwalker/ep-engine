@@ -634,7 +634,7 @@ DcpResponse* DcpProducer::getNextItem() {
             }
 
             bool expected = true;
-            if (vbReady[roundRobinVbReady].compare_exchange_strong(expected, false)) {
+            if (vbReady[roundRobinVbReady]) {
                 uint16_t vbucket = roundRobinVbReady;
                 DcpResponse *op = NULL;
                 std::map<uint16_t, stream_t>::iterator it;
@@ -654,6 +654,8 @@ DcpResponse* DcpProducer::getNextItem() {
                 op = stream->next();
 
                 if (!op) {
+                    // this stream is drained
+                    vbReady[roundRobinVbReady].store(false);
                     continue;
                 }
 
@@ -672,7 +674,7 @@ DcpResponse* DcpProducer::getNextItem() {
                         abort();
                 }
 
-                vbReady[vbucket].store(true);
+              //  vbReady[vbucket].store(true);
                 notifiedVbReady.store(true);
                 ++roundRobinVbReady;
 
