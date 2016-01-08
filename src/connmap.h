@@ -470,8 +470,13 @@ public:
 
     bool notifyProducers();
     bool notificationsPending() {
-        LockHolder lh(notificationsLock);
-        return !notifications.empty();
+        for (int ii = 0; ii < vbConnLockNum; ii++) {
+            SpinLockHolder lh(&vbConnLocks[ii]);
+            if (!notificationsQueue[ii].empty()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     void startProducerNotifier();
@@ -508,11 +513,6 @@ private:
         size_t iterationsBeforeYield;
     };
 
-    struct DcpProducerNotification {
-        uint16_t vbid;
-        uint64_t seqno;
-    };
-
     void addNotification(uint16_t vbid, uint64_t bySeqno);
     bool getNextNotification(uint16_t& vbid, uint64_t& seqno);
 
@@ -526,7 +526,10 @@ private:
 
     DcpProducerNotifier* producerNotifier;
 
-    std::deque<DcpProducerNotification> notifications;
+    // sharded input queues to reduce contention on updates.
+    std::vector<std::queue<uint16_t> > notificationsQueue;
+    std::vector<std::unordered_map<uint16_t, uint64_t> > notificationSeqNos;
+    int notificationsPosition;
     Mutex notificationsLock;
 };
 

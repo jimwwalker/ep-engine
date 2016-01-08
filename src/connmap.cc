@@ -930,7 +930,10 @@ void TAPSessionStats::clearStats(const std::string &name) {
 
 DcpConnMap::DcpConnMap(EventuallyPersistentEngine &e)
   : ConnMap(e),
-    producerNotifier(NULL) {
+    producerNotifier(NULL),
+    notificationsQueue(vbConnLockNum),
+    notificationSeqNos(vbConnLockNum),
+    notificationsPosition(0) {
 }
 
 DcpConnMap::~DcpConnMap() {
@@ -1183,25 +1186,30 @@ void DcpConnMap::notifyVBConnections(uint16_t vbid, uint64_t bySeqno)
 }
 
 void DcpConnMap::addNotification(uint16_t vbid, uint64_t bySeqno) {
-    LockHolder lh(notificationsLock);
-    std::deque<DcpProducerNotification>::iterator it = notifications.begin();
-    for (; it != notifications.end(); it++) {
-        if ((*it).vbid == vbid) {
-            (*it).seqno = bySeqno;
-            return;
-        }
+    size_t lock_num = vbid % vbConnLockNum;
+    SpinLockHolder lh(&vbConnLocks[lock_num]);
+    if (notificationSeqNos[lock_num].count(vbid) == 0) {
+        notificationsQueue[lock_num].push(vbid);
     }
-
-    notifications.push_back({vbid, bySeqno});
+    notificationSeqNos[lock_num][vbid] = bySeqno;
 }
 
 bool DcpConnMap::getNextNotification(uint16_t& vbid, uint64_t& seqno) {
-    LockHolder lh(notificationsLock);
-    if (!notifications.empty()) {
-        vbid = notifications.front().vbid;
-        seqno = notifications.front().seqno;
-        notifications.pop_front();
-        return true;
+    for (int ii = 0; ii < vbConnLockNum ; ii++) {
+        if (notificationsPosition >= vbConnLockNum) {
+            notificationsPosition = 0;
+        }
+        SpinLockHolder lh(&vbConnLocks[notificationsPosition]);
+        if (!notificationsQueue[notificationsPosition].empty()) {
+            vbid = notificationsQueue[notificationsPosition].front();
+            seqno = notificationSeqNos[notificationsPosition][vbid];
+            // remove from notify queue
+            notificationsQueue[notificationsPosition].pop();
+            notificationSeqNos[notificationsPosition].erase(vbid);
+            notificationsPosition++;
+            return true;
+        }
+        notificationsPosition++;
     }
     return false;
 }
