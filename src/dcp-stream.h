@@ -292,7 +292,8 @@ private:
         LockHolder lh(workQueueLock);
         if (!queue.empty()) {
             rval = queue.front();
-            queue.pop_front();
+            queue.pop();
+            queuedVbuckets.erase(rval->getVBucket());
         }
         return rval;
     }
@@ -303,7 +304,8 @@ private:
     }
 
     Mutex workQueueLock;
-    std::deque<stream_t> queue;
+    std::queue<stream_t> queue;
+    std::set<uint16_t> queuedVbuckets;
     AtomicValue<bool> notified;
     size_t iterationsBeforeYield;
 };
