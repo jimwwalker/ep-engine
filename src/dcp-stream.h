@@ -304,6 +304,11 @@ private:
         return queue.empty();
     }
 
+    int len() {
+        LockHolder lh(workQueueLock);
+        return queue.size();
+    }
+
     Mutex workQueueLock;
     std::deque<stream_t> queue;
     AtomicValue<bool> notified;

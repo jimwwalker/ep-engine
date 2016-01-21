@@ -562,6 +562,9 @@ void ActiveStream::addStats(ADD_STAT add_stat, const void *c) {
     add_casted_stat(buffer, getReadyQueueMemory(), add_stat, c);
     snprintf(buffer, bsize, "%s:stream_%d_items_ready", name_.c_str(), vb_);
     add_casted_stat(buffer, itemsReady.load() ? "true" : "false", add_stat, c);
+    snprintf(buffer, bsize, "%s:astream_%d_items_ready", name_.c_str(), vb_);
+    add_casted_stat(buffer, getItemsRemaining(), add_stat, c);
+
 }
 
 void ActiveStream::addTakeoverStats(ADD_STAT add_stat, const void *cookie) {
@@ -667,6 +670,9 @@ bool ActiveStreamCheckpointProcessorTask::run() {
     bool expected = true;
     if (notified.compare_exchange_strong(expected, false)
         || !queueEmpty()) {
+
+        LOG(EXTENSION_LOG_WARNING, "SNAPSHOT YIELDED %d", len());
+
         // snooze for 0, essentially yielding and allowing other tasks a go
         snooze(0.0);
     }

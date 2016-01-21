@@ -573,7 +573,11 @@ process_items_error_t DcpConsumer::processBufferedItems() {
     int max_vbuckets = engine_.getConfiguration().getMaxVbuckets();
     for (int vbucket = 0; vbucket < max_vbuckets; vbucket++) {
 
-        passive_stream_t stream;
+        passive_stream_t stream = streams[vbucket];
+        if (!stream) {
+            continue;
+        }
+   /*     passive_stream_t stream;
         if (streams[vbucket]) {
             // only assign a stream if there is one present to reduce
             // the amount of cycles the RCPtr spinlock will use.
@@ -586,6 +590,7 @@ process_items_error_t DcpConsumer::processBufferedItems() {
         if (!stream) {
             continue;
         }
+        */
 
         uint32_t bytes_processed;
 
