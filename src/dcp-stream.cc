@@ -687,7 +687,10 @@ void ActiveStreamCheckpointProcessorTask::wakeup() {
 void ActiveStreamCheckpointProcessorTask::schedule(stream_t stream) {
     {
         LockHolder lh(workQueueLock);
-        queue.push_back(stream);
+        if (queuedVbuckets.count(stream->getVBucket()) == 0) {
+            queue.push(stream);
+            queuedVbuckets.insert(stream->getVBucket());
+        }
     }
 
     bool expected = false;
