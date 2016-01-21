@@ -184,13 +184,26 @@ public:
 
 private:
 
+    /**
+     * DcpProducerReadyQueue maintains a queue of vbuckets that have items
+     * ready for sending.
+     *
+     * Internally a std::queue and std::set are used so that calling code
+     * can efficiently ensure the queue contains no duplicates.
+     * The std::set gives an efficient exists() call which is used by the
+     * front-end threads.
+     *
+     */
     class DcpProducerReadyQueue {
     public:
-        bool find(uint16_t vbucket) {
+        bool exists(uint16_t vbucket) {
             LockHolder lh(lock);
             return (queuedValues.count(vbucket) > 0);
         }
 
+        /**
+         * Returns false if the queue is empty, frontValue will not be assigned.
+         */
         bool pop_front(uint16_t &frontValue) {
             LockHolder lh(lock);
             if (!readyQueue.empty()) {
@@ -209,13 +222,14 @@ private:
         }
 
     private:
+
         Mutex lock;
 
         /* a queue of vbuckets that are ready for producing */
         std::queue<uint16_t> readyQueue;
 
         /**
-         * maintain a std::set of values that are in the readyQueue. find() is
+         * maintain a std::set of values that are in the readyQueue. exists() is
          * performed by front-end threads so we want it to be efficient so just
          * a set lookup is required.
          */
@@ -248,6 +262,7 @@ private:
     // if a non-const method is called on stream_t.
     RWLock streamsMutex;
     DcpProducerReadyQueue ready;
+    AtomicValue<bool> producerNotified;
 
     std::map<uint16_t, stream_t> streams;
 
