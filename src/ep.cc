@@ -3340,13 +3340,13 @@ int EventuallyPersistentStore::flushVBucket(uint16_t vbid) {
     int items_flushed = 0;
     rel_time_t flush_start = ep_current_time();
 
+    LockHolder lh(vb_mutexes[vbid], true /*tryLock*/);
+    if (!lh.islocked()) { // Try another bucket if this one is locked
+            return RETRY_FLUSH_VBUCKET; // to avoid blocking flusher
+    }
+
     RCPtr<VBucket> vb = vbMap.getBucket(vbid);
     if (vb) {
-        LockHolder lh(vb_mutexes[vbid], true /*tryLock*/);
-        if (!lh.islocked()) { // Try another bucket if this one is locked
-            return RETRY_FLUSH_VBUCKET; // to avoid blocking flusher
-        }
-
         std::vector<queued_item> items;
         KVStore *rwUnderlying = getRWUnderlying(vbid);
 
