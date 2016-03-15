@@ -1271,7 +1271,7 @@ void PassiveStream::acceptStream(uint16_t status, uint32_t add_opaque) {
 void PassiveStream::reconnectStream(RCPtr<VBucket> &vb,
                                     uint32_t new_opaque,
                                     uint64_t start_seqno) {
-    vb_uuid_ = vb->failovers->getLatestEntry().vb_uuid;
+    vb_uuid_ = vb->getFailoverTable().getLatestEntry().vb_uuid;
 
     snapshot_info_t info = vb->checkpointManager.getSnapshotInfo();
     if (info.range.end == info.start) {

@@ -82,7 +82,8 @@ protected:
           vbucket(new VBucket(0, vbucket_state_active, global_stats,
                               checkpoint_config, /*kvshard*/NULL,
                               /*lastSeqno*/1000, /*lastSnapStart*/0,
-                              /*lastSnapEnd*/0, /*table*/NULL,
+                              /*lastSnapEnd*/0,
+                              /*existingFailovers*/"", /*numFailoverEntries*/0,
                               callback)) {
         createManager();
     }
@@ -206,7 +207,7 @@ static void launch_set_thread(void *arg) {
 TEST_F(CheckpointTest, basic_chk_test) {
     std::shared_ptr<Callback<uint16_t> > cb(new DummyCB());
     RCPtr<VBucket> vbucket(new VBucket(0, vbucket_state_active, global_stats,
-                                       checkpoint_config, NULL, 0, 0, 0, NULL,
+                                       checkpoint_config, NULL, 0, 0, 0, "", 0,
                                        cb));
 
     CheckpointManager *checkpoint_manager = new CheckpointManager(global_stats, 0,
@@ -308,7 +309,7 @@ TEST_F(CheckpointTest, basic_chk_test) {
 TEST_F(CheckpointTest, reset_checkpoint_id) {
     std::shared_ptr<Callback<uint16_t> > cb(new DummyCB());
     RCPtr<VBucket> vbucket(new VBucket(0, vbucket_state_active, global_stats,
-                                       checkpoint_config, NULL, 0, 0, 0, NULL,
+                                       checkpoint_config, NULL, 0, 0, 0, "", 0,
                                        cb));
     CheckpointManager *manager =
         new CheckpointManager(global_stats, 0, checkpoint_config, 1, 0, 0, cb);

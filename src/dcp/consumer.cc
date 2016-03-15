@@ -166,7 +166,7 @@ ENGINE_ERROR_CODE DcpConsumer::addStream(uint32_t opaque, uint16_t vbucket,
     }
 
     uint32_t new_opaque = ++opaqueCounter;
-    failover_entry_t entry = vb->failovers->getLatestEntry();
+    failover_entry_t entry = vb->getFailoverTable().getLatestEntry();
     uint64_t start_seqno = info.start;
     uint64_t end_seqno = std::numeric_limits<uint64_t>::max();
     uint64_t vbucket_uuid = entry.vb_uuid;
@@ -884,7 +884,7 @@ void DcpConsumer::streamAccepted(uint32_t opaque, uint16_t status, uint8_t* body
             stream->getState() == STREAM_PENDING) {
             if (status == ENGINE_SUCCESS) {
                 RCPtr<VBucket> vb = engine_.getVBucket(vbucket);
-                vb->failovers->replaceFailoverLog(body, bodylen);
+                vb->getFailoverTable().replaceFailoverLog(body, bodylen);
                 EventuallyPersistentStore* st = engine_.getEpStore();
                 st->scheduleVBSnapshot(Priority::VBucketPersistHighPriority,
                                 st->getVBuckets().getShardByVbId(vbucket)->getId());

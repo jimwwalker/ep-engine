@@ -145,8 +145,8 @@ public:
 
     VBucket(id_type i, vbucket_state_t newState, EPStats &st,
             CheckpointConfig &chkConfig, KVShard *kvshard,
-            int64_t lastSeqno, uint64_t lastSnapStart,
-            uint64_t lastSnapEnd, FailoverTable *table,
+            int64_t lastSeqno, uint64_t lastSnapStart, uint64_t lastSnapEnd,
+            std::string existingFailovers, size_t numFailoverEntries,
             std::shared_ptr<Callback<id_type> > cb,
             vbucket_state_t initState = vbucket_state_dead,
             uint64_t chkId = 1, uint64_t purgeSeqno = 0,
@@ -154,7 +154,6 @@ public:
         ht(st),
         checkpointManager(st, i, chkConfig, lastSeqno, lastSnapStart,
                           lastSnapEnd, cb, chkId),
-        failovers(table),
         opsCreate(0),
         opsUpdate(0),
         opsDelete(0),
@@ -184,7 +183,8 @@ public:
         shard(kvshard),
         bFilter(NULL),
         tempFilter(NULL),
-        rollbackItemCount(0)
+        rollbackItemCount(0),
+        failovers(existingFailovers, numFailoverEntries)
     {
         backfill.isBackfillPhase = false;
         pendingOpsStart = 0;
@@ -255,9 +255,9 @@ public:
         uint64_t last_vbuuid = 0;
         int64_t last_seqno = 0;
         do {
-            last_vbuuid = failovers->getLatestUUID();
+            last_vbuuid = failovers.getLatestUUID();
             last_seqno = getHighSeqno();
-        } while (failovers->getLatestUUID() != last_vbuuid);
+        } while (failovers.getLatestUUID() != last_vbuuid);
         set_drift_state_resp_t resp;
         resp.last_vb_uuid = last_vbuuid;
         resp.last_seqno = last_seqno;
@@ -493,9 +493,11 @@ public:
         return shard;
     }
 
-    std::queue<queued_item> rejectQueue;
-    FailoverTable *failovers;
+    FailoverTable& getFailoverTable() {
+        return failovers;
+    }
 
+    std::queue<queued_item> rejectQueue;
     AtomicValue<size_t>  opsCreate;
     AtomicValue<size_t>  opsUpdate;
     AtomicValue<size_t>  opsDelete;
@@ -559,6 +561,8 @@ private:
     BloomFilter *tempFilter;    // Used during compaction.
 
     AtomicValue<uint64_t> rollbackItemCount;
+
+    FailoverTable failovers;
 
     static size_t chkFlushTimeout;
 

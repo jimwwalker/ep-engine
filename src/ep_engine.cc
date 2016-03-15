@@ -1863,7 +1863,7 @@ extern "C" {
             RCPtr<VBucket> vb = engine->getEpStore()->getVBucket(it->getVBucketId());
 
             if (vb) {
-                itm_info->vbucket_uuid = vb->failovers->getLatestUUID();
+                itm_info->vbucket_uuid = vb->getFailoverTable().getLatestUUID();
             } else {
                 itm_info->vbucket_uuid = 0;
             }
@@ -4224,7 +4224,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doVbIdFailoverLogStats(
     if(!vb) {
         return ENGINE_NOT_MY_VBUCKET;
     }
-    vb->failovers->addStats(cookie, vb->getId(), add_stat);
+    vb->getFailoverTable().addStats(cookie, vb->getId(), add_stat);
     return ENGINE_SUCCESS;
 }
 
@@ -4238,7 +4238,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doAllFailoverLogStats(
         StatVBucketVisitor(const void *c, ADD_STAT a) :
             cookie(c), add_stat(a) {}
         bool visitBucket(RCPtr<VBucket> &vb) {
-            vb->failovers->addStats(cookie, vb->getId(), add_stat);
+            vb->getFailoverTable().addStats(cookie, vb->getId(), add_stat);
             return false;
         }
     private:
@@ -4410,7 +4410,7 @@ void EventuallyPersistentEngine::addSeqnoVbStats_UNLOCKED(const void *cookie,
     }
 
     char buffer[32];
-    failover_entry_t entry = vb->failovers->getLatestEntry();
+    failover_entry_t entry = vb->getFailoverTable().getLatestEntry();
     snprintf(buffer, sizeof(buffer), "vb_%d:high_seqno", vb->getId());
     add_casted_stat(buffer, relHighSeqno, add_stat, cookie);
     snprintf(buffer, sizeof(buffer), "vb_%d:abs_high_seqno", vb->getId());
@@ -4842,12 +4842,12 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::observe_seqno(
     }
 
     //Check if the vb uuid matches with the latest entry
-    failover_entry_t entry = vb->failovers->getLatestEntry();
+    failover_entry_t entry = vb->getFailoverTable().getLatestEntry();
 
     if (vb_uuid != entry.vb_uuid) {
        uint64_t failover_highseqno = 0;
        uint64_t latest_uuid;
-       bool found = vb->failovers->getLastSeqnoForUUID(vb_uuid, &failover_highseqno);
+       bool found = vb->getFailoverTable().getLastSeqnoForUUID(vb_uuid, &failover_highseqno);
        if (!found) {
            return sendResponse(response, NULL, 0, 0, 0, 0, 0,
                                PROTOCOL_BINARY_RAW_BYTES,
@@ -5444,7 +5444,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::setWithMeta(const void* cookie,
 
     if (ret == ENGINE_SUCCESS && isMutationExtrasSupported(cookie)) {
         RCPtr<VBucket> vb = epstore->getVBucket(vbucket);
-        vb_uuid = htonll(vb->failovers->getLatestUUID());
+        vb_uuid = htonll(vb->getFailoverTable().getLatestUUID());
         by_seqno = htonll(by_seqno);
         memcpy(meta, &vb_uuid, sizeof(vb_uuid));
         memcpy(meta + sizeof(vb_uuid), &by_seqno, sizeof(by_seqno));
@@ -5560,7 +5560,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::deleteWithMeta(
 
     if (ret == ENGINE_SUCCESS && isMutationExtrasSupported(cookie)) {
         RCPtr<VBucket> vb = epstore->getVBucket(vbucket);
-        vb_uuid = htonll(vb->failovers->getLatestUUID());
+        vb_uuid = htonll(vb->getFailoverTable().getLatestUUID());
         by_seqno = htonll(by_seqno);
         memcpy(meta, &vb_uuid, 8);
         memcpy(meta + 8, &by_seqno, 8);

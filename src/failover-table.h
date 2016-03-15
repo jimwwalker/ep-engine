@@ -47,11 +47,7 @@ class FailoverTable {
  public:
     typedef std::list<failover_entry_t> table_t;
 
-    FailoverTable(size_t capacity);
-
     FailoverTable(const std::string& json, size_t capacity);
-
-    ~FailoverTable();
 
     /**
      * Returns the latest entry in the failover table

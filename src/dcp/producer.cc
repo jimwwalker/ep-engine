@@ -258,7 +258,7 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
         start_seqno = static_cast<uint64_t>(vb->getHighSeqno());
     }
 
-    if (vb->failovers->needsRollback(start_seqno, vb->getHighSeqno(),
+    if (vb->getFailoverTable().needsRollback(start_seqno, vb->getHighSeqno(),
                                      vbucket_uuid, snap_start_seqno,
                                      snap_end_seqno, vb->getPurgeSeqno(),
                                      rollback_seqno)) {
@@ -271,7 +271,7 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
         return ENGINE_ROLLBACK;
     }
 
-    ENGINE_ERROR_CODE rv = vb->failovers->addFailoverLog(getCookie(), callback);
+    ENGINE_ERROR_CODE rv = vb->getFailoverTable().addFailoverLog(getCookie(), callback);
     if (rv != ENGINE_SUCCESS) {
         LOG(EXTENSION_LOG_WARNING, "%s (vb %d) Couldn't add failover log to "
             "stream request due to error %d", logHeader(), vbucket, rv);
@@ -330,7 +330,7 @@ ENGINE_ERROR_CODE DcpProducer::getFailoverLog(uint32_t opaque, uint16_t vbucket,
         return ENGINE_NOT_MY_VBUCKET;
     }
 
-    return vb->failovers->addFailoverLog(getCookie(), callback);
+    return vb->getFailoverTable().addFailoverLog(getCookie(), callback);
 }
 
 ENGINE_ERROR_CODE DcpProducer::step(struct dcp_message_producers* producers) {

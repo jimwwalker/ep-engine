@@ -465,7 +465,6 @@ void Warmup::scheduleCreateVBuckets()
 }
 
 void Warmup::createVBuckets(uint16_t shardId) {
-    size_t maxEntries = store.getEPEngine().getMaxFailoverEntries();
     std::map<uint16_t, vbucket_state>& vbStates = shardVbStates[shardId];
 
     std::map<uint16_t, vbucket_state>::iterator itr;
@@ -475,27 +474,24 @@ void Warmup::createVBuckets(uint16_t shardId) {
 
         RCPtr<VBucket> vb = store.getVBucket(vbid);
         if (!vb) {
-            FailoverTable* table;
-            if (vbs.failovers.empty()) {
-                table = new FailoverTable(maxEntries);
-            } else {
-                table = new FailoverTable(vbs.failovers, maxEntries);
-            }
             KVShard* shard = store.getVBuckets().getShardByVbId(vbid);
             std::shared_ptr<Callback<uint16_t> > cb(new NotifyFlusherCB(shard));
             vb.reset(new VBucket(vbid, vbs.state,
                                  store.getEPEngine().getEpStats(),
                                  store.getEPEngine().getCheckpointConfig(),
                                  shard, vbs.highSeqno, vbs.lastSnapStart,
-                                 vbs.lastSnapEnd, table, cb, vbs.state, 1,
+                                 vbs.lastSnapEnd,
+                                 vbs.failovers,
+                                 store.getEPEngine().getMaxFailoverEntries(),
+                                 cb, vbs.state, 1,
                                  vbs.purgeSeqno, vbs.maxCas,
                                  vbs.driftCounter));
 
             if(vbs.state == vbucket_state_active && !cleanShutdown) {
                 if (static_cast<uint64_t>(vbs.highSeqno) == vbs.lastSnapEnd) {
-                    vb->failovers->createEntry(vbs.lastSnapEnd);
+                    vb->getFailoverTable().createEntry(vbs.lastSnapEnd);
                 } else {
-                    vb->failovers->createEntry(vbs.lastSnapStart);
+                    vb->getFailoverTable().createEntry(vbs.lastSnapStart);
                 }
             }
 

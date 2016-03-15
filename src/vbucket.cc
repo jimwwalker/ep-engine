@@ -140,7 +140,6 @@ VBucket::~VBucket() {
     }
     stats.numRemainingBgJobs.fetch_sub(num_pending_fetches);
     pendingBGFetches.clear();
-    delete failovers;
 
     // Clear out the bloomfilter(s)
     clearFilter();
@@ -642,7 +641,7 @@ void VBucket::addStats(bool details, ADD_STAT add_stat, const void *c,
         addStat("db_data_size", fileSpaceUsed, add_stat, c);
         addStat("db_file_size", fileSize, add_stat, c);
         addStat("high_seqno", getHighSeqno(), add_stat, c);
-        addStat("uuid", failovers->getLatestUUID(), add_stat, c);
+        addStat("uuid", failovers.getLatestUUID(), add_stat, c);
         addStat("purge_seqno", getPurgeSeqno(), add_stat, c);
         addStat("bloom_filter", getFilterStatusString().data(),
                 add_stat, c);

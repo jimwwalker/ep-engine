@@ -23,22 +23,18 @@
 #include "statwriter.h"
 #undef STATWRITER_NAMESPACE
 
-FailoverTable::FailoverTable(size_t capacity)
-    : max_entries(capacity), provider(true) {
-    createEntry(0);
-    cacheTableJSON();
-}
-
 FailoverTable::FailoverTable(const std::string& json, size_t capacity)
     : max_entries(capacity),
       provider(true) {
-    if (!loadFromJSON(json)) {
+
+    if (json.empty()) {
+        createEntry(0);
+        cacheTableJSON();
+    } else if (!loadFromJSON(json)) {
         throw std::invalid_argument("FailoverTable(): unable to load from "
                 "JSON file '" + json + "'");
     }
 }
-
-FailoverTable::~FailoverTable() { }
 
 failover_entry_t FailoverTable::getLatestEntry() {
     LockHolder lh(lock);

@@ -1171,7 +1171,7 @@ void EventuallyPersistentStore::snapshotVBuckets(const Priority &priority,
             if (vbuckets.getShardByVbId(vb->getId())->getId() == shardId) {
                 snapshot_range_t range;
                 vb->getPersistedSnapshot(range);
-                std::string failovers = vb->failovers->toJSON();
+                std::string failovers = vb->getFailoverTable().toJSON();
                 uint64_t chkId = vbuckets.getPersistenceCheckpointId(vb->getId());
 
                 vbucket_state vb_state(vb->getState(), chkId, 0,
@@ -1260,7 +1260,7 @@ bool EventuallyPersistentStore::persistVBState(const Priority &priority,
 
     KVStatsCallback kvcb(this);
     uint64_t chkId = vbMap.getPersistenceCheckpointId(vbid);
-    std::string failovers = vb->failovers->toJSON();
+    std::string failovers = vb->getFailoverTable().toJSON();
 
     snapshot_range_t range;
     vb->getPersistedSnapshot(range);
@@ -1329,9 +1329,9 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setVBucketState(uint16_t vbid,
             snapshot_range_t range;
             vb->getPersistedSnapshot(range);
             if (range.end == vbMap.getPersistenceSeqno(vbid)) {
-                vb->failovers->createEntry(range.end);
+                vb->getFailoverTable().createEntry(range.end);
             } else {
-                vb->failovers->createEntry(range.start);
+                vb->getFailoverTable().createEntry(range.start);
             }
         }
 
@@ -1343,12 +1343,17 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setVBucketState(uint16_t vbid,
         }
         scheduleVBStatePersist(Priority::VBucketPersistLowPriority, vbid);
     } else if (vbid < vbMap.getSize()) {
-        FailoverTable* ft = new FailoverTable(engine.getMaxFailoverEntries());
         KVShard* shard = vbMap.getShardByVbId(vbid);
         std::shared_ptr<Callback<uint16_t> > cb(new NotifyFlusherCB(shard));
         RCPtr<VBucket> newvb(new VBucket(vbid, to, stats,
                                          engine.getCheckpointConfig(),
-                                         shard, 0, 0, 0, ft, cb));
+                                         shard,
+                                         /*lastSeqno*/0, /*lastSnapStart*/0,
+                                         /*lastSnapEnd*/0,
+                                         /*existingFailoverString*/"",
+                                         engine.getMaxFailoverEntries(),
+                                         cb));
+
         Configuration& config = engine.getConfiguration();
         if (config.isBfilterEnabled()) {
             // Initialize bloom filters upon vbucket creation during
@@ -2914,7 +2919,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::deleteItem(const std::string &key,
     case WAS_CLEAN:
         queueDirty(vb, v, &lh, &seqno, tapBackfill);
         mutInfo->seqno = seqno;
-        mutInfo->vbucket_uuid = vb->failovers->getLatestUUID();
+        mutInfo->vbucket_uuid = vb->getFailoverTable().getLatestUUID();
         break;
     case NEED_BG_FETCH:
         // We already figured out if a bg fetch is requred for a full-evicted
@@ -3411,7 +3416,7 @@ int EventuallyPersistentStore::flushVBucket(uint16_t vbid) {
                     }
                 }
 
-                std::string failovers = vb->failovers->toJSON();
+                std::string failovers = vb->getFailoverTable().toJSON();
                 vbucket_state vbState(vb->getState(),
                                       vbMap.getPersistenceCheckpointId(vbid),
                                       maxDeletedRevSeqno, vb->getHighSeqno(),
@@ -4114,7 +4119,7 @@ EventuallyPersistentStore::rollback(uint16_t vbid,
         RollbackResult result = rwUnderlying->rollback(vbid, rollbackSeqno, cb);
 
         if (result.success) {
-            vb->failovers->pruneEntries(result.highSeqno);
+            vb->getFailoverTable().pruneEntries(result.highSeqno);
             vb->checkpointManager.clear(vb, result.highSeqno);
             vb->setPersistedSnapshot(result.snapStartSeqno, result.snapEndSeqno);
             vb->incrRollbackItemCount(prevHighSeqno - result.highSeqno);

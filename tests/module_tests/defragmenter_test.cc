@@ -124,8 +124,9 @@ int main(void) {
     EPStats stats;
     CheckpointConfig config;
     std::shared_ptr<Callback<uint16_t> > cb(new DummyCB());
-    VBucket vbucket(0, vbucket_state_active, stats, config, NULL, 0, 0, 0, NULL,
-                    cb);
+    VBucket vbucket(0, vbucket_state_active, stats,
+                    config, NULL, 0, 0, 0,
+                    "", 0, cb);
 
     const size_t one_minute = 60 * 1000;
 

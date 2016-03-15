@@ -41,7 +41,7 @@ static table_t generate_entries(FailoverTable& table,
 //TESTS BELOW
 static void test_initial_failover_log() {
     uint64_t rollback_seqno;
-    FailoverTable table(25);
+    FailoverTable table("", 25);
 
     // rollback not needed
     cb_assert(!table.needsRollback(0, 0, 0, 0, 0, 0, &rollback_seqno));
@@ -55,7 +55,7 @@ static void test_5_failover_log() {
     uint64_t rollback_seqno;
     uint64_t curr_seqno;
 
-    FailoverTable table(25);
+    FailoverTable table("", 25);
     table_t failover_entries = generate_entries(table, 5,1);
 
     // rollback not needed
@@ -84,7 +84,7 @@ static void test_edgetests_failover_log() {
     uint64_t rollback_seqno;
     uint64_t curr_seqno;
 
-    FailoverTable table(25);
+    FailoverTable table("", 25);
     table.createEntry(100);
     table.createEntry(200);
 
@@ -120,7 +120,7 @@ static void test_edgetests_failover_log() {
     start_seqno = 300;
     snap_start_seqno = 300;
     snap_end_seqno = 301;
-    
+
     cb_assert(!table.needsRollback(start_seqno, curr_seqno,
                                    table.getLatestEntry().vb_uuid,
                                    snap_start_seqno, snap_end_seqno, 0,
@@ -173,7 +173,7 @@ static void test_5_failover_largeseqno_log() {
     uint64_t curr_seqno;
     uint64_t vb_uuid;
 
-    FailoverTable table(25);
+    FailoverTable table("", 25);
     uint64_t range = std::numeric_limits<uint64_t>::max()/(5*150);
     table_t failover_entries = generate_entries(table, 5, range);
 
@@ -231,7 +231,7 @@ static void test_5_failover_largeseqno_log() {
 static void test_pop_5_failover_log() {
     uint64_t rollback_seqno;
 
-    FailoverTable table(25);
+    FailoverTable table("", 25);
     table_t failover_entries = generate_entries(table, 30,1);
 
 
