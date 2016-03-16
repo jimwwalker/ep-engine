@@ -35,6 +35,7 @@
  */
 class DcpFlowControlManager {
 public:
+
     DcpFlowControlManager(EventuallyPersistentEngine &engine);
 
     virtual ~DcpFlowControlManager();
@@ -46,8 +47,7 @@ public:
     /* To be called when a consumer connection is deleted */
     virtual void handleDisconnect(DcpConsumer *);
 
-    /* Will indicate if flow control is enabled */
-    virtual bool isEnabled(void) const;
+    static DcpFlowControlManager* create(EventuallyPersistentEngine& engine, std::string flowCtlPolicy);
 
 protected:
     void setBufSizeWithinBounds(DcpConsumer *consumerConn, size_t &bufSize);
@@ -68,8 +68,6 @@ public:
     ~DcpFlowControlManagerStatic();
 
     size_t newConsumerConn(DcpConsumer *consumerConn);
-
-    bool isEnabled(void) const;
 };
 
 /**
@@ -88,8 +86,6 @@ public:
     size_t newConsumerConn(DcpConsumer *consumerConn);
 
     void handleDisconnect(DcpConsumer *consumerConn);
-
-    bool isEnabled(void) const;
 
 private:
     /* Total memory used by all DCP consumer buffers */
@@ -112,8 +108,6 @@ public:
     size_t newConsumerConn(DcpConsumer *consumerConn);
 
     void handleDisconnect(DcpConsumer *consumerConn);
-
-    bool isEnabled(void) const;
 
 private:
     /* Resize all flow control buffers in dcpConsumersMap */

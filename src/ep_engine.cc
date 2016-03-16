@@ -1604,6 +1604,7 @@ extern "C" {
                                      bySeqno, revSeqno, expiration,
                                      nru, meta, nmeta);
         }
+
         releaseHandle(handle);
         return errCode;
     }
@@ -2097,19 +2098,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::initialize(const char* config) {
 
     dcpConnMap_ = new DcpConnMap(*this);
 
-    /* Get the flow control policy */
-    std::string flowCtlPolicy = configuration.getDcpFlowControlPolicy();
-
-    if (!flowCtlPolicy.compare("static")) {
-        dcpFlowControlManager_ = new DcpFlowControlManagerStatic(*this);
-    } else if (!flowCtlPolicy.compare("dynamic")) {
-        dcpFlowControlManager_ = new DcpFlowControlManagerDynamic(*this);
-    } else if (!flowCtlPolicy.compare("aggressive")) {
-        dcpFlowControlManager_ = new DcpFlowControlManagerAggressive(*this);
-    } else {
-        /* Flow control is not enabled */
-        dcpFlowControlManager_ = new DcpFlowControlManager(*this);
-    }
+    dcpFlowControlManager_ = DcpFlowControlManager::create(*this,
+                                                           configuration.getDcpFlowControlPolicy());
 
     tapConnMap = new TapConnMap(*this);
     tapConfig = new TapConfig(*this);

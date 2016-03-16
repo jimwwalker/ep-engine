@@ -29,15 +29,11 @@ DcpFlowControlManager::DcpFlowControlManager(EventuallyPersistentEngine &engine)
 DcpFlowControlManager::~DcpFlowControlManager() {}
 
 size_t DcpFlowControlManager::newConsumerConn(DcpConsumer *) {
-    return 0;
+    // there is no buffer, so just set to max uint64 so we never exceed it
+    return std::numeric_limits<uint64_t>::max();
 }
 
 void DcpFlowControlManager::handleDisconnect(DcpConsumer *) {}
-
-bool DcpFlowControlManager::isEnabled() const
-{
-    return false;
-}
 
 void DcpFlowControlManager::setBufSizeWithinBounds(DcpConsumer *consumerConn,
                                                    size_t &bufSize)
@@ -58,6 +54,19 @@ void DcpFlowControlManager::setBufSizeWithinBounds(DcpConsumer *consumerConn,
     }
 }
 
+DcpFlowControlManager* DcpFlowControlManager::create(EventuallyPersistentEngine& engine, std::string flowCtlPolicy)
+{
+    if (!flowCtlPolicy.compare("static")) {
+        return new DcpFlowControlManagerStatic(engine);
+    } else if (!flowCtlPolicy.compare("dynamic")) {
+        return new DcpFlowControlManagerDynamic(engine);
+    } else if (!flowCtlPolicy.compare("aggressive")) {
+        return new DcpFlowControlManagerAggressive(engine);
+    } else {
+        return new DcpFlowControlManager(engine);
+    }
+}
+
 DcpFlowControlManagerStatic::DcpFlowControlManagerStatic(
                                         EventuallyPersistentEngine &engine) :
     DcpFlowControlManager(engine)
@@ -69,11 +78,6 @@ DcpFlowControlManagerStatic::~DcpFlowControlManagerStatic() {}
 size_t DcpFlowControlManagerStatic::newConsumerConn(DcpConsumer *consumerConn)
 {
     return engine_.getConfiguration().getDcpConnBufferSize();
-}
-
-bool DcpFlowControlManagerStatic::isEnabled() const
-{
-    return true;
 }
 
 DcpFlowControlManagerDynamic::DcpFlowControlManagerDynamic(
@@ -126,11 +130,6 @@ size_t DcpFlowControlManagerDynamic::newConsumerConn(DcpConsumer *consumerConn)
 void DcpFlowControlManagerDynamic::handleDisconnect(DcpConsumer *consumerConn)
 {
     aggrDcpConsumerBufferSize -= consumerConn->getFlowControlBufSize();
-}
-
-bool DcpFlowControlManagerDynamic::isEnabled() const
-{
-    return true;
 }
 
 DcpFlowControlManagerAggressive::DcpFlowControlManagerAggressive(
@@ -197,11 +196,6 @@ void DcpFlowControlManagerAggressive::handleDisconnect(
     if (bufferSize != 0) {
         resizeBuffers(bufferSize);
     }
-}
-
-bool DcpFlowControlManagerAggressive::isEnabled() const
-{
-    return true;
 }
 
 void DcpFlowControlManagerAggressive::resizeBuffers(size_t bufferSize)

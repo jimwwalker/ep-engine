@@ -119,6 +119,12 @@ public:
 
     std::string getProcesserTaskStatusStr();
 
+    void notifyPaused();
+
+    void incrQueuedBytes(uint64_t bytes) {
+        flowControl.incrQueuedBytes(bytes);
+    }
+
 private:
 
     DcpResponse* getNextItem();
@@ -147,6 +153,8 @@ private:
     ENGINE_ERROR_CODE supportCursorDropping(struct dcp_message_producers* producers);
 
     void notifyVbucketReady(uint16_t vbucket);
+
+    bool tcpFlowControlNeeded();
 
     uint64_t opaqueCounter;
     size_t processerTaskId;

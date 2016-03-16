@@ -53,6 +53,15 @@ public:
 
     void addStats(ADD_STAT add_stat, const void *c);
 
+    void decrQueuedBytes(uint64_t bytes) {
+        queuedBytes.fetch_sub(bytes);
+    }
+
+    void incrQueuedBytes(uint64_t bytes) {
+        queuedBytes.fetch_add(bytes);
+    }
+
+    bool shouldConsumerBlock();
 private:
     void setBufSizeWithinBounds(size_t &bufSize);
 
@@ -64,15 +73,15 @@ private:
     /* Reference to ep engine instance */
     EventuallyPersistentEngine &engine_;
 
-    /* Indicates if flow control is enabled for this connection */
-    bool enabled;
+    /* Indicates if dcp-managed flow control is enabled for this connection */
+    bool dcpManagedFlowControl;
 
     /* Indicates whether control msg regarding flow control has been sent to
        the producer */
     bool pendingControl;
 
     /* Flow control buffer size */
-    Couchbase::RelaxedAtomic<uint32_t> bufferSize;
+    Couchbase::RelaxedAtomic<uint64_t> bufferSize;
 
     /* Lock while updating buffersize and pendingControl */
     SpinLock bufferSizeLock;
@@ -80,11 +89,15 @@ private:
     /* To keep track of when last buffer ack was sent */
     rel_time_t lastBufferAck;
 
-    /* Total bytes acked by this connection. This is used to for stats */
+    /* Total bytes acked by this connection. This is used for stats */
     AtomicValue<uint64_t> ackedBytes;
 
     /* Bytes processed from the flow control buffer */
     AtomicValue<uint64_t> freedBytes;
+
+    /* Bytes queued onto the consumer */
+    AtomicValue<uint64_t> queuedBytes;
+
 };
 
 #endif  /* SRC_DCP_FLOW_CONTROL_H_ */

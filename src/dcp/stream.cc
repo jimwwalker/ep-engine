@@ -1378,6 +1378,7 @@ ENGINE_ERROR_CODE PassiveStream::messageReceived(DcpResponse* resp) {
         }
         case DCP_SET_VBUCKET:
         case DCP_STREAM_END:
+        case DCP_WAKE_CONSUMER:
         {
             /* No validations necessary */
             break;
@@ -1391,7 +1392,7 @@ ENGINE_ERROR_CODE PassiveStream::messageReceived(DcpResponse* resp) {
         }
     }
 
-    if (engine->getReplicationThrottle().shouldProcess() && !buffer.items) {
+    if (engine->getReplicationThrottle().shouldProcess() && !buffer.items && resp->getEvent() != DCP_WAKE_CONSUMER) {
         /* Process the response here itself rather than buffering it */
         ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
         switch (resp->getEvent()) {
@@ -1429,6 +1430,7 @@ ENGINE_ERROR_CODE PassiveStream::messageReceived(DcpResponse* resp) {
     buffer.messages.push(resp);
     buffer.items++;
     buffer.bytes += resp->getMessageSize();
+    consumer->incrQueuedBytes(resp->getMessageSize());
 
     return ENGINE_TMPFAIL;
 }
@@ -1480,6 +1482,11 @@ process_items_error_t PassiveStream::processBufferedMessages(uint32_t& processed
                     transitionState(STREAM_DEAD);
                 }
                 break;
+            case DCP_WAKE_CONSUMER: {
+                // the consumer is sleeping and should now be woken
+                consumer->notifyPaused();
+                break;
+            }
             default:
                 abort();
         }

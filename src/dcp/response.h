@@ -32,7 +32,8 @@ enum dcp_event_t {
     DCP_STREAM_REQ,
     DCP_STREAM_END,
     DCP_SNAPSHOT_MARKER,
-    DCP_ADD_STREAM
+    DCP_ADD_STREAM,
+    DCP_WAKE_CONSUMER
 };
 
 
@@ -372,6 +373,19 @@ private:
     queued_item item_;
     ExtendedMetaData *emd;
     MutationPayload payloadType;
+};
+
+
+class WakeConsumer : public DcpResponse {
+public:
+    WakeConsumer(uint32_t opaque)
+      : DcpResponse(DCP_WAKE_CONSUMER, opaque) {
+    }
+
+    uint32_t getMessageSize() {
+        return baseMsgBytes;
+    }
+    static const uint32_t baseMsgBytes;
 };
 
 #endif  // SRC_DCP_RESPONSE_H_

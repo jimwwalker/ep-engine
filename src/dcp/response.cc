@@ -35,3 +35,4 @@ const uint32_t SetVBucketState::baseMsgBytes = 25;
 const uint32_t SnapshotMarker::baseMsgBytes = 44;
 const uint32_t MutationResponse::mutationBaseMsgBytes = 55;
 const uint32_t MutationResponse::deletionBaseMsgBytes = 42;
+const uint32_t WakeConsumer::baseMsgBytes = 0; // not a real message

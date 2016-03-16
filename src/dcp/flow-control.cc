@@ -26,16 +26,13 @@ FlowControl::FlowControl(EventuallyPersistentEngine &engine,
                          DcpConsumer* consumer) :
     consumerConn(consumer),
     engine_(engine),
-    pendingControl(true),
     lastBufferAck(ep_current_time()),
     ackedBytes(0),
-    freedBytes(0)
+    freedBytes(0),
+    queuedBytes(0)
 {
-    enabled = engine.getDcpFlowControlManager().isEnabled();
-    if (enabled) {
-        bufferSize =
-                    engine.getDcpFlowControlManager().newConsumerConn(consumer);
-    }
+    pendingControl = dcpManagedFlowControl = engine.getConfiguration().getDcpFlowControlMode().compare("dcp_managed_flow_control");
+    bufferSize = engine.getDcpFlowControlManager().newConsumerConn(consumer);
 }
 
 FlowControl::~FlowControl()
@@ -46,7 +43,7 @@ FlowControl::~FlowControl()
 ENGINE_ERROR_CODE FlowControl::handleFlowCtl(
                                     struct dcp_message_producers* producers)
 {
-    if (enabled) {
+    if (dcpManagedFlowControl) {
         ENGINE_ERROR_CODE ret;
         uint32_t ackable_bytes = freedBytes.load();
         SpinLockHolder lh(&bufferSizeLock);
@@ -133,4 +130,10 @@ void FlowControl::addStats(ADD_STAT add_stat, const void *c)
     consumerConn->addStat("total_acked_bytes", ackedBytes, add_stat, c);
     consumerConn->addStat("max_buffer_bytes", bufferSize, add_stat, c);
     consumerConn->addStat("unacked_bytes", freedBytes, add_stat, c);
+    consumerConn->addStat("queued_bytes", queuedBytes, add_stat, c);
+}
+
+bool FlowControl::shouldConsumerBlock() {
+    SpinLockHolder lh(&bufferSizeLock);
+    return !dcpManagedFlowControl && queuedBytes >= bufferSize;
 }

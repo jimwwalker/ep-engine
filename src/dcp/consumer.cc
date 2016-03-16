@@ -284,6 +284,13 @@ ENGINE_ERROR_CODE DcpConsumer::mutation(uint32_t opaque, const void* key,
     ENGINE_ERROR_CODE err = ENGINE_KEY_ENOENT;
     passive_stream_t stream = streams[vbucket];
     if (stream && stream->getOpaque() == opaque && stream->isActive()) {
+        if (flowControl.shouldConsumerBlock()) {
+            setPaused(true);
+            stream->messageReceived(new WakeConsumer(opaque));
+            LOG(EXTENSION_LOG_WARNING, "%s (vb %d) snoozing consumer", logHeader(), vbucket);
+            return ENGINE_EWOULDBLOCK;
+        }
+
         queued_item item(new Item(key, nkey, flags, exptime, value, nvalue,
                                   &datatype, EXT_META_LEN, cas, bySeqno,
                                   vbucket, revSeqno));
@@ -327,6 +334,11 @@ ENGINE_ERROR_CODE DcpConsumer::mutation(uint32_t opaque, const void* key,
 
     return err;
 }
+
+void DcpConsumer::notifyPaused() {
+    engine_.getDcpConnMap().notifyPausedConnection(this, false);
+}
+
 
 ENGINE_ERROR_CODE DcpConsumer::deletion(uint32_t opaque, const void* key,
                                         uint16_t nkey, uint64_t cas,
@@ -786,6 +798,7 @@ process_items_error_t DcpConsumer::processBufferedItems() {
             bytes_processed = 0;
             process_ret = stream->processBufferedMessages(bytes_processed);
             flowControl.incrFreedBytes(bytes_processed);
+            flowControl.decrQueuedBytes(bytes_processed);
         } while (bytes_processed > 0 && process_ret != cannot_process);
 
         if (flowControl.isBufferSufficientlyDrained()) {

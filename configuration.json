@@ -518,9 +518,19 @@
             "dynamic": false,
             "type": "size_t"
         },
+        "dcp_flow_control_mode": {
+            "default" : "ewouldblock",
+            "descr" : "Flow control mode determines what the consumer/producer does to throttle the stream",
+            "type" : "std::string",
+            "validator": {
+                "enum": [
+                         "ewouldblock",
+                         "dcp_managed_flow_control"]
+            }
+        },
         "dcp_flow_control_policy": {
             "default": "aggressive",
-            "descr": "Flow control policy used on consumer side buffer",
+            "descr": "Flow control policy used on consumer side buffer to calculate the consumer buffer",
             "type": "std::string",
             "validator": {
                 "enum": [
@@ -533,19 +543,19 @@
         },
         "dcp_conn_buffer_size": {
             "default": "10485760",
-            "descr": "Size in bytes of an dcp consumer connection buffer",
+            "descr": "Size in bytes of a dcp consumer connection buffer for the static flow control policy",
             "dynamic": false,
             "type": "size_t"
         },
         "dcp_conn_buffer_size_max": {
             "default": "52428800",
-            "descr": "Max size in bytes of an dcp consumer connection buffer",
+            "descr": "Max size in bytes of a dcp consumer connection buffer in the dynamic or aggressive flow control policy",
             "dynamic": false,
             "type": "size_t"
         },
         "dcp_conn_buffer_size_perc": {
             "default": "1",
-            "descr": "Percentage of memQuota for a dcp consumer connection buffer in dynamic flow ctl policy",
+            "descr": "Percentage of memQuota for a dcp consumer connection buffer in dynamic or aggressive flow control policy",
             "type": "size_t",
             "dynamic": false,
             "validator": {

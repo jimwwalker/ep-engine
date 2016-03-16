@@ -1067,7 +1067,7 @@ static enum test_result test_dcp_consumer_flow_control_none(ENGINE_HANDLE *h,
             "Failed dcp consumer open connection.");
 
     const auto stat_name("eq_dcpq:" + name + ":max_buffer_bytes");
-    checkeq(0, get_int_stat(h, h1, stat_name.c_str(), "dcp"),
+    checkeq(std::numeric_limits<uint64_t>::max(), get_ull_stat(h, h1, stat_name.c_str(), "dcp"),
             "Flow Control Buffer Size not zero");
     testHarness.destroy_cookie(cookie1);
 
