@@ -74,9 +74,43 @@ private:
     ExecutorPool *manager;
     size_t sleepers; // number of threads sleeping in this taskQueue
 
-    // sorted by task priority then waketime ..
-    std::priority_queue<ExTask, std::deque<ExTask >,
-                        CompareByPriority> readyQueue;
+    /*
+     * A light-weight wrapper to ensure that tasks pushed onto the
+     * readyQueue get a 'fresh' priority for comparing against other
+     * tasks.
+     */
+    class ReadyQueue {
+    public:
+        size_t size() const {
+            return readyQueue.size();
+        }
+
+        bool empty() const {
+            return readyQueue.empty();
+        }
+
+        ExTask top() {
+            return readyQueue.top();
+        }
+
+        void pop() {
+            readyQueue.pop();
+        }
+
+        void push(ExTask& task) {
+            // MB-18453
+            // Give the task refreshed priority when entering the readyQueue
+            task->refreshQueuePriority();
+            readyQueue.push(task);
+        }
+
+    private:
+        // sorted by priority (task-id tie-breaks)
+        std::priority_queue<ExTask, std::deque<ExTask >,
+                            CompareByPriority> readyQueue;
+    } readyQueue;
+
+    // sorted by waketime
     std::priority_queue<ExTask, std::deque<ExTask >,
                         CompareByDueDate> futureQueue;
 

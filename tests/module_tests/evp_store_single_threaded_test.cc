@@ -273,3 +273,49 @@ TEST_F(SingleThreadedEPStoreTest, MB18452_yield_dcp_processor) {
     // Drop the stream
     consumer->closeStream(/*opaque*/0, vbid);
 }
+
+/*
+ * Run two tasks of different priorities and check that the low-priority task
+ * does get to run.
+ */
+TEST_F(SingleThreadedEPStoreTest, MB18453_fairer_scheduling) {
+    auto& lpNonioQ = *task_executor->getLpTaskQ()[NONIO_TASK_IDX];
+
+    class MB18453 : public GlobalTask {
+    public:
+        MB18453(EventuallyPersistentEngine* e, TaskId id)
+          : GlobalTask(e, id, 0.0, false),
+            runs(0) {}
+
+        bool run() {
+            runs++;
+            return true;
+        }
+
+        std::string getDescription() {
+            return "MB18453 task";
+        }
+
+        int runs;
+    };
+
+    MB18453* hpMB18453 = new MB18453(engine.get(), MY_TASK_ID(VBDeleteTask));
+    ExTask hpTask = hpMB18453;
+    task_executor->schedule(hpTask, NONIO_TASK_IDX);
+
+    MB18453* lpMB18453 = new MB18453(engine.get(), MY_TASK_ID(StatSnap));
+    ExTask lpTask = lpMB18453;
+    task_executor->schedule(lpTask, NONIO_TASK_IDX);
+
+    // Iterate a 'large' number of times
+    for (int ii = 0; ii < 10; ii++) {
+        // if the hpTask keeps getting a wake, it will
+        // dominate, lpTask will never get a look-in.
+        lpNonioQ.wake(hpTask);
+        runNextTask(lpNonioQ);
+        sleep(1);
+    }
+    EXPECT_NE(0, hpMB18453->runs);
+    EXPECT_NE(0, lpMB18453->runs);
+
+}

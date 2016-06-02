@@ -146,7 +146,20 @@ public:
     }
 
     queue_priority_t getQueuePriority() {
-        return static_cast<queue_priority_t>(priority);
+        return static_cast<queue_priority_t>(queuePriority);
+    }
+
+    /*
+     * Refresh the tasks priority by getting the current_time (seconds)
+     * and adding in the priority
+     */
+    void refreshQueuePriority() {
+        // ep_current_time is light-weight to call and doesn't go backwards
+        // The aim is that by taking a time-stamp and adding the priority
+        // to make a new priority will ensure a task can never be overlooked
+        // forever by other tasks that have a higher-priority
+        // See MB-18453 for details of previous task starvation
+        queuePriority = ep_current_time() + static_cast<int>(priority);
     }
 
     /*
@@ -172,6 +185,7 @@ protected:
     const size_t uid;
     TaskId typeId;
     TaskPriority priority;
+    queue_priority_t queuePriority;
     EventuallyPersistentEngine *engine;
     Taskable& taskable;
 

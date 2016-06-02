@@ -40,6 +40,7 @@ GlobalTask::GlobalTask(Taskable& t,
       engine(NULL),
       taskable(t) {
     priority = getTaskPriority(taskId);
+    refreshQueuePriority();
     snooze(sleeptime);
 }
 
