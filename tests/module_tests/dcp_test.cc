@@ -29,6 +29,8 @@
 #include "evp_engine_test.h"
 #include "programs/engine_testapp/mock_server.h"
 #include "../mock/mock_dcp.h"
+#include "../mock/mock_dcp_producer.h"
+#include "../mock/mock_dcp_consumer.h"
 
 #include <gtest/gtest.h>
 
@@ -91,63 +93,6 @@ public:
         // We do not create a ConnManager task
         // The ConnNotifier is deleted in the DcpConnMap
         // destructor
-    }
-};
-
-/*
- * Mock of the DcpProducer class.  Wraps the real DcpProducer, but exposes
- * normally protected methods publically for test purposes.
- */
-class MockDcpProducer: public DcpProducer {
-public:
-    MockDcpProducer(EventuallyPersistentEngine &theEngine, const void *cookie,
-                    const std::string &name, bool isNotifier)
-    : DcpProducer(theEngine, cookie, name, isNotifier)
-    {}
-
-    ENGINE_ERROR_CODE maybeSendNoop(struct dcp_message_producers* producers)
-    {
-        return DcpProducer::maybeSendNoop(producers);
-    }
-
-    void setNoopSendTime(const rel_time_t timeValue) {
-        noopCtx.sendTime = timeValue;
-    }
-
-    rel_time_t getNoopSendTime() {
-        return noopCtx.sendTime;
-    }
-
-    bool getNoopPendingRecv() {
-        return noopCtx.pendingRecv;
-    }
-
-    void setNoopEnabled(const bool booleanValue) {
-        noopCtx.enabled = booleanValue;
-    }
-
-    bool getNoopEnabled() {
-        return noopCtx.enabled;
-    }
-};
-
-/*
- * Mock of the DcpConsumer class.  Wraps the real DcpConsumer class
- * and provides get/set access to lastMessageTime.
- */
-class MockDcpConsumer: public DcpConsumer {
-public:
-    MockDcpConsumer(EventuallyPersistentEngine &theEngine, const void *cookie,
-                    const std::string &name)
-    : DcpConsumer(theEngine, cookie, name)
-    {}
-
-    void setLastMessageTime(const rel_time_t timeValue) {
-        lastMessageTime = timeValue;
-    }
-
-    rel_time_t getLastMessageTime() {
-        return lastMessageTime;
     }
 };
 

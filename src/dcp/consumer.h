@@ -140,8 +140,6 @@ protected:
      */
     rel_time_t lastMessageTime;
 
-private:
-
     // Searches the streams map for a stream for vbucket ID. Returns the found
     // stream, or an empty pointer if none found.
     SingleThreadedRCPtr<PassiveStream> findStream(uint16_t vbid);
