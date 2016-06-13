@@ -168,10 +168,13 @@ struct AllKeysCtx {
 };
 
 couchstore_content_meta_flags CouchRequest::getContentMeta(const Item& it) {
-    couchstore_content_meta_flags rval = (it.getDataType() ==
-                                          PROTOCOL_BINARY_DATATYPE_JSON) ?
-                                          COUCH_DOC_IS_JSON :
-                                          COUCH_DOC_NON_JSON_MODE;
+    couchstore_content_meta_flags rval = 0;
+    if (it.getOperation() == queue_op_event) {
+        rval |= COUCH_DOC_IS_META_EVENT;
+    } else {
+        rval |= (it.getDataType() == PROTOCOL_BINARY_DATATYPE_JSON) ?
+                COUCH_DOC_IS_JSON : COUCH_DOC_NON_JSON_MODE;
+    }
 
     if (it.getNBytes() > 0 &&
         ((it.getDataType() == PROTOCOL_BINARY_RAW_BYTES) ||
@@ -1560,6 +1563,8 @@ couchstore_error_t CouchKVStore::fetchDoc(Db *db, DocInfo *docinfo,
 
 
         it->setConflictResMode(metadata->getConfResMode());
+        it->setOperation(docinfo->content_meta & COUCH_DOC_IS_META_EVENT ?
+                         queue_op_event : queue_op_set);
         it->setRevSeqno(docinfo->rev_seq);
 
         if (docinfo->deleted) {
@@ -1620,6 +1625,8 @@ couchstore_error_t CouchKVStore::fetchDoc(Db *db, DocInfo *docinfo,
                                     docinfo->rev_seq);
 
                 it->setConflictResMode(metadata->getConfResMode());
+                it->setOperation(docinfo->content_meta & COUCH_DOC_IS_META_EVENT ?
+                                 queue_op_event : queue_op_set);
 
                 docValue = GetValue(it);
 
@@ -1725,6 +1732,8 @@ int CouchKVStore::recordDbDump(Db *db, DocInfo *docinfo, void *ctx) {
                         vbucketId,
                         docinfo->rev_seq);
 
+    it->setOperation(docinfo->content_meta & COUCH_DOC_IS_META_EVENT ?
+                     queue_op_event : queue_op_set);
     if (docinfo->deleted) {
         it->setDeleted();
     }

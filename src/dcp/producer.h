@@ -227,9 +227,6 @@ protected:
         Couchbase::RelaxedAtomic<bool> enabled;
     } noopCtx;
 
-private:
-
-
     DcpResponse* getNextItem();
 
     size_t getItemsRemaining();

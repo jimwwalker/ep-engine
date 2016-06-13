@@ -30,8 +30,7 @@ public:
     : DcpProducer(theEngine, cookie, name, isNotifier)
     {}
 
-    ENGINE_ERROR_CODE maybeSendNoop(struct dcp_message_producers* producers)
-    {
+    ENGINE_ERROR_CODE maybeSendNoop(struct dcp_message_producers* producers) {
         return DcpProducer::maybeSendNoop(producers);
     }
 
@@ -53,5 +52,9 @@ public:
 
     bool getNoopEnabled() {
         return noopCtx.enabled;
+    }
+
+    DcpResponse* public_getNextItem() {
+        return getNextItem();
     }
 };
