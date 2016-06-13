@@ -35,6 +35,7 @@
 #include "bgfetcher.h"
 #include "checkpoint_remover.h"
 #include "conflict_resolution.h"
+#include "connmap.h"
 #include "dcp/dcpconnmap.h"
 #include "defragmenter.h"
 #include "ep.h"
@@ -46,11 +47,11 @@
 #include "kvshard.h"
 #include "kvstore.h"
 #include "locks.h"
+#include "metaevent.h"
 #include "mutation_log.h"
-#include "warmup.h"
-#include "connmap.h"
 #include "replicationthrottle.h"
 #include "tapconnmap.h"
+#include "warmup.h"
 
 class StatsValueChangeListener : public ValueChangedListener {
 public:
@@ -3263,9 +3264,10 @@ int EventuallyPersistentStore::flushVBucket(uint16_t vbid) {
             uint64_t maxDeletedRevSeqno = 0;
             std::list<PersistenceCallback*>& pcbs = rwUnderlying->getPersistenceCbList();
             std::vector<queued_item>::iterator it = items.begin();
+
             for(; it != items.end(); ++it) {
-                if ((*it)->getOperation() != queue_op_set &&
-                    (*it)->getOperation() != queue_op_del) {
+
+                if (!(*it)->shouldPersist()) {
                     continue;
                 } else if (!prev || prev->getKey() != (*it)->getKey()) {
                     prev = (*it).get();
@@ -4183,4 +4185,20 @@ std::ostream& operator<<(std::ostream& os,
                          const EventuallyPersistentStore::Position& pos) {
     os << "vbucket:" << pos.vbucket_id;
     return os;
+}
+
+void EventuallyPersistentStore::queueMetaEvent(uint16_t vbid, MetaEvent me) {
+    RCPtr<VBucket> vb = vbMap.getBucket(vbid);
+    if (vb) {
+        // MetaEvent's are persisted, but not stored in the hashtable
+        queued_item qi = MetaEventFactory::createQueuedItem(me, vbid);
+        // Push into the checkpoint
+        if (vb->checkpointManager.queueDirty(vb, qi, true)) {
+            // Ensure the flusher knows some data is pending a write
+            vbMap.getShardByVbId(vbid)->getFlusher()->notifyFlushEvent();
+
+            // Notify DCP (purposely not TAP)
+            engine.getDcpConnMap().notifyVBConnections(vbid, qi->getBySeqno());
+        }
+    }
 }

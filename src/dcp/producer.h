@@ -246,10 +246,10 @@ protected:
     } noopCtx;
 
     Couchbase::RelaxedAtomic<rel_time_t> lastReceiveTime;
-private:
-
 
     DcpResponse* getNextItem();
+
+private:
 
     size_t getItemsRemaining();
     stream_t findStreamByVbid(uint16_t vbid);

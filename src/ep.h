@@ -18,6 +18,7 @@
 #include "config.h"
 
 #include "executorpool.h"
+#include "metaevent.h"
 #include "stored-value.h"
 #include "task_type.h"
 #include "vbucket.h"
@@ -911,6 +912,11 @@ public:
 
     //Check if there were any out-of-memory errors during warmup
     bool isWarmupOOMFailure(void);
+
+    /*
+     * Write a MetaEvent to the vbucket
+     */
+    void queueMetaEvent(uint16_t vbid, MetaEvent me);
 
 protected:
     // During the warmup phase we might want to enable external traffic

@@ -27,6 +27,7 @@
 #include "dcp/producer.h"
 #include "dcp/stream.h"
 #include "evp_engine_test.h"
+#include "metaevent.h"
 #include "programs/engine_testapp/mock_server.h"
 #include "../mock/mock_dcp.h"
 #include "../mock/mock_dcp_producer.h"
@@ -303,6 +304,53 @@ TEST_F(StreamTest, test_mb18625) {
     EXPECT_EQ(DCP_STREAM_END, op->getEvent())
         << "Expected the STREAM_END message";
     delete op;
+
+    // Expect no other message to be queued after stream end message
+    EXPECT_EQ(0, (mock_stream->public_readyQ()).size())
+        << "Expected no more messages in the readyQ";
+}
+
+/*
+ * Test how a DCP stream behaves with meta-events
+ * Currently they're dropped when processing the stream
+ * This test will evolve to eventually cover events in DCP
+ */
+TEST_F(StreamTest, streamMetaEvent) {
+    engine->getEpStore()->queueMetaEvent(0, MetaEvent::CreateCollection);
+    store_item(0, "key", "value");
+    store_item(0, "key1", "value");
+    setup_dcp_stream();
+
+    // Should start with nextCheckpointItem() returning true.
+    MockActiveStream* mock_stream = static_cast<MockActiveStream*>(stream.get());
+    EXPECT_TRUE(mock_stream->public_nextCheckpointItem())
+        << "nextCheckpointItem() should initially be true.";
+
+    std::vector<queued_item> items;
+
+    // Get the set of outstanding items
+    mock_stream->public_getOutstandingItems(vb0, items);
+
+    // Check the items, expect the meta event to be one of the items
+    EXPECT_EQ(4, items.size());
+    EXPECT_EQ(queue_op_checkpoint_start, items[0]->getOperation());
+    EXPECT_EQ(queue_op_event, items[1]->getOperation());
+    EXPECT_EQ(queue_op_set, items[2]->getOperation());
+    EXPECT_EQ(queue_op_set, items[3]->getOperation());
+    mock_stream->public_processItems(items);
+
+    // Retrieve the messages, meta-event is dropped from DCP output
+    std::unique_ptr<DcpResponse> op(mock_stream->public_nextQueuedItem());
+    EXPECT_EQ(DCP_SNAPSHOT_MARKER, op->getEvent())
+        << "Expected the DCP_SNAPSHOT_MARKER message";
+    op.reset(mock_stream->public_nextQueuedItem());
+    EXPECT_EQ(DCP_MUTATION, op->getEvent())
+        << "Expected the DCP_MUTATION message";
+    op.reset(mock_stream->public_nextQueuedItem());
+    EXPECT_EQ(DCP_MUTATION, op->getEvent())
+        << "Expected the DCP_MUTATION message";
+    op.reset(mock_stream->public_nextQueuedItem());
+    EXPECT_EQ(nullptr, op.get());
 
     // Expect no other message to be queued after stream end message
     EXPECT_EQ(0, (mock_stream->public_readyQ()).size())

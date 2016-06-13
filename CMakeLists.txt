@@ -158,6 +158,7 @@ ADD_LIBRARY(ep SHARED
             src/logger.cc
             src/kvshard.cc
             src/memory_tracker.cc
+            src/metaevent.cc
             src/murmurhash3.cc
             src/mutation_log.cc
             src/replicationthrottle.cc
@@ -192,6 +193,7 @@ ADD_EXECUTABLE(ep-engine_ep_unit_tests
   tests/module_tests/evp_store_test.cc
   tests/module_tests/evp_store_single_threaded_test.cc
   tests/module_tests/futurequeue_test.cc
+  tests/module_tests/metaevent_test.cc
   src/access_scanner.cc
   src/atomic.cc
   src/backfill.cc
@@ -229,6 +231,7 @@ ADD_EXECUTABLE(ep-engine_ep_unit_tests
   src/kvshard.cc
   src/logger.cc
   src/memory_tracker.cc
+  src/metaevent.cc
   src/murmurhash3.cc
   src/mutation_log.cc
   src/objectregistry.cc

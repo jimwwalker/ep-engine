@@ -61,4 +61,8 @@ public:
     bool getNoopEnabled() {
         return noopCtx.enabled;
     }
+
+    DcpResponse* public_getNextItem() {
+        return getNextItem();
+    }
 };
