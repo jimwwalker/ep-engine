@@ -28,6 +28,7 @@
 
 #include "configuration.h"
 #include "couch-kvstore/couch-fs-stats.h"
+#include "couch-kvstore/couch-kvstore-metadata.h"
 #include <platform/histogram.h>
 #include <platform/strerror.h>
 #include "logger.h"
@@ -200,9 +201,13 @@ public:
         return dbDocInfo.rev_meta.size + dbDocInfo.size;
     }
 
-private :
+private:
+
+    static couchstore_content_meta_flags getContentMeta(const Item& it);
+
     value_t value;
-    uint8_t meta[COUCHSTORE_METADATA_SIZE];
+
+    std::unique_ptr<MetaData> meta;
     uint64_t fileRevNum;
     Doc dbDoc;
     DocInfo dbDocInfo;
