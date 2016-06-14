@@ -74,6 +74,10 @@ public:
     MockEPStore(EventuallyPersistentEngine &theEngine);
 
     VBucketMap& getVbMap();
+
+    void public_stopWarmup() {
+        stopWarmup();
+    }
 };
 
 /* Actual test fixture class */
