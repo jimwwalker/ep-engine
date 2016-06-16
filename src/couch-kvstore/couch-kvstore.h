@@ -160,7 +160,7 @@ public:
     CouchRequest(const Item &it, uint64_t rev, MutationRequestCallback &cb,
                  bool del);
 
-    ~CouchRequest() {
+    virtual ~CouchRequest() {
         // Metadata was moved to dbDocInfo, so delete it
         delete [] dbDocInfo.rev_meta.buf;
     }
