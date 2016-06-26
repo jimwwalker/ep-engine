@@ -28,21 +28,27 @@
 static const double VBSTATE_SNAPSHOT_FREQ(300.0);
 static const double WORKLOAD_MONITOR_FREQ(5.0);
 
-GlobalTask::GlobalTask(Taskable& t, const Priority &p,
-           double sleeptime, bool completeBeforeShutdown) :
-      RCValue(), priority(p),
+GlobalTask::GlobalTask(Taskable& t,
+                       TaskId taskId,
+                       double sleeptime,
+                       bool completeBeforeShutdown)
+    : RCValue(),
       blockShutdown(completeBeforeShutdown),
-      state(TASK_RUNNING), taskId(nextTaskId()), engine(NULL), taskable(t) {
+      state(TASK_RUNNING),
+      uid(nextTaskId()),
+      typeId(taskId),
+      engine(NULL),
+      taskable(t) {
+    priority = getTaskPriority(taskId);
     snooze(sleeptime);
 }
 
-GlobalTask::GlobalTask(EventuallyPersistentEngine *e, const Priority &p,
-           double sleeptime, bool completeBeforeShutdown) :
-      RCValue(), priority(p),
-      blockShutdown(completeBeforeShutdown),
-      state(TASK_RUNNING), taskId(nextTaskId()), engine(e),
-      taskable(e->getTaskable()) {
-    snooze(sleeptime);
+GlobalTask::GlobalTask(EventuallyPersistentEngine *e,
+                       TaskId taskId,
+                       double sleeptime,
+                       bool completeBeforeShutdown)
+    : GlobalTask(e->getTaskable(), taskId, sleeptime, completeBeforeShutdown) {
+    engine = e;
 }
 
 void GlobalTask::snooze(const double secs) {
@@ -61,6 +67,36 @@ void GlobalTask::snooze(const double secs) {
     }
 }
 
+/*
+ * Generate a switch statement from tasks.def.h that maps TaskId to a
+ * stringified value of the task's name.
+ */
+const char* GlobalTask::getTaskName(TaskId id) {
+    switch(id) {
+#define TASK(name, prio) case MY_TASK_ID(name): {return #name;}
+#include "tasks.def.h"
+#undef TASK
+    }
+}
+
+/*
+ * Generate a switch statement from tasks.def.h that maps TaskId to priority
+ */
+TaskPriority GlobalTask::getTaskPriority(TaskId id) {
+   switch(id) {
+#define TASK(name, prio) case MY_TASK_ID(name): {return TaskPriority::name##_PRIORITY;}
+#include "tasks.def.h"
+#undef TASK
+    }
+}
+
+std::vector<TaskId> GlobalTask::allTaskIds = {
+#define TASK(name, prio) MY_TASK_ID(name),
+#include "tasks.def.h"
+#undef TASK
+};
+
+
 bool FlusherTask::run() {
     return flusher->step(this);
 }
@@ -71,21 +107,20 @@ bool VBSnapshotTask::run() {
 }
 
 DaemonVBSnapshotTask::DaemonVBSnapshotTask(EventuallyPersistentEngine *e,
-                                           bool completeBeforeShutdown) :
-    GlobalTask(e, Priority::VBucketPersistLowPriority, VBSTATE_SNAPSHOT_FREQ,
-               completeBeforeShutdown) {
-        desc = "Snapshotting vbucket states";
+                                           bool completeBeforeShutdown)
+    : GlobalTask(e, MY_TASK_ID(DaemonVBSnapshotTask),
+                 VBSTATE_SNAPSHOT_FREQ, completeBeforeShutdown) {
+    desc = "Snapshotting vbucket states";
 }
 
 bool DaemonVBSnapshotTask::run() {
-    bool ret = engine->getEpStore()->scheduleVBSnapshot(
-               Priority::VBucketPersistLowPriority);
+    bool ret = engine->getEpStore()->scheduleVBSnapshot(VBSnapshotTask::Priority::LOW);
     snooze(VBSTATE_SNAPSHOT_FREQ);
     return ret;
 }
 
 bool VBStatePersistTask::run() {
-    return engine->getEpStore()->persistVBState(priority, vbid);
+    return engine->getEpStore()->persistVBState(vbid);
 }
 
 bool VBDeleteTask::run() {
@@ -101,7 +136,7 @@ bool StatSnap::run() {
     if (runOnce) {
         return false;
     }
-    ExecutorPool::get()->snooze(taskId, 60);
+    ExecutorPool::get()->snooze(uid, 60);
     return true;
 }
 
@@ -128,7 +163,7 @@ bool BGFetchTask::run() {
 
 WorkLoadMonitor::WorkLoadMonitor(EventuallyPersistentEngine *e,
                                  bool completeBeforeShutdown) :
-    GlobalTask(e, Priority::WorkLoadMonitorPriority, WORKLOAD_MONITOR_FREQ,
+    GlobalTask(e, MY_TASK_ID(WorkLoadMonitor), WORKLOAD_MONITOR_FREQ,
                completeBeforeShutdown) {
     prevNumMutations = getNumMutations();
     prevNumGets = getNumGets();

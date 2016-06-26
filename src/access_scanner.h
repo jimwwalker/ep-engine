@@ -31,8 +31,9 @@ class AccessScannerValueChangeListener;
 class AccessScanner : public GlobalTask {
     friend class AccessScannerValueChangeListener;
 public:
-    AccessScanner(EventuallyPersistentStore &_store, EPStats &st,
-                  const Priority &p, double sleeptime = 0,
+    AccessScanner(EventuallyPersistentStore &_store,
+                  EPStats &st,
+                  double sleeptime = 0,
                   bool useStartTime = false,
                   bool completeBeforeShutdown = false);
 

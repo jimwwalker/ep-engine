@@ -78,9 +78,9 @@ public:
 
     WorkLoadPolicy& getWorkLoadPolicy(void);
 
-    void logQTime(type_id_t taskType, hrtime_t enqTime);
+    void logQTime(TaskId taskType, hrtime_t enqTime);
 
-    void logRunTime(type_id_t taskType, hrtime_t runTime);
+    void logRunTime(TaskId taskType, hrtime_t runTime);
 
 private:
     EventuallyPersistentEngine* myEngine;

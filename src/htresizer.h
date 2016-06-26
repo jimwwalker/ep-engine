@@ -35,7 +35,7 @@ class HashtableResizerTask : public GlobalTask {
 public:
 
     HashtableResizerTask(EventuallyPersistentStore *s, double sleepTime) :
-    GlobalTask(&s->getEPEngine(), Priority::HTResizePriority, sleepTime, false),
+    GlobalTask(&s->getEPEngine(), MY_TASK_ID(HashtableResizerTask), sleepTime, false),
     store(s) {}
 
     bool run(void);

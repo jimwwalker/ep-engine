@@ -22,8 +22,23 @@
 
 #include <string>
 #include "atomic.h"
-#include "priority.h"
 #include "kvstore.h"
+
+#define MY_TASK_ID(task) TaskId::task##_ID
+
+enum class TaskId : int {
+#define TASK(name, prio) name##_ID,
+#include "tasks.def.h"
+#undef TASK
+};
+
+typedef int queue_priority_t;
+
+enum class TaskPriority : int {
+#define TASK(name, prio) name##_PRIORITY = prio,
+#include "tasks.def.h"
+#undef TASK
+};
 
 enum task_state_t {
     TASK_RUNNING,
@@ -47,15 +62,18 @@ friend class ExecutorThread;
 friend class TaskQueue;
 public:
 
-    GlobalTask(Taskable& t, const Priority &p,
-               double sleeptime = 0, bool completeBeforeShutdown = true);
+    GlobalTask(Taskable& t,
+               TaskId taskId,
+               double sleeptime = 0,
+               bool completeBeforeShutdown = true);
 
-    GlobalTask(EventuallyPersistentEngine *e, const Priority &p,
-               double sleeptime = 0, bool completeBeforeShutdown = true);
+    GlobalTask(EventuallyPersistentEngine *e,
+               TaskId taskId,
+               double sleeptime = 0,
+               bool completeBeforeShutdown = true);
 
     /* destructor */
-    virtual ~GlobalTask(void) {
-    }
+    virtual ~GlobalTask(void) {}
 
     /**
      * The invoked function when the task is executed.
@@ -78,10 +96,9 @@ public:
     /**
      * test if a task is dead
      */
-     bool isdead(void) {
+    bool isdead(void) {
         return (state == TASK_DEAD);
-     }
-
+    }
 
     /**
      * Cancels this task by marking it dead.
@@ -100,14 +117,14 @@ public:
      *
      * @return A unique task id number.
      */
-    size_t getId() const { return taskId; }
+    size_t getId() const { return uid; }
 
     /**
      * Returns the type id of this task.
      *
      * @return A type id of the task.
      */
-    type_id_t getTypeId() { return priority.getTypeId(); }
+    TaskId getTypeId() { return typeId; }
 
     /**
      * Gets the engine that this task was scheduled from
@@ -128,11 +145,33 @@ public:
         return taskable;
     }
 
+    queue_priority_t getQueuePriority() {
+        return static_cast<queue_priority_t>(priority);
+    }
+
+    /*
+     * Lookup the task name for TaskId id.
+     * The data used is generated from tasks.def.h
+     */
+    static const char* getTaskName(TaskId id);
+
+    /*
+     * Lookup the task priority for TaskId id.
+     * The data used is generated from tasks.def.h
+     */
+    static TaskPriority getTaskPriority(TaskId id);
+
+    /*
+     * A vector of all TaskId generated from tasks.def.h
+     */
+    static std::vector<TaskId> allTaskIds;
+
 protected:
-    const Priority &priority;
     bool blockShutdown;
     AtomicValue<task_state_t> state;
-    const size_t taskId;
+    const size_t uid;
+    TaskId typeId;
+    TaskPriority priority;
     EventuallyPersistentEngine *engine;
     Taskable& taskable;
 
@@ -162,9 +201,10 @@ typedef SingleThreadedRCPtr<GlobalTask> ExTask;
  */
 class FlusherTask : public GlobalTask {
 public:
-    FlusherTask(EventuallyPersistentEngine *e, Flusher* f, const Priority &p,
-                uint16_t shardid, bool completeBeforeShutdown = true) :
-                GlobalTask(e, p, 0, completeBeforeShutdown), flusher(f) {
+    FlusherTask(EventuallyPersistentEngine *e, Flusher* f, uint16_t shardid,
+                bool completeBeforeShutdown = true)
+        : GlobalTask(e, MY_TASK_ID(FlusherTask), 0, completeBeforeShutdown),
+          flusher(f) {
         std::stringstream ss;
         ss<<"Running a flusher loop: shard "<<shardid;
         desc = ss.str();
@@ -189,23 +229,49 @@ private:
  */
 class VBSnapshotTask : public GlobalTask {
 public:
-    VBSnapshotTask(EventuallyPersistentEngine *e, const Priority &p,
-                uint16_t sID = 0, bool completeBeforeShutdown = true) :
-                GlobalTask(e, p, 0, completeBeforeShutdown), shardID(sID) {
-        std::stringstream ss;
-        ss<<"Snapshotting vbucket states for the shard: "<<shardID;
-        desc = ss.str();
-    }
+    enum class Priority {
+        HIGH,
+        LOW
+    };
 
     bool run();
 
     std::string getDescription() {
-        return desc;
+        return "Snapshotting vbucket states for the shard: " + std::to_string(shardID);
+    }
+
+protected:
+    VBSnapshotTask(EventuallyPersistentEngine *e,
+                   TaskId id,
+                   uint16_t sID = 0,
+                   bool completeBeforeShutdown = true)
+        : GlobalTask(e, id, 0, completeBeforeShutdown),
+          shardID(sID),
+          priority(Priority::LOW) {
+        if (id == MY_TASK_ID(VBSnapshotTaskHigh)) {
+            priority = Priority::HIGH;
+        }
     }
 
 private:
     uint16_t shardID;
-    std::string desc;
+    Priority priority;
+};
+
+class VBSnapshotTaskHigh : public VBSnapshotTask {
+public:
+    VBSnapshotTaskHigh(EventuallyPersistentEngine *e,
+                       uint16_t sID = 0,
+                       bool completeBeforeShutdown = true)
+        : VBSnapshotTask(e, MY_TASK_ID(VBSnapshotTaskHigh), 0, completeBeforeShutdown){}
+};
+
+class VBSnapshotTaskLow : public VBSnapshotTask {
+public:
+    VBSnapshotTaskLow(EventuallyPersistentEngine *e,
+                      uint16_t sID = 0,
+                      bool completeBeforeShutdown = true)
+        : VBSnapshotTask(e, MY_TASK_ID(VBSnapshotTaskLow), 0, completeBeforeShutdown){}
 };
 
 /**
@@ -232,23 +298,46 @@ private:
  */
 class VBStatePersistTask : public GlobalTask {
 public:
-    VBStatePersistTask(EventuallyPersistentEngine *e, const Priority &p,
-                       uint16_t vbucket, bool completeBeforeShutdown = true) :
-        GlobalTask(e, p, 0, completeBeforeShutdown), vbid(vbucket) {
-        std::stringstream ss;
-        ss<<"Persisting a vbucket state for vbucket: "<< vbid;
-        desc = ss.str();
-    }
+    enum class Priority {
+        HIGH,
+        LOW
+    };
 
     bool run();
 
     std::string getDescription() {
-        return desc;
+        return "Persisting a vbucket state for vbucket: " + std::to_string(vbid);
+    }
+
+protected:
+    VBStatePersistTask(EventuallyPersistentEngine *e,
+                       TaskId taskId,
+                       uint16_t vbucket,
+                       bool completeBeforeShutdown = true)
+        : GlobalTask(e, taskId, 0, completeBeforeShutdown),
+          vbid(vbucket) {
     }
 
 private:
     uint16_t vbid;
-    std::string desc;
+};
+
+class VBStatePersistTaskHigh : public VBStatePersistTask {
+public:
+    VBStatePersistTaskHigh(EventuallyPersistentEngine *e,
+                           uint16_t vbucket,
+                           bool completeBeforeShutdown = true)
+        : VBStatePersistTask(e, MY_TASK_ID(VBStatePersistTaskHigh),
+                             0, completeBeforeShutdown) {}
+};
+
+class VBStatePersistTaskLow : public VBStatePersistTask {
+public:
+    VBStatePersistTaskLow(EventuallyPersistentEngine *e,
+                          uint16_t vbucket,
+                          bool completeBeforeShutdown = true)
+        : VBStatePersistTask(e, MY_TASK_ID(VBStatePersistTaskLow),
+                             0, completeBeforeShutdown) {}
 };
 
 /**
@@ -260,9 +349,9 @@ private:
 class VBDeleteTask : public GlobalTask {
 public:
     VBDeleteTask(EventuallyPersistentEngine *e, uint16_t vbid, const void* c,
-                 const Priority &p, bool completeBeforeShutdown = true) :
-        GlobalTask(e, p, 0, completeBeforeShutdown),
-        vbucketId(vbid), cookie(c) { }
+                 bool completeBeforeShutdown = true)
+        : GlobalTask(e, MY_TASK_ID(VBDeleteTask), 0, completeBeforeShutdown),
+          vbucketId(vbid), cookie(c) {}
 
     bool run();
 
@@ -282,11 +371,11 @@ private:
  */
 class CompactTask : public GlobalTask {
 public:
-    CompactTask(EventuallyPersistentEngine *e, const Priority &p,
-                compaction_ctx c, const void *ck,
-                bool completeBeforeShutdown = false) :
-                GlobalTask(e, p, 0, completeBeforeShutdown),
-                           compactCtx(c), cookie(ck) {
+    CompactTask(EventuallyPersistentEngine *e, compaction_ctx c, const void *ck,
+                bool completeBeforeShutdown = false)
+        : GlobalTask(e, MY_TASK_ID(CompactTask), 0, completeBeforeShutdown),
+          compactCtx(c),
+          cookie(ck) {
         desc = "Compact DB file " + std::to_string(c.db_file_id);
     }
 
@@ -308,11 +397,10 @@ private:
  */
 class StatSnap : public GlobalTask {
 public:
-    StatSnap(EventuallyPersistentEngine *e, const Priority &p,
-             bool runOneTimeOnly = false, bool sleeptime = 0,
-             bool completeBeforeShutdown = false) :
-        GlobalTask(e, p, sleeptime, completeBeforeShutdown),
-        runOnce(runOneTimeOnly) { }
+    StatSnap(EventuallyPersistentEngine *e, bool runOneTimeOnly = false,
+             bool sleeptime = 0, bool completeBeforeShutdown = false)
+        : GlobalTask(e, MY_TASK_ID(StatSnap), sleeptime, completeBeforeShutdown),
+          runOnce(runOneTimeOnly) {}
 
     bool run();
 
@@ -330,11 +418,10 @@ private:
  */
 class BgFetcherTask : public GlobalTask {
 public:
-    BgFetcherTask(EventuallyPersistentEngine *e, BgFetcher *b,
-                  const Priority &p, bool sleeptime = 0,
-                  bool completeBeforeShutdown = false) :
-        GlobalTask(e, p, sleeptime, completeBeforeShutdown),
-        bgfetcher(b) { }
+    BgFetcherTask(EventuallyPersistentEngine *e, BgFetcher *b, bool sleeptime = 0,
+                  bool completeBeforeShutdown = false)
+        : GlobalTask(e, MY_TASK_ID(BgFetcherTask), sleeptime, completeBeforeShutdown),
+          bgfetcher(b) {}
 
     bool run();
 
@@ -351,8 +438,8 @@ private:
  */
 class FlushAllTask : public GlobalTask {
 public:
-    FlushAllTask(EventuallyPersistentEngine *e, double when) :
-        GlobalTask(e, Priority::FlushAllPriority, when, false) { }
+    FlushAllTask(EventuallyPersistentEngine *e, double when)
+        : GlobalTask(e, MY_TASK_ID(FlushAllTask), when, false) {}
 
     bool run();
 
@@ -369,11 +456,13 @@ public:
 class VKeyStatBGFetchTask : public GlobalTask {
 public:
     VKeyStatBGFetchTask(EventuallyPersistentEngine *e, const std::string &k,
-                        uint16_t vbid, uint64_t s, const void *c,
-                        const Priority &p, int sleeptime = 0,
-                        bool completeBeforeShutdown = false) :
-        GlobalTask(e, p, sleeptime, completeBeforeShutdown), key(k),
-                   vbucket(vbid), bySeqNum(s), cookie(c) { }
+                        uint16_t vbid, uint64_t s, const void *c, int sleeptime = 0,
+                        bool completeBeforeShutdown = false)
+        : GlobalTask(e, MY_TASK_ID(VKeyStatBGFetchTask), sleeptime, completeBeforeShutdown),
+          key(k),
+          vbucket(vbid),
+          bySeqNum(s),
+          cookie(c) {}
 
     bool run();
 
@@ -397,12 +486,14 @@ private:
 class BGFetchTask : public GlobalTask {
 public:
     BGFetchTask(EventuallyPersistentEngine *e, const std::string &k,
-            uint16_t vbid, const void *c, bool isMeta,
-            const Priority &p, int sleeptime = 0,
-            bool completeBeforeShutdown = false) :
-        GlobalTask(e, p, sleeptime, completeBeforeShutdown),
-        key(k), vbucket(vbid), cookie(c), metaFetch(isMeta),
-        init(gethrtime()) { }
+            uint16_t vbid, const void *c, bool isMeta, int sleeptime = 0,
+            bool completeBeforeShutdown = false)
+        : GlobalTask(e, MY_TASK_ID(BGFetchTask), sleeptime, completeBeforeShutdown),
+          key(k),
+          vbucket(vbid),
+          cookie(c),
+          metaFetch(isMeta),
+          init(gethrtime()) {}
 
     bool run();
 
@@ -446,18 +537,20 @@ private:
 
 /**
  * Order tasks by their priority and taskId (try to ensure FIFO)
+ * Return true if t2 should have priority over t1
  */
 class CompareByPriority {
 public:
     bool operator()(ExTask &t1, ExTask &t2) {
-        return (t1->priority == t2->priority) ?
-               (t1->taskId   > t2->taskId)    :
-               (t1->priority < t2->priority);
+        return (t1->getQueuePriority() == t2->getQueuePriority()) ?
+               (t1->uid > t2->uid) :
+               (t1->getQueuePriority() > t2->getQueuePriority());
     }
 };
 
 /**
  * Order tasks by their ready date.
+ * Return true if t2 should have priority over t1
  */
 class CompareByDueDate {
 public:

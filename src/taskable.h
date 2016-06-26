@@ -22,7 +22,6 @@
 #pragma once
 
 #include "workload.h"
-#include "priority.h"
 
 /*
     A type for identifying all tasks belonging to a task owner.
@@ -64,12 +63,12 @@ public:
     /*
         Called with the time spent queued
     */
-    virtual void logQTime(type_id_t taskType, hrtime_t enqTime) = 0;
+    virtual void logQTime(TaskId taskType, hrtime_t enqTime) = 0;
 
     /*
         Called with the time spent running
     */
-    virtual void logRunTime(type_id_t taskType, hrtime_t runTime) = 0;
+    virtual void logRunTime(TaskId taskType, hrtime_t runTime) = 0;
 
 protected:
     virtual ~Taskable() {}

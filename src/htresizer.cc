@@ -41,7 +41,7 @@ public:
 bool HashtableResizerTask::run(void) {
     std::shared_ptr<ResizingVisitor> pv(new ResizingVisitor);
     store->visit(pv, "Hashtable resizer", NONIO_TASK_IDX,
-            Priority::ItemPagerPriority);
+            MY_TASK_ID(HashtableResizerVisitorTask));
 
     snooze(FREQUENCY);
     return true;
