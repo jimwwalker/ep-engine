@@ -28,6 +28,7 @@
 
 #include "configuration.h"
 #include "couch-kvstore/couch-fs-stats.h"
+#include "couch-kvstore/couch-kvstore-metadata.h"
 #include <platform/histogram.h>
 #include <platform/strerror.h>
 #include "logger.h"
@@ -159,6 +160,11 @@ public:
     CouchRequest(const Item &it, uint64_t rev, MutationRequestCallback &cb,
                  bool del);
 
+    ~CouchRequest() {
+        // Metadata was moved to dbDocInfo, so delete it
+        delete [] dbDocInfo.rev_meta.buf;
+    }
+
     /**
      * Get the revision number of the vbucket database file
      * where the document is persisted
@@ -200,9 +206,11 @@ public:
         return dbDocInfo.rev_meta.size + dbDocInfo.size;
     }
 
-private :
+protected:
+    static couchstore_content_meta_flags getContentMeta(const Item& it);
+
     value_t value;
-    uint8_t meta[COUCHSTORE_METADATA_SIZE];
+    std::unique_ptr<MetaData> meta;
     uint64_t fileRevNum;
     Doc dbDoc;
     DocInfo dbDocInfo;
@@ -511,7 +519,6 @@ protected:
      */
     DbInfo getDbInfo(uint16_t vbid);
 
-private:
     bool setVBucketState(uint16_t vbucketId, vbucket_state &vbstate,
                          VBStatePersist options, bool reset=false);
 
