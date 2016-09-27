@@ -926,7 +926,8 @@ protected:
                     StoredValue* v,
                     LockHolder *plh,
                     uint64_t *seqno,
-                    const GenerateBySeqno generateBySeqno = GenerateBySeqno::Yes);
+                    const GenerateBySeqno generateBySeqno = GenerateBySeqno::Yes,
+                    const GenerateCas generateCas = GenerateCas::Yes);
 
     /* Queue an item for persistence following a TAP command
      *
