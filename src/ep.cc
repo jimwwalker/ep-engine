@@ -1327,7 +1327,8 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setVBucketState(uint16_t vbid,
         std::shared_ptr<Callback<uint16_t> > cb(new NotifyFlusherCB(shard));
         RCPtr<VBucket> newvb(new VBucket(vbid, to, stats,
                                          engine.getCheckpointConfig(),
-                                         shard, 0, 0, 0, ft, cb));
+                                         shard, 0, 0, 0, ft, cb,
+                                         engine.getConfiguration()));
         Configuration& config = engine.getConfiguration();
         if (config.isBfilterEnabled()) {
             // Initialize bloom filters upon vbucket creation during
@@ -2357,7 +2358,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::setWithMeta(
         break;
     case WAS_DIRTY:
     case WAS_CLEAN:
-        vb->setMaxCas(v->getCas());
+        vb->setMaxCasAndTrackDrift(v->getCas());
         queueDirty(vb, v, &lh, seqno,
                    genBySeqno ? GenerateBySeqno::Yes : GenerateBySeqno::No,
                    GenerateCas::No);
@@ -3028,7 +3029,7 @@ ENGINE_ERROR_CODE EventuallyPersistentStore::deleteWithMeta(
             v->setBySeqno(bySeqno);
         }
 
-        vb->setMaxCas(v->getCas());
+        vb->setMaxCasAndTrackDrift(v->getCas());
 
         if (tapBackfill) {
             tapQueueDirty(vb, v, lh, seqno,

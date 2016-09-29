@@ -107,7 +107,8 @@ public:
         queueFill(0), queueDrain(0),
         pendingWrites(0), chkPersistRemaining(0),
         fileSpaceUsed(0), fileSize(0),
-        rollbackItemCount(0)
+        rollbackItemCount(0), maxAbsHLCDrift(0, 0),
+        totalHLCDriftExceptionCounters(0, 0)
     { }
 
     bool visitBucket(RCPtr<VBucket> &vb);
@@ -163,6 +164,9 @@ public:
 
     uint64_t getRollbackItemCount() { return rollbackItemCount; }
 
+    std::pair<uint64_t, uint64_t> getMaxAbsHLCDrift() {return maxAbsHLCDrift;}
+    std::pair<uint32_t, uint32_t> getTotalHLCDriftExceptionCounters() {return totalHLCDriftExceptionCounters;}
+
 private:
     EventuallyPersistentEngine &engine;
     vbucket_state_t desired_state;
@@ -196,6 +200,8 @@ private:
     size_t fileSize;
 
     uint64_t rollbackItemCount;
+    std::pair<uint64_t, uint64_t> maxAbsHLCDrift;
+    std::pair<uint32_t, uint32_t> totalHLCDriftExceptionCounters;
 };
 
 /**

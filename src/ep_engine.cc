@@ -3082,6 +3082,22 @@ bool VBucketCountVisitor::visitBucket(RCPtr<VBucket> &vb) {
         pendingWrites += vb->dirtyQueuePendingWrites;
 
         rollbackItemCount += vb->getRollbackItemCount();
+
+        /*
+         * The bucket stat only reports the largest drift of the vbuckets.
+         */
+        auto driftStats = vb->getHLCDriftStats();
+        // If this vbucket's max is bigger than ours
+        if (driftStats.first > maxAbsHLCDrift.first) {
+            maxAbsHLCDrift = driftStats;
+        }
+
+        /*
+         * Total up the exceptions
+         */
+        auto driftExceptionCounters = vb->getHLCDriftExceptionCounters();
+        totalHLCDriftExceptionCounters.first += driftExceptionCounters.first;
+        totalHLCDriftExceptionCounters.second += driftExceptionCounters.second;
     }
 
     return false;
@@ -3663,6 +3679,29 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doEngineStats(const void *cookie,
     if (epstore->getKVStoreStat("io_compaction_write_bytes", value)) {
         add_casted_stat("ep_io_compaction_write_bytes",  value, add_stat, cookie);
     }
+
+    // Add stats for tracking HLC drift
+    add_casted_stat("ep_active_hlc_drift",
+        activeCountVisitor.getMaxAbsHLCDrift().first, add_stat, cookie);
+    add_casted_stat("ep_active_hlc_drift_count",
+        activeCountVisitor.getMaxAbsHLCDrift().second, add_stat, cookie);
+    add_casted_stat("ep_replica_hlc_drift",
+        replicaCountVisitor.getMaxAbsHLCDrift().first, add_stat, cookie);
+    add_casted_stat("ep_replica_hlc_drift_count",
+        replicaCountVisitor.getMaxAbsHLCDrift().second, add_stat, cookie);
+
+    add_casted_stat("ep_active_ahead_exceptions",
+        activeCountVisitor.getTotalHLCDriftExceptionCounters().first,
+        add_stat, cookie);
+    add_casted_stat("ep_active_behind_exceptions",
+        activeCountVisitor.getTotalHLCDriftExceptionCounters().second,
+        add_stat, cookie);
+    add_casted_stat("ep_replica_ahead_exceptions",
+        replicaCountVisitor.getTotalHLCDriftExceptionCounters().first,
+        add_stat, cookie);
+    add_casted_stat("ep_replica_behind_exceptions",
+        replicaCountVisitor.getTotalHLCDriftExceptionCounters().second,
+        add_stat, cookie);
 
     return ENGINE_SUCCESS;
 }
