@@ -248,6 +248,10 @@ public:
         hlc.setMaxHLCAndTrackDrift(cas);
     }
 
+    void forceMaxCas(uint64_t cas) {
+        hlc.forceMaxHLC(cas);
+    }
+
     std::pair<uint64_t, uint64_t> getHLCDriftStats() const {
         return hlc.getDriftStats();
     }

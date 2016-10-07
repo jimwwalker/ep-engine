@@ -610,6 +610,7 @@ extern "C" {
 
     static protocol_binary_response_status setVbucketParam(
                                                     EventuallyPersistentEngine *e,
+                                                    uint16_t vbucket,
                                                     const char *keyz,
                                                     const char *valz,
                                                     std::string& msg) {
@@ -625,6 +626,16 @@ extern "C" {
                 checkNumeric(valz);
                 validate(v, uint64_t(0), std::numeric_limits<uint64_t>::max());
                 e->getConfiguration().setHlcBehindThresholdUs(v);
+            } else if (strcmp(keyz, "max_cas") == 0) {
+                uint64_t v = std::strtoull(valz, nullptr, 10);
+                checkNumeric(valz);
+                validate(v, uint64_t(0), std::numeric_limits<uint64_t>::max());
+                LOG(EXTENSION_LOG_WARNING, "setVbucketParam max_cas=%PRIu64 "
+                                           "vbucket=%PRIu16\n", v, vbucket);
+                if (e->getEpStore()->forceMaxCas(vbucket, v) != ENGINE_SUCCESS) {
+                    rv = PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET;
+                    msg = "Not my vbucket";
+                }
             } else {
                 msg = "Unknown config param";
                 rv = PROTOCOL_BINARY_RESPONSE_KEY_ENOENT;
@@ -820,6 +831,7 @@ extern "C" {
         size_t keylen = ntohs(req->message.header.request.keylen);
         uint8_t extlen = req->message.header.request.extlen;
         size_t vallen = ntohl(req->message.header.request.bodylen);
+        uint16_t vbucket = ntohs(req->message.header.request.vbucket);
         protocol_binary_engine_param_t paramtype =
             static_cast<protocol_binary_engine_param_t>(ntohl(req->message.body.param_type));
 
@@ -867,7 +879,7 @@ extern "C" {
             rv = setDcpParam(e, keyz, valz, msg);
             break;
         case protocol_binary_engine_param_vbucket:
-            rv = setVbucketParam(e, keyz, valz, msg);
+            rv = setVbucketParam(e, vbucket, keyz, valz, msg);
             break;
         default:
             rv = PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND;
