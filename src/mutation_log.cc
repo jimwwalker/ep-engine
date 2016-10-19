@@ -982,7 +982,8 @@ void MutationLogHarvester::apply(void *arg, mlCallbackWithQueue mlc) {
         // Remove any items which are no longer valid in the VBucket.
         for (auto it = committed[vb].begin(); it != committed[vb].end(); ) {
             if ((vbucket->ht.find(*it, false) == nullptr)) {
-                it = committed[vb].erase(it);
+                //it = committed[vb].erase(it);
+                ++it;
             }
             else {
                 ++it;

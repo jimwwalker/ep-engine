@@ -2813,6 +2813,7 @@ static enum test_result test_access_scanner(ENGINE_HANDLE *h,
     }
 
     wait_for_flusher_to_settle(h, h1);
+
     verify_curr_items(h, h1, num_items, "Wrong number of items");
     int num_non_resident = get_int_stat(h, h1, "vb_active_num_non_resident");
     checkge(num_non_resident, num_items * 6 / 100,
@@ -2825,12 +2826,19 @@ static enum test_result test_access_scanner(ENGINE_HANDLE *h,
 
     // Wait for the number of runs to equal the number of shards.
     wait_for_stat_to_be(h, h1, "ep_num_access_scanner_runs", num_shards);
-
+    sleep(1);
     /* This time since resident ratio is < 95% access log should be generated */
     checkeq(0, access(name.c_str(), F_OK), "access log file should exist");
+    config="alog_path=./epaccessvalue_only.log;chk_remover_stime=1;dbname=./ep-engine_basic_tests;max_size=2291456;max_num_shards=1";
+    printf("%s\n", config.c_str());
+    testHarness.reload_engine(&h, &h1,
+                              testHarness.engine_path,
+                              config.c_str(),
+                              true, false);
+    wait_for_warmup_complete(h, h1);
 
     /* Increase resident ratio by deleting items */
-    vbucketDelete(h, h1, 0);
+    //vbucketDelete(h, h1, 0);
     check(set_vbucket_state(h, h1, 0, vbucket_state_active),
           "Failed to set VB0 state.");
 
@@ -6909,6 +6917,10 @@ static enum test_result test_vbucket_compact_no_purge(ENGINE_HANDLE *h,
 const char *default_dbname = "./ep_testsuite";
 
 BaseTestCase testsuite_testcases[] = {
+
+      TestCase("test access scanner", test_access_scanner, test_setup,
+                 teardown, "alog_path=./epaccess.log;chk_remover_stime=1;"
+                 "max_size=6291456", prepare, cleanup),
         TestCase("validate engine handle", test_validate_engine_handle,
                  NULL, teardown, NULL, prepare, cleanup),
 

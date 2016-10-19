@@ -49,8 +49,9 @@ static bool batchWarmupCallback(uint16_t vbId,
                                 void *arg)
 {
     WarmupCookie *c = static_cast<WarmupCookie *>(arg);
-
-    if (!c->epstore->maybeEnableTraffic()) {
+    printf("TRYING %d\n", fetches.size());
+    if (true) {//!c->epstore->maybeEnableTraffic()) {
+        printf("YAH TRYING %d\n", fetches.size());
         vb_bgfetch_queue_t items2fetch;
         for (auto& key : fetches) {
             VBucketBGFetchItem *fit = new VBucketBGFetchItem(NULL, false);
@@ -60,24 +61,39 @@ static bool batchWarmupCallback(uint16_t vbId,
         }
 
         c->epstore->getROUnderlying(vbId)->getMulti(vbId, items2fetch);
+        // when applyItem is false, we keep iterating but only to delete
+        // any remaining items.
+        bool applyItem = true;
+        for (auto items : items2fetch) {
+            vb_bgfetch_item_ctx_t& bg_itm_ctx = items.second;
+            std::unique_ptr<VBucketBGFetchItem> fetchedItem(bg_itm_ctx.bgfetched_list.back());
+            if (applyItem) {
+                GetValue &val = fetchedItem->value;
+                if (val.getStatus() == ENGINE_SUCCESS) {
+                    c->cb.callback(val);
+                    printf("CB\n");
+                } else {
+                    LOG(EXTENSION_LOG_WARNING,
+                    "Warmup failed to load data for vBucket = %d"
+                    " key = %s error = %X\n",
+                    vbId, items.first.c_str(), val.getStatus());
+                    c->error++;
+                    printf("error1 %s %d %p\n", items.first.c_str(), val.getStatus(), val.getValue());
+                }
 
-        vb_bgfetch_queue_t::iterator items = items2fetch.begin();
-        for (; items != items2fetch.end(); items++) {
-           vb_bgfetch_item_ctx_t& bg_itm_ctx = (*items).second;
-           VBucketBGFetchItem * fetchedItem = bg_itm_ctx.bgfetched_list.back();
-           GetValue &val = fetchedItem->value;
-           if (val.getStatus() == ENGINE_SUCCESS) {
-                c->loaded++;
-                c->cb.callback(val);
-           } else {
-                LOG(EXTENSION_LOG_WARNING,
-                "Warmup failed to load data for vBucket = %d"
-                " key = %s error = %X\n",
-                vbId,
-                    (*items).first.c_str(), val.getStatus());
-                c->error++;
-          }
-          delete fetchedItem;
+                if (c->cb.getStatus() == ENGINE_SUCCESS) {
+                    c->loaded++;
+                } else {printf("fail\n");
+                    applyItem = false;
+                }
+            } else {
+                // ENOMEM situation, so just delete the rest of the items
+                // unique_ptr will drop fetchedItem
+                if (fetchedItem->value.getStatus() == ENGINE_SUCCESS) {
+                    delete fetchedItem->value.getValue();
+                }
+                c->skipped++;
+            }
         }
 
         return true;
@@ -198,10 +214,10 @@ std::ostream& operator <<(std::ostream &out, const WarmupState &state)
     out << state.toString();
     return out;
 }
-
+static int xxx = 0;
 void LoadStorageKVPairCallback::callback(GetValue &val) {
-    Item *i = val.getValue();
-    bool stopLoading = false;
+    std::unique_ptr<Item> i(val.getValue());
+    bool stopLoading = false;xxx++;
     if (i != NULL && !epstore.getWarmup()->isComplete()) {
         RCPtr<VBucket> vb = vbuckets.getBucket(i->getVBucketId());
         if (!vb) {
@@ -253,7 +269,6 @@ void LoadStorageKVPairCallback::callback(GetValue &val) {
             }
         } while (!succeeded && retry-- > 0);
 
-        delete i;
         val.setValue(NULL);
 
         if (maybeEnableTraffic) {
@@ -282,7 +297,6 @@ void LoadStorageKVPairCallback::callback(GetValue &val) {
         }
     } else {
         stopLoading = true;
-        delete i;
     }
 
     if (stopLoading) {
@@ -301,6 +315,7 @@ void LoadStorageKVPairCallback::callback(GetValue &val) {
         setStatus(ENGINE_ENOMEM);
     } else {
         setStatus(ENGINE_SUCCESS);
+        printf("xxx %d\n",xxx);
     }
 }
 
@@ -628,7 +643,7 @@ void Warmup::checkForAccessLog()
         hrtime2text(metadata.load()).c_str());
 
     if (store.maybeEnableTraffic()) {
-        transition(WarmupState::Done);
+      //  transition(WarmupState::Done);
     }
 
     size_t accesslogs = 0;
@@ -642,6 +657,7 @@ void Warmup::checkForAccessLog()
         }
     }
     if (accesslogs == store.vbMap.shards.size()) {
+        printf("transition to loading\n");
         transition(WarmupState::LoadingAccessLog);
     } else {
         if (store.getItemEvictionPolicy() == VALUE_ONLY) {
@@ -664,6 +680,7 @@ void Warmup::scheduleLoadingAccessLog()
 
 void Warmup::loadingAccessLog(uint16_t shardId)
 {
+    printf("Loading\n");
     LoadStorageKVPairCallback *load_cb =
         new LoadStorageKVPairCallback(store, true, state.getState());
     bool success = false;
@@ -727,6 +744,7 @@ void Warmup::loadingAccessLog(uint16_t shardId)
 size_t Warmup::doWarmup(MutationLog &lf, const std::map<uint16_t,
                         vbucket_state> &vbmap, Callback<GetValue> &cb)
 {
+    printf("doW\n");
     MutationLogHarvester harvester(lf, &store.getEPEngine());
     std::map<uint16_t, vbucket_state>::const_iterator it;
     for (it = vbmap.begin(); it != vbmap.end(); ++it) {
@@ -925,9 +943,12 @@ void Warmup::step() {
 
 void Warmup::transition(int to, bool force) {
     int old = state.getState();
+    printf("Warmup::transition %d %d\n", old, to );
     if (old != WarmupState::Done) {
         state.transition(to, force);
         step();
+    } else {
+        printf("Done\n");
     }
 }
 
