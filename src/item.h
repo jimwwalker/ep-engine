@@ -436,7 +436,7 @@ public:
     /* Copy constructor */
     Item(const Item& other, bool copyKeyOnly = false) :
         metaData(other.metaData),
-        key(other.key),
+        key(nullptr,0, DocNamespace::DefaultCollection),//other.key),
         bySeqno(other.bySeqno.load()),
         queuedTime(other.queuedTime),
         vbucketId(other.vbucketId),
