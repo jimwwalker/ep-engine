@@ -626,7 +626,7 @@ extern "C" {
 
         uint16_t vbucket = ntohs(request->request.vbucket);
 
-        std::string key(keyz, keylen);
+        StorageKey key(keyz, keylen);
 
         LOG(EXTENSION_LOG_DEBUG, "Manually evicting object with key %s\n",
                 keyz);
@@ -663,7 +663,7 @@ extern "C" {
 
         const char *keyp = reinterpret_cast<const char*>(req->bytes);
         keyp += sizeof(req->bytes) + extlen;
-        std::string key(keyp, ntohs(req->request.keylen));
+        StorageKey key(keyp, ntohs(req->request.keylen));
         uint16_t vbucket = ntohs(req->request.vbucket);
 
         uint32_t max_timeout = (unsigned int)e->getGetlMaxTimeout();
@@ -745,7 +745,7 @@ extern "C" {
         keyz[keylen] = 0x00;
 
         uint16_t vbucket = ntohs(request->request.vbucket);
-        std::string key(keyz, keylen);
+        StorageKey key(keyz, keylen);
 
         LOG(EXTENSION_LOG_DEBUG, "Executing unl for key %s\n", keyz);
 
@@ -1010,7 +1010,7 @@ extern "C" {
         int keylen = ntohs(req->message.header.request.keylen);
         uint16_t vbucket = ntohs(req->message.header.request.vbucket);
         ENGINE_ERROR_CODE error_code;
-        std::string keystr(((char *)request) + sizeof(req->message.header),
+        StorageKey keystr(((char *)request) + sizeof(req->message.header),
                             keylen);
 
         GetValue rv(kvb->getReplica(keystr, vbucket, cookie));
@@ -1366,10 +1366,10 @@ extern "C" {
                               cookie);
             delete itm;
         } else if (itm) {
-            const std::string &key  = itm->getKey();
+            const ProtocolKey& key = itm->getProtocolKey();
             uint32_t flags = itm->getFlags();
             rv = sendResponse(response, static_cast<const void *>(key.data()),
-                              itm->getNKey(),
+                              itm->getStorageKey().size(),
                               (const void *)&flags, sizeof(uint32_t),
                               static_cast<const void *>(itm->getData()),
                               itm->getNBytes(), itm->getDataType(),
@@ -1909,9 +1909,9 @@ extern "C" {
         itm_info->datatype = it->getDataType();
         itm_info->flags = it->getFlags();
         itm_info->clsid = 0;
-        itm_info->nkey = static_cast<uint16_t>(it->getNKey());
+        itm_info->nkey = static_cast<uint16_t>(it->getProtocolKey().size());
         itm_info->nvalue = 1;
-        itm_info->key = it->getKey().c_str();
+        itm_info->key = it->getProtocolKey().data();
         itm_info->value[0].iov_base = const_cast<char*>(it->getData());
         itm_info->value[0].iov_len = it->getNBytes();
         return true;
@@ -2638,7 +2638,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::tapNotify(const void *cookie,
         connection = reinterpret_cast<ConnHandler *>(specific);
     }
 
-    std::string k(static_cast<const char*>(key), nkey);
+    StorageKey k(static_cast<const char*>(key), nkey);
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
 
     if (tap_event == TAP_MUTATION || tap_event == TAP_DELETION) {
@@ -2658,7 +2658,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::tapNotify(const void *cookie,
 
     switch (tap_event) {
     case TAP_ACK:
-        ret = processTapAck(cookie, tap_seqno, tap_flags, k);
+        ret = processTapAck(cookie, tap_seqno, tap_flags, k.getProtocolKey());
         break;
     case TAP_FLUSH:
         ret = flush(cookie, 0);
@@ -2932,8 +2932,8 @@ void EventuallyPersistentEngine::initializeEngineCallbacks() {
 ENGINE_ERROR_CODE EventuallyPersistentEngine::processTapAck(const void *cookie,
                                                             uint32_t seqno,
                                                             uint16_t status,
-                                                            const std::string
-                                                            &msg)
+                                                            const ProtocolKey&
+                                                            key)
 {
     TapProducer *connection = getTapProducer(cookie);
     if (!connection) {
@@ -2942,7 +2942,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::processTapAck(const void *cookie,
         return ENGINE_DISCONNECT;
     }
 
-    return connection->processAck(seqno, status, msg);
+    return connection->processAck(seqno, status, key);
 }
 
 void EventuallyPersistentEngine::queueBackfill(const VBucketFilter
@@ -4210,7 +4210,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doDcpStats(const void *cookie,
 ENGINE_ERROR_CODE EventuallyPersistentEngine::doKeyStats(const void *cookie,
                                                          ADD_STAT add_stat,
                                                          uint16_t vbid,
-                                                         std::string &key,
+                                                         const StorageKey& key,
                                                          bool validate) {
     ENGINE_ERROR_CODE rv = ENGINE_FAILED;
 
@@ -4247,7 +4247,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doKeyStats(const void *cookie,
             } else {
                 valid.assign("ram_but_not_disk");
             }
-            LOG(EXTENSION_LOG_DEBUG, "Key '%s' is %s\n", key.c_str(),
+            LOG(EXTENSION_LOG_DEBUG, "Key '%s' is %s\n", key.getProtocolKey().data(),
                 valid.c_str());
         }
         add_casted_stat("key_is_dirty", kstats.dirty, add_stat, cookie);
@@ -4671,7 +4671,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getStats(const void* cookie,
         uint16_t vbucket_id(0);
         parseUint16(vbid.c_str(), &vbucket_id);
         // Non-validating, non-blocking version
-        rv = doKeyStats(cookie, add_stat, vbucket_id, key, false);
+        rv = doKeyStats(cookie, add_stat, vbucket_id, StorageKey(key), false);
     } else if (nkey > 5 && cb_isPrefix(statKey, "vkey ")) {
         std::string key;
         std::string vbid;
@@ -4682,7 +4682,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getStats(const void* cookie,
         uint16_t vbucket_id(0);
         parseUint16(vbid.c_str(), &vbucket_id);
         // Validating version; blocks
-        rv = doKeyStats(cookie, add_stat, vbucket_id, key, true);
+        rv = doKeyStats(cookie, add_stat, vbucket_id, StorageKey(key), true);
     } else if (statKey == "kvtimings") {
         getKVBucket()->addKVStoreTimingStats(add_stat, cookie);
         rv = ENGINE_SUCCESS;
@@ -4800,11 +4800,10 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::observe(
                                 cookie);
         }
 
-        const std::string key(data + offset, keylen);
+        const StorageKey key(data + offset, keylen);
         offset += keylen;
-
         LOG(EXTENSION_LOG_DEBUG, "Observing key: %s, in vbucket %d.",
-            key.c_str(), vb_id);
+            key.getProtocolKey().data(), vb_id);
 
         // Get key stats
         uint16_t keystatus = 0;
@@ -4841,7 +4840,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::observe(
         uint64_t cas = htonll(kstats.cas);
         result.write((char*) &vb_id, sizeof(uint16_t));
         result.write((char*) &keylen, sizeof(uint16_t));
-        result.write(key.c_str(), ntohs(keylen));
+        result.write(key.getProtocolKey().data(), ntohs(keylen));
         result.write((char*) &keystatus, sizeof(uint8_t));
         result.write((char*) &cas, sizeof(uint64_t));
     }
@@ -4966,7 +4965,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::touch(const void *cookie,
     uint16_t vbucket = ntohs(request->request.vbucket);
 
     // try to get the object
-    std::string k(static_cast<const char*>(key), nkey);
+    StorageKey k(static_cast<const char*>(key), nkey);
 
     if (exptime != 0) {
         exptime = serverApi->core->abstime(serverApi->core->realtime(exptime));
@@ -5258,7 +5257,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getMeta(const void* cookie,
     }
 
     uint8_t extlen = request->message.header.request.extlen;
-    std::string key((char *)(request->bytes + sizeof(request->bytes) + extlen),
+    StorageKey key((char *)(request->bytes + sizeof(request->bytes) + extlen),
                     (size_t)ntohs(request->message.header.request.keylen));
     uint16_t vbucket = ntohs(request->message.header.request.vbucket);
 
@@ -5398,7 +5397,9 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::setWithMeta(const void* cookie,
     uint8_t ext_meta[1];
     uint8_t ext_len = EXT_META_LEN;
     *(ext_meta) = datatype;
-    Item *itm = new Item(key, keylen, flags, expiration, dta, vallen,
+    Item *itm = new Item(StorageKey(reinterpret_cast<const char*>(key),
+                                    keylen),
+                         flags, expiration, dta, vallen,
                          ext_meta, ext_len, cas, -1, vbucket);
 
     if (itm == NULL) {
@@ -5558,7 +5559,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::deleteWithMeta(
         }
     }
 
-    std::string key(key_ptr, nkey);
+    StorageKey key(key_ptr, nkey);
 
     ItemMetaData itm_meta(metacas, seqno, flags, expiration);
 
@@ -5867,7 +5868,9 @@ EventuallyPersistentEngine::returnMeta(const void* cookie,
         uint8_t ext_meta[1];
         uint8_t ext_len = EXT_META_LEN;
         *(ext_meta) = datatype;
-        Item *itm = new Item(key, keylen, flags, exp, dta, vallen, ext_meta,
+        Item *itm = new Item(StorageKey(reinterpret_cast<const char*>(key),
+                                        keylen),
+                             flags, exp, dta, vallen, ext_meta,
                              ext_len, cas, -1, vbucket);
 
         if (!itm) {
@@ -5890,7 +5893,7 @@ EventuallyPersistentEngine::returnMeta(const void* cookie,
     } else if (mutate_type == DEL_RET_META) {
         ItemMetaData itm_meta;
         mutation_descr_t mut_info;
-        std::string key_str(reinterpret_cast<char*>(key), keylen);
+        StorageKey key_str(reinterpret_cast<char*>(key), keylen);
         ret = kvBucket->deleteItem(key_str, &cas, vbucket, cookie, false,
                                    &itm_meta, &mut_info);
         if (ret == ENGINE_SUCCESS) {
@@ -6002,25 +6005,25 @@ EventuallyPersistentEngine::getClusterConfig(const void* cookie,
  * This initially allocated buffersize is doubled whenever the length
  * of the buffer holding all the keys, crosses the buffersize.
  */
-class AllKeysCallback : public Callback<const std::string&> {
+class AllKeysCallback : public Callback<const StorageKeyNoHeap&> {
 public:
     AllKeysCallback()
           : length(0),
             buffer((avgKeySize + sizeof(uint16_t)) * expNumKeys) {}
 
-    void callback(const std::string& key) {
-        if (buffer.size() + key.size() + sizeof(uint16_t) >
+    void callback(const StorageKeyNoHeap& key) {
+        if (buffer.size() + key.getProtocolKey().size() + sizeof(uint16_t) >
             buffer.size()) {
             // Resize the copy-to buffer.
             buffer.resize(buffer.size()*2);
         }
-        uint16_t len = htons(key.size());
+        uint16_t len = htons(key.getProtocolKey().size());
         memcpy (buffer.data() + length, &len, sizeof(uint16_t));
 
         memcpy (buffer.data() + length + sizeof(uint16_t),
-                key.data(),
-                key.size());
-        length += key.size() + sizeof(uint16_t);
+                key.getProtocolKey().data(),
+                key.getProtocolKey().size());
+        length += key.getProtocolKey().size() + sizeof(uint16_t);
     }
 
     char* getAllKeysPtr() { return buffer.data(); }
@@ -6042,7 +6045,7 @@ private:
 class FetchAllKeysTask : public GlobalTask {
 public:
     FetchAllKeysTask(EventuallyPersistentEngine *e, const void *c,
-                     ADD_RESPONSE resp, const std::string &start_key_,
+                     ADD_RESPONSE resp, const StorageKey &start_key_,
                      uint16_t vbucket, uint32_t count_) :
         GlobalTask(e, TaskId::FetchAllKeysTask, 0, false), engine(e), cookie(c),
         response(resp), start_key(start_key_), vbid(vbucket),
@@ -6063,7 +6066,7 @@ public:
                                PROTOCOL_BINARY_RESPONSE_SUCCESS, 0,
                                cookie);
         } else {
-            std::shared_ptr<Callback<const std::string&> > cb(new AllKeysCallback());
+            std::shared_ptr<Callback<const StorageKeyNoHeap&> > cb(new AllKeysCallback());
             err = engine->getKVBucket()->getROUnderlying(vbid)->getAllKeys(
                                                     vbid, start_key, count, cb);
             if (err == ENGINE_SUCCESS) {
@@ -6084,7 +6087,7 @@ private:
     EventuallyPersistentEngine *engine;
     const void *cookie;
     ADD_RESPONSE response;
-    std::string start_key;
+    StorageKey start_key;
     uint16_t vbid;
     uint32_t count;
 };
@@ -6135,7 +6138,7 @@ EventuallyPersistentEngine::getAllKeys(const void* cookie,
         return ENGINE_EINVAL;
     }
     char *keyptr = (char*)(request->bytes + sizeof(request->bytes) + extlen);
-    std::string start_key(keyptr, keylen);
+    StorageKey start_key(keyptr, keylen);
 
     ExTask task = new FetchAllKeysTask(this, cookie, response, start_key,
                                        vbucket, count);
@@ -6150,10 +6153,10 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getRandomKey(const void *cookie,
 
     if (ret == ENGINE_SUCCESS) {
         Item *it = gv.getValue();
-        const std::string &key  = it->getKey();
+        const ProtocolKey& key  = it->getProtocolKey();
         uint32_t flags = it->getFlags();
         ret = sendResponse(response, static_cast<const void *>(key.data()),
-                           it->getNKey(),
+                           it->getStorageKey().size(),
                            (const void *)&flags, sizeof(uint32_t),
                            static_cast<const void *>(it->getData()),
                            it->getNBytes(), it->getDataType(),

@@ -77,7 +77,7 @@ public:
             v->isExpired(startTime) && !v->isDeleted();
         if (isExpired || v->isTempNonExistentItem() || v->isTempDeletedItem()) {
             expired.push_back(std::make_pair(currentBucket->getId(),
-                                             v->getKey()));
+                                             StorageKey(v->getKey())));
             return;
         }
 
@@ -214,7 +214,7 @@ private:
 
     void doEviction(StoredValue *v) {
         item_eviction_policy_t policy = store.getItemEvictionPolicy();
-        std::string key = v->getKey();
+        StorageKey key = v->getKey();
 
         if (currentBucket->ht.unlocked_ejectItem(v, policy)) {
             ++ejected;
@@ -229,7 +229,7 @@ private:
         }
     }
 
-    std::list<std::pair<uint16_t, std::string> > expired;
+    std::list<std::pair<uint16_t, StorageKey> > expired;
 
     KVBucket& store;
     EPStats &stats;

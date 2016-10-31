@@ -174,13 +174,13 @@ private:
  * Callback class used by EpStore, for adding relevant keys
  * to bloomfilter during compaction.
  */
-class BloomFilterCallback : public Callback<uint16_t&, std::string&, bool&> {
+class BloomFilterCallback : public Callback<uint16_t&, const StorageKey&, bool&> {
 public:
     BloomFilterCallback(EPBucket& eps)
         : store(eps) {
     }
 
-    void callback(uint16_t& vbucketId, std::string& key, bool& isDeleted) {
+    void callback(uint16_t& vbucketId, const StorageKey& key, bool& isDeleted) {
         RCPtr<VBucket> vb = store.getVBucket(vbucketId);
         if (vb) {
             /* Check if a temporary filter has been initialized. If not,
@@ -293,13 +293,13 @@ bool BloomFilterCallback::initTempFilter(uint16_t vbucketId) {
     return true;
 }
 
-class ExpiredItemsCallback : public Callback<uint16_t&, std::string&, uint64_t&,
+class ExpiredItemsCallback : public Callback<uint16_t&, const StorageKey&, uint64_t&,
                                              time_t&> {
     public:
         ExpiredItemsCallback(EPBucket& store)
             : epstore(store) { }
 
-        void callback(uint16_t& vbid, std::string& key, uint64_t& revSeqno,
+        void callback(uint16_t& vbid, const StorageKey& key, uint64_t& revSeqno,
                       time_t& startTime) {
             if (epstore.compactionCanExpireItems()) {
                 epstore.deleteExpiredItem(vbid, key, startTime, revSeqno,
@@ -693,7 +693,7 @@ void EPBucket::stopBgFetcher() {
     }
 }
 
-void EPBucket::deleteExpiredItem(uint16_t vbid, std::string &key,
+void EPBucket::deleteExpiredItem(uint16_t vbid, const StorageKey& key,
                                  time_t startTime, uint64_t revSeqno,
                                  exp_type_t source) {
     RCPtr<VBucket> vb = getVBucket(vbid);
@@ -746,16 +746,16 @@ void EPBucket::deleteExpiredItem(uint16_t vbid, std::string &key,
 }
 
 void EPBucket::deleteExpiredItems(std::list<std::pair<uint16_t,
-                                  std::string> > &keys, exp_type_t source) {
+                                  StorageKey> > &keys, exp_type_t source) {
     std::list<std::pair<uint16_t, std::string> >::iterator it;
     time_t startTime = ep_real_time();
-    for (it = keys.begin(); it != keys.end(); it++) {
-        deleteExpiredItem(it->first, it->second, startTime, 0, source);
+    for (const auto& it : keys) {
+        deleteExpiredItem(it.first, it.second, startTime, 0, source);
     }
 }
 
 StoredValue *EPBucket::fetchValidValue(RCPtr<VBucket> &vb,
-                                       const std::string &key,
+                                       const StorageKey& key,
                                        int bucket_num,
                                        bool wantDeleted,
                                        bool trackReference,
@@ -781,7 +781,7 @@ StoredValue *EPBucket::fetchValidValue(RCPtr<VBucket> &vb,
     return v;
 }
 
-bool EPBucket::isMetaDataResident(RCPtr<VBucket> &vb, const std::string &key) {
+bool EPBucket::isMetaDataResident(RCPtr<VBucket> &vb, const StorageKey& key) {
 
     if (!vb) {
         throw std::invalid_argument("EPStore::isMetaDataResident: vb is NULL");
@@ -798,7 +798,7 @@ bool EPBucket::isMetaDataResident(RCPtr<VBucket> &vb, const std::string &key) {
     }
 }
 
-protocol_binary_response_status EPBucket::evictKey(const std::string &key,
+protocol_binary_response_status EPBucket::evictKey(const StorageKey& key,
                                                    uint16_t vbucket,
                                                    const char **msg,
                                                    size_t *msg_size) {
@@ -845,7 +845,7 @@ protocol_binary_response_status EPBucket::evictKey(const std::string &key,
 
 ENGINE_ERROR_CODE EPBucket::addTempItemForBgFetch(LockHolder &lock,
                                                   int bucket_num,
-                                                  const std::string &key,
+                                                  const StorageKey& key,
                                                   RCPtr<VBucket> &vb,
                                                   const void *cookie,
                                                   bool metadataOnly,
@@ -899,8 +899,8 @@ ENGINE_ERROR_CODE EPBucket::set(Item &itm, const void *cookie) {
 
     bool cas_op = (itm.getCas() != 0);
     int bucket_num(0);
-    LockHolder lh = vb->ht.getLockedBucket(itm.getKey(), &bucket_num);
-    StoredValue *v = vb->ht.unlocked_find(itm.getKey(), bucket_num,
+    LockHolder lh = vb->ht.getLockedBucket(itm.getStorageKey(), &bucket_num);
+    StoredValue *v = vb->ht.unlocked_find(itm.getStorageKey(), bucket_num,
                                           /*wantsDeleted*/true,
                                           /*trackReference*/false);
     if (v && v->isLocked(ep_current_time()) &&
@@ -916,7 +916,7 @@ ENGINE_ERROR_CODE EPBucket::set(Item &itm, const void *cookie) {
         (eviction_policy == FULL_EVICTION) &&
         (itm.getCas() != 0)) {
         // Check Bloomfilter's prediction
-        if (!vb->maybeKeyExistsInFilter(itm.getKey())) {
+        if (!vb->maybeKeyExistsInFilter(itm.getStorageKey())) {
             maybeKeyExists = false;
         }
     }
@@ -955,10 +955,10 @@ ENGINE_ERROR_CODE EPBucket::set(Item &itm, const void *cookie) {
         if (v) {
             // temp item is already created. Simply schedule a bg fetch job
             lh.unlock();
-            bgFetch(itm.getKey(), vb->getId(), cookie, true);
+            bgFetch(itm.getStorageKey(), vb->getId(), cookie, true);
             return ENGINE_EWOULDBLOCK;
         }
-        ret = addTempItemForBgFetch(lh, bucket_num, itm.getKey(), vb,
+        ret = addTempItemForBgFetch(lh, bucket_num, itm.getStorageKey(), vb,
                                     cookie, true);
         break;
     }
@@ -1001,15 +1001,15 @@ ENGINE_ERROR_CODE EPBucket::add(Item &itm, const void *cookie)
     }
 
     int bucket_num(0);
-    LockHolder lh = vb->ht.getLockedBucket(itm.getKey(), &bucket_num);
-    StoredValue *v = vb->ht.unlocked_find(itm.getKey(), bucket_num, true,
+    LockHolder lh = vb->ht.getLockedBucket(itm.getStorageKey(), &bucket_num);
+    StoredValue *v = vb->ht.unlocked_find(itm.getStorageKey(), bucket_num, true,
                                           false);
 
     bool maybeKeyExists = true;
     if ((v == nullptr || v->isTempInitialItem()) &&
         (eviction_policy == FULL_EVICTION)) {
         // Check bloomfilter's prediction
-        if (!vb->maybeKeyExistsInFilter(itm.getKey())) {
+        if (!vb->maybeKeyExistsInFilter(itm.getStorageKey())) {
             maybeKeyExists = false;
         }
     }
@@ -1029,11 +1029,11 @@ ENGINE_ERROR_CODE EPBucket::add(Item &itm, const void *cookie)
     case ADD_EXISTS:
         return ENGINE_NOT_STORED;
     case ADD_TMP_AND_BG_FETCH:
-        return addTempItemForBgFetch(lh, bucket_num, it.getKey(), vb,
+        return addTempItemForBgFetch(lh, bucket_num, it.getStorageKey(), vb,
                                      cookie, true);
     case ADD_BG_FETCH:
         lh.unlock();
-        bgFetch(it.getKey(), vb->getId(), cookie, true);
+        bgFetch(it.getStorageKey(), vb->getId(), cookie, true);
         return ENGINE_EWOULDBLOCK;
     case ADD_SUCCESS:
     case ADD_UNDEL:
@@ -1068,8 +1068,8 @@ ENGINE_ERROR_CODE EPBucket::replace(Item &itm, const void *cookie) {
     }
 
     int bucket_num(0);
-    LockHolder lh = vb->ht.getLockedBucket(itm.getKey(), &bucket_num);
-    StoredValue *v = vb->ht.unlocked_find(itm.getKey(), bucket_num, true,
+    LockHolder lh = vb->ht.getLockedBucket(itm.getStorageKey(), &bucket_num);
+    StoredValue *v = vb->ht.unlocked_find(itm.getStorageKey(), bucket_num, true,
                                           false);
     if (v) {
         if (v->isDeleted() || v->isTempDeletedItem() ||
@@ -1111,7 +1111,7 @@ ENGINE_ERROR_CODE EPBucket::replace(Item &itm, const void *cookie) {
             {
                 // temp item is already created. Simply schedule a bg fetch job
                 lh.unlock();
-                bgFetch(itm.getKey(), vb->getId(), cookie, true);
+                bgFetch(itm.getStorageKey(), vb->getId(), cookie, true);
                 ret = ENGINE_EWOULDBLOCK;
                 break;
             }
@@ -1126,8 +1126,8 @@ ENGINE_ERROR_CODE EPBucket::replace(Item &itm, const void *cookie) {
             return ENGINE_KEY_ENOENT;
         }
 
-        if (vb->maybeKeyExistsInFilter(itm.getKey())) {
-            return addTempItemForBgFetch(lh, bucket_num, itm.getKey(), vb,
+        if (vb->maybeKeyExistsInFilter(itm.getStorageKey())) {
+            return addTempItemForBgFetch(lh, bucket_num, itm.getStorageKey(), vb,
                                          cookie, false);
         } else {
             // As bloomfilter predicted that item surely doesn't exist
@@ -1161,8 +1161,8 @@ ENGINE_ERROR_CODE EPBucket::addTAPBackfillItem(Item &itm, bool genBySeqno,
     }
 
     int bucket_num(0);
-    LockHolder lh = vb->ht.getLockedBucket(itm.getKey(), &bucket_num);
-    StoredValue *v = vb->ht.unlocked_find(itm.getKey(), bucket_num, true,
+    LockHolder lh = vb->ht.getLockedBucket(itm.getStorageKey(), &bucket_num);
+    StoredValue *v = vb->ht.unlocked_find(itm.getStorageKey(), bucket_num, true,
                                           false);
 
     // Note that this function is only called on replica or pending vbuckets.
@@ -1821,7 +1821,7 @@ void EPBucket::updateBGStats(const hrtime_t init, const hrtime_t start,
     }
 }
 
-void EPBucket::completeBGFetch(const std::string &key, uint16_t vbucket,
+void EPBucket::completeBGFetch(const StorageKey& key, uint16_t vbucket,
                                const void *cookie, hrtime_t init, bool isMeta) {
     hrtime_t start(gethrtime());
     // Go find the data
@@ -1842,7 +1842,7 @@ void EPBucket::completeBGFetch(const std::string &key, uint16_t vbucket,
     } else {
         // Ok to print the key here as this message is not enabled by default.
         LOG(EXTENSION_LOG_INFO, "vb:%" PRIu16 " file was deleted in the middle of"
-            " a bg fetch for key{%s}", vbucket, key.c_str());
+            " a bg fetch for key{%s}", vbucket, key.getProtocolKey().data());
         engine.notifyIOComplete(cookie, ENGINE_NOT_MY_VBUCKET);
     }
 
@@ -1882,7 +1882,7 @@ void EPBucket::completeBGFetchMulti(
     }
 }
 
-void EPBucket::bgFetch(const std::string &key, uint16_t vbucket,
+void EPBucket::bgFetch(const StorageKey& key, uint16_t vbucket,
                        const void *cookie, bool isMeta) {
     if (multiBGFetchEnabled()) {
         RCPtr<VBucket> vb = getVBucket(vbucket);
@@ -1915,7 +1915,7 @@ void EPBucket::bgFetch(const std::string &key, uint16_t vbucket,
     }
 }
 
-GetValue EPBucket::getInternal(const std::string &key, uint16_t vbucket,
+GetValue EPBucket::getInternal(const StorageKey& key, uint16_t vbucket,
                                const void *cookie, vbucket_state_t allowedState,
                                get_options_t options) {
 
@@ -2043,7 +2043,7 @@ GetValue EPBucket::getRandomKey() {
 }
 
 
-ENGINE_ERROR_CODE EPBucket::getMetaData(const std::string &key,
+ENGINE_ERROR_CODE EPBucket::getMetaData(const StorageKey& key,
                                         uint16_t vbucket,
                                         const void *cookie,
                                         ItemMetaData &metadata,
@@ -2152,15 +2152,15 @@ ENGINE_ERROR_CODE EPBucket::setWithMeta(Item &itm,
     }
 
     int bucket_num(0);
-    LockHolder lh = vb->ht.getLockedBucket(itm.getKey(), &bucket_num);
-    StoredValue *v = vb->ht.unlocked_find(itm.getKey(), bucket_num, true,
+    LockHolder lh = vb->ht.getLockedBucket(itm.getStorageKey(), &bucket_num);
+    StoredValue *v = vb->ht.unlocked_find(itm.getStorageKey(), bucket_num, true,
                                           false);
 
     bool maybeKeyExists = true;
     if (!force) {
         if (v)  {
             if (v->isTempInitialItem()) {
-                bgFetch(itm.getKey(), itm.getVBucketId(), cookie, true);
+                bgFetch(itm.getStorageKey(), itm.getVBucketId(), cookie, true);
                 return ENGINE_EWOULDBLOCK;
             }
 
@@ -2169,8 +2169,8 @@ ENGINE_ERROR_CODE EPBucket::setWithMeta(Item &itm,
                 return ENGINE_KEY_EEXISTS;
             }
         } else {
-            if (vb->maybeKeyExistsInFilter(itm.getKey())) {
-                return addTempItemForBgFetch(lh, bucket_num, itm.getKey(), vb,
+            if (vb->maybeKeyExistsInFilter(itm.getStorageKey())) {
+                return addTempItemForBgFetch(lh, bucket_num, itm.getStorageKey(), vb,
                                              cookie, true, isReplication);
             } else {
                 maybeKeyExists = false;
@@ -2179,7 +2179,7 @@ ENGINE_ERROR_CODE EPBucket::setWithMeta(Item &itm,
     } else {
         if (eviction_policy == FULL_EVICTION) {
             // Check Bloomfilter's prediction
-            if (!vb->maybeKeyExistsInFilter(itm.getKey())) {
+            if (!vb->maybeKeyExistsInFilter(itm.getStorageKey())) {
                 maybeKeyExists = false;
             }
         }
@@ -2221,11 +2221,11 @@ ENGINE_ERROR_CODE EPBucket::setWithMeta(Item &itm,
         {            // CAS operation with non-resident item + full eviction.
             if (v) { // temp item is already created. Simply schedule a
                 lh.unlock(); // bg fetch job.
-                bgFetch(itm.getKey(), vb->getId(), cookie, true);
+                bgFetch(itm.getStorageKey(), vb->getId(), cookie, true);
                 return ENGINE_EWOULDBLOCK;
             }
 
-            ret = addTempItemForBgFetch(lh, bucket_num, itm.getKey(), vb,
+            ret = addTempItemForBgFetch(lh, bucket_num, itm.getStorageKey(), vb,
                                         cookie, true, isReplication);
         }
     }
@@ -2233,7 +2233,7 @@ ENGINE_ERROR_CODE EPBucket::setWithMeta(Item &itm,
     return ret;
 }
 
-GetValue EPBucket::getAndUpdateTtl(const std::string &key, uint16_t vbucket,
+GetValue EPBucket::getAndUpdateTtl(const StorageKey& key, uint16_t vbucket,
                                    const void *cookie, time_t exptime)
 {
     RCPtr<VBucket> vb = getVBucket(vbucket);
@@ -2310,7 +2310,7 @@ GetValue EPBucket::getAndUpdateTtl(const std::string &key, uint16_t vbucket,
     }
 }
 
-ENGINE_ERROR_CODE EPBucket::statsVKey(const std::string &key, uint16_t vbucket,
+ENGINE_ERROR_CODE EPBucket::statsVKey(const StorageKey& key, uint16_t vbucket,
                                       const void *cookie) {
     RCPtr<VBucket> vb = getVBucket(vbucket);
     if (!vb) {
@@ -2363,7 +2363,7 @@ ENGINE_ERROR_CODE EPBucket::statsVKey(const std::string &key, uint16_t vbucket,
     }
 }
 
-void EPBucket::completeStatsVKey(const void* cookie, std::string &key,
+void EPBucket::completeStatsVKey(const void* cookie, const StorageKey& key,
                                  uint16_t vbid, uint64_t bySeqNum) {
     RememberingCallback<GetValue> gcb;
 
@@ -2407,7 +2407,7 @@ void EPBucket::completeStatsVKey(const void* cookie, std::string &key,
     engine.notifyIOComplete(cookie, ENGINE_SUCCESS);
 }
 
-GetValue EPBucket::getLocked(const std::string &key, uint16_t vbucket,
+GetValue EPBucket::getLocked(const StorageKey& key, uint16_t vbucket,
                              rel_time_t currentTime, uint32_t lockTimeout,
                              const void *cookie) {
     RCPtr<VBucket> vb = getVBucket(vbucket);
@@ -2471,7 +2471,7 @@ GetValue EPBucket::getLocked(const std::string &key, uint16_t vbucket,
     }
 }
 
-ENGINE_ERROR_CODE EPBucket::unlockKey(const std::string &key,
+ENGINE_ERROR_CODE EPBucket::unlockKey(const StorageKey& key,
                                       uint16_t vbucket,
                                       uint64_t cas,
                                       rel_time_t currentTime)
@@ -2515,7 +2515,7 @@ ENGINE_ERROR_CODE EPBucket::unlockKey(const std::string &key,
 }
 
 
-ENGINE_ERROR_CODE EPBucket::getKeyStats(const std::string &key,
+ENGINE_ERROR_CODE EPBucket::getKeyStats(const StorageKey& key,
                                         uint16_t vbucket,
                                         const void *cookie,
                                         struct key_stats &kstats,
@@ -2564,7 +2564,7 @@ ENGINE_ERROR_CODE EPBucket::getKeyStats(const std::string &key,
     }
 }
 
-std::string EPBucket::validateKey(const std::string &key, uint16_t vbucket,
+std::string EPBucket::validateKey(const StorageKey& key, uint16_t vbucket,
                                   Item &diskItem) {
     int bucket_num(0);
     RCPtr<VBucket> vb = getVBucket(vbucket);
@@ -2593,7 +2593,7 @@ std::string EPBucket::validateKey(const std::string &key, uint16_t vbucket,
 
 }
 
-ENGINE_ERROR_CODE EPBucket::deleteItem(const std::string &key,
+ENGINE_ERROR_CODE EPBucket::deleteItem(const StorageKey& key,
                                        uint64_t *cas,
                                        uint16_t vbucket,
                                        const void *cookie,
@@ -2738,7 +2738,7 @@ ENGINE_ERROR_CODE EPBucket::deleteItem(const std::string &key,
     return ret;
 }
 
-ENGINE_ERROR_CODE EPBucket::deleteWithMeta(const std::string &key,
+ENGINE_ERROR_CODE EPBucket::deleteWithMeta(const StorageKey& key,
                                            uint64_t *cas,
                                            uint64_t *seqno,
                                            uint16_t vbucket,
@@ -2927,10 +2927,10 @@ public:
     void callback(mutation_result &value) {
         if (value.first == 1) {
             int bucket_num(0);
-            LockHolder lh = vbucket->ht.getLockedBucket(queuedItem->getKey(),
+            LockHolder lh = vbucket->ht.getLockedBucket(queuedItem->getStorageKey(),
                                                         &bucket_num);
             StoredValue *v = store.fetchValidValue(vbucket,
-                                                   queuedItem->getKey(),
+                                                   queuedItem->getStorageKey(),
                                                    bucket_num, true, false);
             if (v) {
                 if (v->getCas() == cas) {
@@ -2962,9 +2962,9 @@ public:
             if (value.first == 0) {
                 int bucket_num(0);
                 LockHolder lh = vbucket->ht.getLockedBucket(
-                                           queuedItem->getKey(), &bucket_num);
+                                           queuedItem->getStorageKey(), &bucket_num);
                 StoredValue *v = store.fetchValidValue(vbucket,
-                                                       queuedItem->getKey(),
+                                                       queuedItem->getStorageKey(),
                                                        bucket_num, true,
                                                        false);
                 if (v) {
@@ -3008,17 +3008,17 @@ public:
             // We have successfully removed an item from the disk, we
             // may now remove it from the hash table.
             int bucket_num(0);
-            LockHolder lh = vbucket->ht.getLockedBucket(queuedItem->getKey(),
+            LockHolder lh = vbucket->ht.getLockedBucket(queuedItem->getStorageKey(),
                                                         &bucket_num);
             StoredValue *v = store.fetchValidValue(vbucket,
-                                                   queuedItem->getKey(),
+                                                   queuedItem->getStorageKey(),
                                                    bucket_num, true, false);
             // Delete the item in the hash table iff:
             //  1. Item is existent in hashtable, and deleted flag is true
             //  2. rev seqno of queued item matches rev seqno of hash table item
             if (v && v->isDeleted() &&
                 (queuedItem->getRevSeqno() == v->getRevSeqno())) {
-                bool deleted = vbucket->ht.unlocked_del(queuedItem->getKey(),
+                bool deleted = vbucket->ht.unlocked_del(queuedItem->getStorageKey(),
                                                         bucket_num);
                 if (!deleted) {
                     throw std::logic_error("PersistenceCallback:callback: "
@@ -3030,7 +3030,7 @@ public:
                  * Deleted items are to be added to the bloomfilter,
                  * in either eviction policy.
                  */
-                vbucket->addToFilter(queuedItem->getKey());
+                vbucket->addToFilter(queuedItem->getStorageKey());
             }
 
             if (value > 0) {
@@ -3061,7 +3061,7 @@ private:
             return;
         }
         ++stats.flushFailed;
-        store.invokeOnLockedStoredValue(queuedItem->getKey(),
+        store.invokeOnLockedStoredValue(queuedItem->getStorageKey(),
                                          queuedItem->getVBucketId(),
                                          &StoredValue::reDirty);
         vbucket->rejectQueue.push(queuedItem);
@@ -3175,7 +3175,7 @@ int EPBucket::flushVBucket(uint16_t vbid) {
 
                 if (!(*it)->shouldPersist()) {
                     continue;
-                } else if (!prev || prev->getKey() != (*it)->getKey()) {
+                } else if (!prev || prev->getStorageKey() != (*it)->getStorageKey()) {
                     prev = (*it).get();
                     ++items_flushed;
                     PersistenceCallback *cb = flushOneDelOrSet(*it, vb);
@@ -3541,7 +3541,7 @@ void EPBucket::stopWarmup(void)
 }
 
 void EPBucket::completeBGFetchForSingleItem(RCPtr<VBucket> vb,
-                                            const std::string& key,
+                                            const StorageKey& key,
                                             const hrtime_t startTime,
                                             VBucketBGFetchItem& fetched_item)
 {
@@ -4008,17 +4008,17 @@ public:
         RememberingCallback<GetValue> gcb;
         engine.getKVBucket()->getROUnderlying(
                     itm->getVBucketId())->getWithHeader(dbHandle,
-                                                        itm->getKey(),
+                                                        itm->getStorageKey(),
                                                         itm->getVBucketId(),
                                                         gcb);
         gcb.waitForValue();
         if (gcb.val.getStatus() == ENGINE_SUCCESS) {
             Item *it = gcb.val.getValue();
             if (it->isDeleted()) {
-                LockHolder lh = vb->ht.getLockedBucket(it->getKey(),
+                LockHolder lh = vb->ht.getLockedBucket(it->getStorageKey(),
                         &bucket_num);
 
-                bool ret = vb->ht.unlocked_del(it->getKey(), bucket_num);
+                bool ret = vb->ht.unlocked_del(it->getStorageKey(), bucket_num);
                 if(!ret) {
                     setStatus(ENGINE_KEY_ENOENT);
                 } else {
@@ -4036,8 +4036,8 @@ public:
             }
             delete it;
         } else if (gcb.val.getStatus() == ENGINE_KEY_ENOENT) {
-            LockHolder lh = vb->ht.getLockedBucket(itm->getKey(), &bucket_num);
-            bool ret = vb->ht.unlocked_del(itm->getKey(), bucket_num);
+            LockHolder lh = vb->ht.getLockedBucket(itm->getStorageKey(), &bucket_num);
+            bool ret = vb->ht.unlocked_del(itm->getStorageKey(), bucket_num);
             if (!ret) {
                 setStatus(ENGINE_KEY_ENOENT);
             } else {

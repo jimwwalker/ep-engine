@@ -1739,7 +1739,7 @@ ENGINE_ERROR_CODE PassiveStream::processDeletion(MutationResponse* deletion) {
         meta.cas = Item::nextCas();
     }
 
-    ret = engine->getKVBucket()->deleteWithMeta(deletion->getItem()->getKey(),
+    ret = engine->getKVBucket()->deleteWithMeta(deletion->getItem()->getStorageKey(),
                                                 &delCas, NULL,
                                                 deletion->getVBucket(),
                                                 consumer->getCookie(), true,

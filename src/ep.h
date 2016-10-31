@@ -19,6 +19,7 @@
 
 #include "ep_types.h"
 #include "executorpool.h"
+#include "storagekey.h"
 #include "stored-value.h"
 #include "task_type.h"
 #include "vbucket.h"
@@ -155,7 +156,7 @@ public:
      *
      * @return a GetValue representing the result of the request
      */
-    GetValue get(const std::string &key, uint16_t vbucket,
+    GetValue get(const StorageKey &key, uint16_t vbucket,
                  const void *cookie, get_options_t options) {
         return getInternal(key, vbucket, cookie, vbucket_state_active,
                            options);
@@ -173,7 +174,7 @@ public:
      *
      * @return a GetValue representing the result of the request
      */
-    GetValue getReplica(const std::string &key, uint16_t vbucket,
+    GetValue getReplica(const StorageKey &key, uint16_t vbucket,
                         const void *cookie,
                         get_options_t options = static_cast<get_options_t>(
                                                         QUEUE_BG_FETCH |
@@ -196,7 +197,7 @@ public:
      * @param deleted specifies whether or not the key is deleted
      * @param confResMode specifies the Conflict Resolution mode for the item
      */
-    ENGINE_ERROR_CODE getMetaData(const std::string &key,
+    ENGINE_ERROR_CODE getMetaData(const StorageKey &key,
                                   uint16_t vbucket,
                                   const void *cookie,
                                   ItemMetaData &metadata,
@@ -238,7 +239,7 @@ public:
      *
      * @return a GetValue representing the result of the request
      */
-    GetValue getAndUpdateTtl(const std::string &key, uint16_t vbucket,
+    GetValue getAndUpdateTtl(const StorageKey& key, uint16_t vbucket,
                              const void *cookie, time_t exptime);
 
     /**
@@ -251,14 +252,14 @@ public:
      *
      * @return a status resulting form executing the method
      */
-    ENGINE_ERROR_CODE statsVKey(const std::string &key,
+    ENGINE_ERROR_CODE statsVKey(const StorageKey &key,
                                 uint16_t vbucket,
                                 const void *cookie);
 
-    void completeStatsVKey(const void* cookie, std::string &key, uint16_t vbid,
+    void completeStatsVKey(const void* cookie, const StorageKey &key, uint16_t vbid,
                            uint64_t bySeqNum);
 
-    protocol_binary_response_status evictKey(const std::string &key,
+    protocol_binary_response_status evictKey(const StorageKey& key,
                                              uint16_t vbucket,
                                              const char **msg,
                                              size_t *msg_size);
@@ -281,7 +282,7 @@ public:
      *
      * @return the result of the delete operation
      */
-    ENGINE_ERROR_CODE deleteItem(const std::string &key,
+    ENGINE_ERROR_CODE deleteItem(const StorageKey &key,
                                  uint64_t* cas,
                                  uint16_t vbucket,
                                  const void *cookie,
@@ -289,7 +290,7 @@ public:
                                  ItemMetaData *itemMeta,
                                  mutation_descr_t *mutInfo);
 
-    ENGINE_ERROR_CODE deleteWithMeta(const std::string &key,
+    ENGINE_ERROR_CODE deleteWithMeta(const StorageKey &key,
                                      uint64_t* cas,
                                      uint64_t* seqno,
                                      uint16_t vbucket,
@@ -350,7 +351,7 @@ public:
      * @param type whether the fetch is for a non-resident value or metadata of
      *             a (possibly) deleted item
      */
-    void bgFetch(const std::string &key,
+    void bgFetch(const StorageKey &key,
                  uint16_t vbucket,
                  const void *cookie,
                  bool isMeta = false);
@@ -365,7 +366,7 @@ public:
      * @param type whether the fetch is for a non-resident value or metadata of
      *             a (possibly) deleted item
      */
-    void completeBGFetch(const std::string &key,
+    void completeBGFetch(const StorageKey &key,
                          uint16_t vbucket,
                          const void *cookie,
                          hrtime_t init,
@@ -552,18 +553,18 @@ public:
      *                     marked as deleted. If false then will return
      *                     ENGINE_KEY_ENOENT for deleted items.
      */
-    ENGINE_ERROR_CODE getKeyStats(const std::string &key, uint16_t vbucket,
+    ENGINE_ERROR_CODE getKeyStats(const StorageKey &key, uint16_t vbucket,
                                   const void* cookie, key_stats &kstats,
                                   bool wantsDeleted);
 
-    std::string validateKey(const std::string &key,  uint16_t vbucket,
+    std::string validateKey(const StorageKey &key,  uint16_t vbucket,
                             Item &diskItem);
 
-    GetValue getLocked(const std::string &key, uint16_t vbucket,
+    GetValue getLocked(const StorageKey &key, uint16_t vbucket,
                        rel_time_t currentTime, uint32_t lockTimeout,
                        const void *cookie);
 
-    ENGINE_ERROR_CODE unlockKey(const std::string &key,
+    ENGINE_ERROR_CODE unlockKey(const StorageKey &key,
                                 uint16_t vbucket,
                                 uint64_t cas,
                                 rel_time_t currentTime);
@@ -585,9 +586,9 @@ public:
         return vbMap.getShardByVbId(vbId)->getROUnderlying();
     }
 
-    void deleteExpiredItem(uint16_t, std::string &, time_t, uint64_t,
+    void deleteExpiredItem(uint16_t, const StorageKey&, time_t, uint64_t,
                            exp_type_t);
-    void deleteExpiredItems(std::list<std::pair<uint16_t, std::string> > &,
+    void deleteExpiredItems(std::list<std::pair<uint16_t, StorageKey> > &,
                             exp_type_t);
 
 
@@ -672,7 +673,7 @@ public:
         bfilterResidencyThreshold = to;
     }
 
-    bool isMetaDataResident(RCPtr<VBucket> &vb, const std::string &key);
+    bool isMetaDataResident(RCPtr<VBucket> &vb, const StorageKey& key);
 
     void incExpirationStat(RCPtr<VBucket> &vb, exp_type_t source) {
         switch (source) {
@@ -846,7 +847,7 @@ protected:
      * @param fetched_item The item which has been fetched.
      */
     void completeBGFetchForSingleItem(RCPtr<VBucket> vb,
-                                      const std::string& key,
+                                      const StorageKey& key,
                                       const hrtime_t startTime,
                                       VBucketBGFetchItem& fetched_item);
 
@@ -913,7 +914,7 @@ protected:
      *
      * @return true if the object was found and method was invoked
      */
-    bool invokeOnLockedStoredValue(const std::string &key, uint16_t vbid,
+    bool invokeOnLockedStoredValue(const StorageKey &key, uint16_t vbid,
                                    void (StoredValue::* f)()) {
         RCPtr<VBucket> vb = getVBucket(vbid);
         if (!vb) {
@@ -934,17 +935,17 @@ protected:
     PersistenceCallback* flushOneDelOrSet(const queued_item &qi,
                                           RCPtr<VBucket> &vb);
 
-    StoredValue *fetchValidValue(RCPtr<VBucket> &vb, const std::string &key,
+    StoredValue *fetchValidValue(RCPtr<VBucket> &vb, const StorageKey &key,
                                  int bucket_num, bool wantsDeleted=false,
                                  bool trackReference=true, bool queueExpired=true);
 
-    GetValue getInternal(const std::string &key, uint16_t vbucket,
+    GetValue getInternal(const StorageKey &key, uint16_t vbucket,
                          const void *cookie,
                          vbucket_state_t allowedState,
                          get_options_t options = TRACK_REFERENCE);
 
     ENGINE_ERROR_CODE addTempItemForBgFetch(LockHolder &lock, int bucket_num,
-                                            const std::string &key, RCPtr<VBucket> &vb,
+                                            const StorageKey &key, RCPtr<VBucket> &vb,
                                             const void *cookie, bool metadataOnly,
                                             bool isReplication = false);
 

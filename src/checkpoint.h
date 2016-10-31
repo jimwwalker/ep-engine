@@ -87,7 +87,7 @@ enum class MustSendCheckpointEnd {
 /**
  * The checkpoint index maps a key to a checkpoint index_entry.
  */
-typedef std::unordered_map<std::string, index_entry> checkpoint_index;
+typedef std::unordered_map<StorageKey, index_entry> checkpoint_index;
 
 /**
  * List of pairs containing checkpoint cursor name and corresponding flag
@@ -358,7 +358,7 @@ public:
         return toWrite.rend();
     }
 
-    bool keyExists(const std::string &key);
+    bool keyExists(const StorageKey& key);
 
     /**
      * Return the memory overhead of this checkpoint instance, except for the memory used by
@@ -384,7 +384,7 @@ public:
      * @param isMetaKey indicates if the key is a checkpoint meta item
      * @return the mutation id for a given key
      */
-    uint64_t getMutationIdForKey(const std::string &key, bool isMetaKey);
+    uint64_t getMutationIdForKey(const StorageKey& key, bool isMetaKey);
 
     /**
      * Function invoked by the cursor-dropper which checks if the
@@ -429,6 +429,10 @@ private:
     // The following stat is to contain the memory consumption of all
     // the queued items in the given checkpoint.
     size_t                         effectiveMemUsage;
+
+    static StorageKey dummyKey;
+    static StorageKey checkpointStartKey;
+    static StorageKey checkpointEndKey;
 
     friend std::ostream& operator <<(std::ostream& os, const Checkpoint& m);
 };

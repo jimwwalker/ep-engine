@@ -46,7 +46,7 @@ struct WarmupCookie {
 };
 
 static bool batchWarmupCallback(uint16_t vbId,
-                                const std::set<std::string>& fetches,
+                                const std::set<StorageKey>& fetches,
                                 void *arg)
 {
     WarmupCookie *c = static_cast<WarmupCookie *>(arg);
@@ -81,7 +81,7 @@ static bool batchWarmupCallback(uint16_t vbId,
                     LOG(EXTENSION_LOG_WARNING,
                     "Warmup failed to load data for vBucket = %d"
                     " key = %s error = %X\n",
-                    vbId, items.first.c_str(), val.getStatus());
+                    vbId, items.first.data(), val.getStatus());
                     c->error++;
                 }
 
@@ -107,7 +107,7 @@ static bool batchWarmupCallback(uint16_t vbId,
     }
 }
 
-static bool warmupCallback(void *arg, uint16_t vb, const std::string &key)
+static bool warmupCallback(void *arg, uint16_t vb, const StorageKey& key)
 {
     WarmupCookie *cookie = static_cast<WarmupCookie*>(arg);
 
@@ -121,7 +121,7 @@ static bool warmupCallback(void *arg, uint16_t vb, const std::string &key)
             cookie->loaded++;
         } else {
             LOG(EXTENSION_LOG_WARNING, "Warmup failed to load data "
-                "for vBucket = %d key = %s error = %X\n", vb, key.c_str(),
+                "for vBucket = %d key = %s error = %X\n", vb, key.data(),
                 cb.val.getStatus());
             cookie->error++;
         }
@@ -262,7 +262,7 @@ void LoadStorageKVPairCallback::callback(GetValue &val) {
             case INVALID_CAS:
                 LOG(EXTENSION_LOG_DEBUG,
                     "Value changed in memory before restore from disk. "
-                    "Ignored disk value for: %s.", i->getKey().c_str());
+                    "Ignored disk value for: %s.", i->getProtocolKey().data());
                 ++stats.warmDups;
                 succeeded = true;
                 break;

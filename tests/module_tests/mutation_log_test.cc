@@ -27,6 +27,7 @@
 #include <sys/stat.h>
 #include <vector>
 
+#include "makestoragekey.h"
 #include "mutation_log.h"
 
 // Windows doesn't have a truncate() function, implement one.
@@ -100,7 +101,7 @@ TEST_F(MutationLogTest, Unconfigured) {
     MutationLog ml("");
     ml.open();
     ASSERT_FALSE(ml.isEnabled());
-    ml.newItem(3, "somekey", 931);
+    ml.newItem(3, makeStorageKey("somekey"),  931);
     ml.commit1();
     ml.commit2();
     ml.flush();
@@ -182,8 +183,8 @@ TEST_F(MutationLogTest, SyncSet) {
 }
 
 static bool loaderFun(void *arg, uint16_t vb,
-                      const std::string &k) {
-    std::set<std::string>* sets = reinterpret_cast<std::set<std::string> *>(arg);
+                      const StorageKey& k) {
+    std::set<StorageKey>* sets = reinterpret_cast<std::set<StorageKey> *>(arg);
     sets[vb].insert(k);
     return true;
 }
@@ -195,10 +196,10 @@ TEST_F(MutationLogTest, Logging) {
         MutationLog ml(tmp_log_filename.c_str());
         ml.open();
 
-        ml.newItem(2, "key1", 2);
+        ml.newItem(2, makeStorageKey("key1"), 2);
         ml.commit1();
         ml.commit2();
-        ml.newItem(3, "key2", 3);
+        ml.newItem(3, makeStorageKey("key2"), 3);
         ml.commit1();
         ml.commit2();
         // Remaining:   3:key2, 2:key1
@@ -230,7 +231,7 @@ TEST_F(MutationLogTest, Logging) {
         EXPECT_EQ(2, ml.itemsLogged[ML_COMMIT2]);
 
         // See if we got what we expect.
-        std::map<std::string, uint64_t> maps[4];
+        std::set<StorageKey> maps[4];
         h.apply(&maps, loaderFun);
 
         EXPECT_EQ(0, maps[0].size());
@@ -238,8 +239,8 @@ TEST_F(MutationLogTest, Logging) {
         EXPECT_EQ(1, maps[2].size());
         EXPECT_EQ(1, maps[3].size());
 
-        EXPECT_NE(maps[2].end(), maps[2].find("key1"));
-        EXPECT_NE(maps[3].end(), maps[3].find("key2"));
+        EXPECT_NE(maps[2].end(), maps[2].find(makeStorageKey("key1")));
+        EXPECT_NE(maps[3].end(), maps[3].find(makeStorageKey("key2")));
     }
 }
 
@@ -250,13 +251,13 @@ TEST_F(MutationLogTest, LoggingDirty) {
         MutationLog ml(tmp_log_filename.c_str());
         ml.open();
 
-        ml.newItem(3, "key1", 1);
-        ml.newItem(2, "key1", 2);
+        ml.newItem(3, makeStorageKey("key1"),  1);
+        ml.newItem(2, makeStorageKey("key1"),  2);
         ml.commit1();
         ml.commit2();
         // This will be dropped from the normal loading path
         // because there's no commit.
-        ml.newItem(3, "key2", 3);
+        ml.newItem(3, makeStorageKey("key2"),  3);
         // Remaining:   3:key1, 2:key1
 
         EXPECT_EQ(3, ml.itemsLogged[ML_NEW]);
@@ -286,7 +287,7 @@ TEST_F(MutationLogTest, LoggingDirty) {
         EXPECT_EQ(1, ml.itemsLogged[ML_COMMIT2]);
 
         // See if we got what we expect.
-        std::map<std::string, uint64_t> maps[4];
+        std::set<StorageKey> maps[4];
         h.apply(&maps, loaderFun);
 
         EXPECT_EQ(0, maps[0].size());
@@ -294,9 +295,9 @@ TEST_F(MutationLogTest, LoggingDirty) {
         EXPECT_EQ(1, maps[2].size());
         EXPECT_EQ(1, maps[3].size());
 
-        EXPECT_NE(maps[2].end(), maps[2].find("key1"));
-        EXPECT_NE(maps[3].end(), maps[3].find("key1"));
-        EXPECT_EQ(maps[3].end(), maps[3].find("key2"));
+        EXPECT_NE(maps[2].end(), maps[2].find(makeStorageKey("key1")));
+        EXPECT_NE(maps[3].end(), maps[3].find(makeStorageKey("key1")));
+        EXPECT_EQ(maps[3].end(), maps[3].find(makeStorageKey("key2")));
 
     }
 }
@@ -308,10 +309,10 @@ TEST_F(MutationLogTest, LoggingBadCRC) {
         MutationLog ml(tmp_log_filename.c_str());
         ml.open();
 
-        ml.newItem(2, "key1", 2);
+        ml.newItem(2, makeStorageKey("key1"),  2);
         ml.commit1();
         ml.commit2();
-        ml.newItem(3, "key2", 3);
+        ml.newItem(3, makeStorageKey("key2"),  3);
         ml.commit1();
         ml.commit2();
         // Remaining:   3:key2, 2:key1
@@ -373,10 +374,10 @@ TEST_F(MutationLogTest, LoggingShortRead) {
         MutationLog ml(tmp_log_filename.c_str());
         ml.open();
 
-        ml.newItem(2, "key1", 2);
+        ml.newItem(2, makeStorageKey("key1"),  2);
         ml.commit1();
         ml.commit2();
-        ml.newItem(3, "key2", 3);
+        ml.newItem(3, makeStorageKey("key2"),  3);
         ml.commit1();
         ml.commit2();
         // Remaining:   3:key2, 2:key1
@@ -427,9 +428,9 @@ TEST_F(MutationLogTest, Iterator) {
     {
         MutationLog ml(tmp_log_filename.c_str());
         ml.open();
-        ml.newItem(0, "key1", 0);
-        ml.newItem(0, "key2", 1);
-        ml.newItem(0, "key3", 2);
+        ml.newItem(0, makeStorageKey("key1"),  0);
+        ml.newItem(0, makeStorageKey("key2"),  1);
+        ml.newItem(0, makeStorageKey("key3"),  2);
         ml.commit1();
         ml.commit2();
 
@@ -468,7 +469,8 @@ TEST_F(MutationLogTest, BatchLoad) {
         // Add a number of items, then check that batch load only returns
         // the requested number.
         for (size_t ii = 0; ii < 10; ii++) {
-            ml.newItem(ii % 2, std::string("key") + std::to_string(ii), ii);
+            std::string key = std::string("key") + std::to_string(ii);
+            ml.newItem(ii % 2, makeStorageKey(key),  ii);
         }
         ml.commit1();
         ml.commit2();
@@ -518,12 +520,12 @@ TEST_F(MutationLogTest, ReadOnly) {
 
     MutationLog m2(tmp_log_filename);
     m2.open();
-    m2.newItem(3, "key1", 1);
+    m2.newItem(3, makeStorageKey("key1"), 1);
     m2.close();
 
     // We should be able to open the file now
     ml.open(true);
 
     // But we should not be able to add items to a read only stream
-    EXPECT_THROW(ml.newItem(4, "key2", 1), MutationLog::WriteException);
+    EXPECT_THROW(ml.newItem(4, makeStorageKey("key2"), 1), MutationLog::WriteException);
 }

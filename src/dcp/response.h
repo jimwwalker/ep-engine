@@ -350,9 +350,9 @@ public:
                                              mutationBaseMsgBytes;
         uint32_t body = 0;
         if (payloadType == KEY_VALUE) {
-            body = item_->getNKey() + item_->getNBytes();
+            body = item_->getProtocolKey().size() + item_->getNBytes();
         } else { // KEY_ONLY
-            body = item_->getNKey();
+            body = item_->getProtocolKey().size();
         }
 
         if (emd) {

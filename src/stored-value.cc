@@ -159,7 +159,7 @@ void StoredValue::reduceMetaDataSize(HashTable &ht, EPStats &st, size_t by) {
 bool StoredValue::hasAvailableSpace(EPStats &st, const Item &itm,
                                     bool isReplication) {
     double newSize = static_cast<double>(st.getTotalMemoryUsed() +
-                                         sizeof(StoredValue) + itm.getNKey());
+                                         sizeof(StoredValue) + itm.getStorageKey().size());
     double maxSize = static_cast<double>(st.getMaxDataSize());
     if (isReplication) {
         return newSize <= (maxSize * st.replicationThrottleThreshold);
@@ -183,7 +183,7 @@ Item* StoredValue::toItem(bool lck, uint16_t vbucket) const {
 }
 
 Item* StoredValue::toValuelessItem(uint16_t vbucket) const {
-    return new Item((void *)getKeyBytes(), getKeyLen(), getFlags(),
+    return new Item(key, getFlags(),
                     getExptime(), NULL /* valuePtr */, 0 /* valuelen */,
                     NULL /* ext_meta*/, 0 /* ext_len */, getCas(),
                     getBySeqno(), vbucket, getRevSeqno());

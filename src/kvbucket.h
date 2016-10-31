@@ -224,7 +224,7 @@ public:
      *
      * @return a GetValue representing the result of the request
      */
-    virtual GetValue get(const std::string &key, uint16_t vbucket,
+    virtual GetValue get(const StorageKey& key, uint16_t vbucket,
                          const void *cookie, get_options_t options) = 0;
 
     virtual GetValue getRandomKey(void) = 0;
@@ -239,7 +239,7 @@ public:
      *
      * @return a GetValue representing the result of the request
      */
-    virtual GetValue getReplica(const std::string &key, uint16_t vbucket,
+    virtual GetValue getReplica(const StorageKey& key, uint16_t vbucket,
                                 const void *cookie,
                                 get_options_t options = static_cast<get_options_t>(
                                                                                    QUEUE_BG_FETCH |
@@ -258,7 +258,7 @@ public:
      * @param metadata where to store the meta informaion
      * @param deleted specifies whether or not the key is deleted
      */
-    virtual ENGINE_ERROR_CODE getMetaData(const std::string &key,
+    virtual ENGINE_ERROR_CODE getMetaData(const StorageKey& key,
                                           uint16_t vbucket,
                                           const void *cookie,
                                           ItemMetaData &metadata,
@@ -300,7 +300,7 @@ public:
      *
      * @return a GetValue representing the result of the request
      */
-    virtual GetValue getAndUpdateTtl(const std::string &key, uint16_t vbucket,
+    virtual GetValue getAndUpdateTtl(const StorageKey& key, uint16_t vbucket,
                                      const void *cookie, time_t exptime) = 0;
 
     /**
@@ -313,14 +313,14 @@ public:
      *
      * @return a status resulting form executing the method
      */
-    virtual ENGINE_ERROR_CODE statsVKey(const std::string &key,
+    virtual ENGINE_ERROR_CODE statsVKey(const StorageKey& key,
                                         uint16_t vbucket,
                                         const void *cookie) = 0;
 
-    virtual void completeStatsVKey(const void* cookie, std::string &key,
+    virtual void completeStatsVKey(const void* cookie, const StorageKey& key,
                                    uint16_t vbid, uint64_t bySeqNum) = 0;
 
-    virtual protocol_binary_response_status evictKey(const std::string &key,
+    virtual protocol_binary_response_status evictKey(const StorageKey& key,
                                                      uint16_t vbucket,
                                                      const char **msg,
                                                      size_t *msg_size) = 0;
@@ -343,7 +343,7 @@ public:
      *
      * @return the result of the delete operation
      */
-    virtual ENGINE_ERROR_CODE deleteItem(const std::string &key,
+    virtual ENGINE_ERROR_CODE deleteItem(const StorageKey& key,
                                          uint64_t* cas,
                                          uint16_t vbucket,
                                          const void *cookie,
@@ -351,7 +351,7 @@ public:
                                          ItemMetaData *itemMeta,
                                          mutation_descr_t *mutInfo) = 0;
 
-    virtual ENGINE_ERROR_CODE deleteWithMeta(const std::string &key,
+    virtual ENGINE_ERROR_CODE deleteWithMeta(const StorageKey& key,
                                              uint64_t* cas,
                                              uint64_t* seqno,
                                              uint16_t vbucket,
@@ -410,7 +410,7 @@ public:
      * @param type whether the fetch is for a non-resident value or metadata of
      *             a (possibly) deleted item
      */
-    virtual void bgFetch(const std::string &key,
+    virtual void bgFetch(const StorageKey& key,
                          uint16_t vbucket,
                          const void *cookie,
                          bool isMeta = false) = 0;
@@ -425,7 +425,7 @@ public:
      * @param type whether the fetch is for a non-resident value or metadata of
      *             a (possibly) deleted item
      */
-    virtual void completeBGFetch(const std::string &key,
+    virtual void completeBGFetch(const StorageKey& key,
                                  uint16_t vbucket,
                                  const void *cookie,
                                  hrtime_t init,
@@ -562,7 +562,7 @@ public:
     virtual size_t visit(std::shared_ptr<VBucketVisitor> visitor,
                          const char *lbl, task_type_t taskGroup, TaskId id,
                          double sleepTime=0) = 0;
-    
+
     /**
      * Visit the items in this epStore, starting the iteration from the
      * given startPosition and allowing the visit to be paused at any point.
@@ -612,19 +612,19 @@ public:
      *                     marked as deleted. If false then will return
      *                     ENGINE_KEY_ENOENT for deleted items.
      */
-    virtual ENGINE_ERROR_CODE getKeyStats(const std::string &key,
+    virtual ENGINE_ERROR_CODE getKeyStats(const StorageKey& key,
                                           uint16_t vbucket, const void* cookie,
                                           key_stats &kstats,
                                           bool wantsDeleted) = 0;
 
-    virtual std::string validateKey(const std::string &key,  uint16_t vbucket,
+    virtual std::string validateKey(const StorageKey& key,  uint16_t vbucket,
                                     Item &diskItem) = 0;
 
-    virtual GetValue getLocked(const std::string &key, uint16_t vbucket,
+    virtual GetValue getLocked(const StorageKey& key, uint16_t vbucket,
                                rel_time_t currentTime, uint32_t lockTimeout,
                                const void *cookie) = 0;
 
-    virtual ENGINE_ERROR_CODE unlockKey(const std::string &key,
+    virtual ENGINE_ERROR_CODE unlockKey(const StorageKey& key,
                                         uint16_t vbucket,
                                         uint64_t cas,
                                         rel_time_t currentTime) = 0;
@@ -638,10 +638,10 @@ public:
 
     virtual KVStore* getROUnderlying(uint16_t vbId) = 0;
 
-    virtual void deleteExpiredItem(uint16_t, std::string &, time_t, uint64_t,
+    virtual void deleteExpiredItem(uint16_t, const StorageKey&, time_t, uint64_t,
                                    exp_type_t) = 0;
     virtual void deleteExpiredItems(
-                                std::list<std::pair<uint16_t, std::string> > &,
+                                std::list<std::pair<uint16_t, StorageKey> > &,
                                 exp_type_t) = 0;
 
 
@@ -710,7 +710,7 @@ public:
     virtual void setBfiltersResidencyThreshold(float to) = 0;
 
     virtual bool isMetaDataResident(RCPtr<VBucket> &vb,
-                                    const std::string &key) = 0;
+                                    const StorageKey& key) = 0;
 
     virtual void incExpirationStat(RCPtr<VBucket> &vb, exp_type_t source) = 0;
 
@@ -836,7 +836,7 @@ protected:
      */
     virtual void completeBGFetchForSingleItem(
                                         RCPtr<VBucket> vb,
-                                        const std::string& key,
+                                        const StorageKey& key,
                                         const hrtime_t startTime,
                                         VBucketBGFetchItem& fetched_item) = 0;
 
@@ -888,7 +888,7 @@ protected:
      *
      * @return true if the object was found and method was invoked
      */
-    virtual bool invokeOnLockedStoredValue(const std::string &key,
+    virtual bool invokeOnLockedStoredValue(const StorageKey& key,
                                            uint16_t vbid,
                                            void (StoredValue::* f)()) = 0;
 
@@ -897,13 +897,13 @@ protected:
                                                   RCPtr<VBucket> &vb) = 0;
 
     virtual StoredValue *fetchValidValue(RCPtr<VBucket> &vb,
-                                         const std::string &key,
+                                         const StorageKey& key,
                                          int bucket_num,
                                          bool wantsDeleted=false,
                                          bool trackReference=true,
                                          bool queueExpired=true) = 0;
 
-    virtual GetValue getInternal(const std::string &key, uint16_t vbucket,
+    virtual GetValue getInternal(const StorageKey& key, uint16_t vbucket,
                                  const void *cookie,
                                  vbucket_state_t allowedState,
                                  get_options_t options = TRACK_REFERENCE) = 0;
@@ -911,7 +911,7 @@ protected:
     virtual ENGINE_ERROR_CODE addTempItemForBgFetch(
                                                 LockHolder &lock,
                                                 int bucket_num,
-                                                const std::string &key,
+                                                const StorageKey& key,
                                                 RCPtr<VBucket> &vb,
                                                 const void *cookie,
                                                 bool metadataOnly,

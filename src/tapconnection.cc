@@ -777,7 +777,7 @@ void TapProducer::reschedule_UNLOCKED(const std::list<TapLogElement>::iterator &
 
 ENGINE_ERROR_CODE TapProducer::processAck(uint32_t s,
                                           uint16_t status,
-                                          const std::string &msg)
+                                          const ProtocolKey& key)
 {
     LockHolder lh(queueLock);
     std::list<TapLogElement>::iterator iter = ackLog_.begin();
@@ -871,7 +871,7 @@ ENGINE_ERROR_CODE TapProducer::processAck(uint32_t s,
         ++numTapNack;
         logger.log(EXTENSION_LOG_DEBUG,
                    "Received temporary TAP nack (#%u): Code: %u (%s)",
-                   seqnoReceived, status, msg.c_str());
+                   seqnoReceived, status, key.data());
 
         // Reschedule _this_ sequence number..
         if (iter != ackLog_.end()) {
@@ -887,7 +887,7 @@ ENGINE_ERROR_CODE TapProducer::processAck(uint32_t s,
         ++numTapNack;
         logger.log(EXTENSION_LOG_WARNING,
                    "Received negative TAP ack (#%u): Code: %u (%s)",
-                   seqnoReceived, status, msg.c_str());
+                   seqnoReceived, status, key.data());
         setDisconnect(true);
         setExpiryTime(0);
         transmitted[iter->vbucket_]--;
@@ -1027,7 +1027,7 @@ const char *TapProducer::opaqueCmdToString(uint32_t opaque_code) {
     return "unknown";
 }
 
-void TapProducer::queueBGFetch_UNLOCKED(const std::string &key, uint64_t id, uint16_t vb) {
+void TapProducer::queueBGFetch_UNLOCKED(const StorageKey& key, uint64_t id, uint16_t vb) {
     ExTask task = new BGFetchCallback(engine(), getName(), key, vb,
                                       getConnectionToken(), 0);
     ExecutorPool::get()->schedule(task, AUXIO_TASK_IDX);
@@ -1803,8 +1803,8 @@ Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
         }
         *vbucket = checkpoint_msg->getVBucketId();
         uint64_t cid = htonll(checkpoint_msg->getRevSeqno());
-        const std::string& key = checkpoint_msg->getKey();
-        itm = new Item(key.data(), key.length(), /*flags*/0, /*exp*/0,
+        const StorageKey& key = checkpoint_msg->getStorageKey();
+        itm = new Item(key, /*flags*/0, /*exp*/0,
                        &cid, sizeof(cid), /*ext_meta*/NULL, /*ext_len*/0,
                        /*cas*/0, /*seqno*/-1,
                        checkpoint_msg->getVBucketId());
@@ -1834,7 +1834,7 @@ Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
 
         // If there's a better version in memory, grab it,
         // else go with what we pulled from disk.
-        GetValue gv(engine_.getKVBucket()->get(itm->getKey(),
+        GetValue gv(engine_.getKVBucket()->get(itm->getStorageKey(),
                                                itm->getVBucketId(), c,
                                                options));
         if (gv.getStatus() == ENGINE_SUCCESS) {
@@ -1848,7 +1848,8 @@ Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
         nru = gv.getNRUValue();
 
         ++stats.numTapBGFetched;
-        qi = queued_item(new Item(itm->getKey(), itm->getVBucketId(),
+
+        qi = queued_item(new Item(itm->getStorageKey(), itm->getVBucketId(),
                                   ret == TAP_MUTATION ? queue_op_set : queue_op_del,
                                   itm->getRevSeqno(), itm->getBySeqno()));
     } else if (hasItemFromVBHashtable_UNLOCKED()) { // Item from memory backfill or checkpoints
@@ -1873,7 +1874,7 @@ Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
 
         if (qi->getOperation() == queue_op_set) {
             get_options_t options = DELETE_TEMP;
-            GetValue gv(engine_.getKVBucket()->get(qi->getKey(),
+            GetValue gv(engine_.getKVBucket()->get(qi->getStorageKey(),
                                                    qi->getVBucketId(), c,
                                                    options));
             ENGINE_ERROR_CODE r = gv.getStatus();
@@ -1887,7 +1888,7 @@ Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
                 ret = TAP_MUTATION;
             } else if (r == ENGINE_KEY_ENOENT) {
                 // Item was deleted and set a message type to tap_deletion.
-                itm = new Item(qi->getKey().c_str(), qi->getNKey(),
+                itm = new Item(qi->getStorageKey(),
                                /*flags*/0, /*exp*/0,
                                /*data*/NULL, /*size*/0,
                                /*ext_meta*/NULL, /*ext_len*/0,
@@ -1895,7 +1896,7 @@ Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
                 itm->setRevSeqno(qi->getRevSeqno());
                 ret = TAP_DELETION;
             } else if (r == ENGINE_EWOULDBLOCK) {
-                queueBGFetch_UNLOCKED(qi->getKey(), gv.getId(), *vbucket);
+                queueBGFetch_UNLOCKED(qi->getStorageKey(), gv.getId(), *vbucket);
                 // If there's an item ready, return NOOP so we'll come
                 // back immediately, otherwise pause the connection
                 // while we wait.
@@ -1920,7 +1921,7 @@ Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
             }
             ++stats.numTapFGFetched;
         } else if (qi->getOperation() == queue_op_del) {
-            itm = new Item(qi->getKey().c_str(), qi->getNKey(),
+            itm = new Item(qi->getStorageKey(),
                            /*flags*/0, /*exp*/0,
                            /*data*/NULL, /*size*/0,
                            /*ext_meta*/NULL, /*ext_len*/0,
@@ -2189,7 +2190,8 @@ ENGINE_ERROR_CODE TapConsumer::mutation(uint32_t opaque, const void* key,
         cas = Item::nextCas();
     }
 
-    Item *item = new Item(key, nkey, flags, exptime, value, nvalue,
+    Item *item = new Item(StorageKey(static_cast<const char*>(key), nkey),
+                          flags, exptime, value, nvalue,
                           &datatype, EXT_META_LEN, cas, -1,
                           vbucket, revSeqno, nru);
 
@@ -2233,7 +2235,7 @@ ENGINE_ERROR_CODE TapConsumer::deletion(uint32_t opaque, const void* key,
                                         uint64_t revSeqno, const void* meta,
                                         uint16_t nmeta) {
     uint64_t delCas = 0;
-    std::string key_str(static_cast<const char*>(key), nkey);
+    StorageKey key_str(static_cast<const char*>(key), nkey);
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
     KVBucket* kvBucket = engine_.getKVBucket();
 

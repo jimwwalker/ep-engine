@@ -302,13 +302,13 @@ void VBucket::doStatsForFlushing(Item& qi, size_t itemBytes)
 
 void VBucket::incrMetaDataDisk(Item& qi)
 {
-    metaDataDisk.fetch_add(qi.getNKey() + sizeof(ItemMetaData));
+    metaDataDisk.fetch_add(qi.getStorageKey().size() + sizeof(ItemMetaData));
 }
 
 void VBucket::decrMetaDataDisk(Item& qi)
 {
     // assume couchstore remove approx this much data from disk
-    metaDataDisk.fetch_sub((qi.getNKey() + sizeof(ItemMetaData)));
+    metaDataDisk.fetch_sub((qi.getStorageKey().size() + sizeof(ItemMetaData)));
 }
 
 void VBucket::resetStats() {
@@ -337,7 +337,7 @@ void VBucket::addStat(const char *nm, const T &val, ADD_STAT add_stat,
     }
 }
 
-size_t VBucket::queueBGFetchItem(const std::string &key,
+size_t VBucket::queueBGFetchItem(const StorageKey& key,
                                  VBucketBGFetchItem *fetch,
                                  BgFetcher *bgFetcher) {
     LockHolder lh(pendingBGFetchesLock);
@@ -540,10 +540,10 @@ void VBucket::initTempFilter(size_t key_count, double probability) {
     }
 }
 
-void VBucket::addToFilter(const std::string &key) {
+void VBucket::addToFilter(const StorageKey& key) {
     LockHolder lh(bfMutex);
     if (bFilter) {
-        bFilter->addKey(key.c_str(), key.length());
+        bFilter->addKey(key.data(), key.size());
     }
 
     // If the temp bloom filter is not found to be NULL,
@@ -552,14 +552,14 @@ void VBucket::addToFilter(const std::string &key) {
     // well, as once compaction completes the temp filter
     // will replace the main bloom filter.
     if (tempFilter) {
-        tempFilter->addKey(key.c_str(), key.length());
+        tempFilter->addKey(key.data(), key.size());
     }
 }
 
-bool VBucket::maybeKeyExistsInFilter(const std::string &key) {
+bool VBucket::maybeKeyExistsInFilter(const StorageKey& key) {
     LockHolder lh(bfMutex);
     if (bFilter) {
-        return bFilter->maybeKeyExists(key.c_str(), key.length());
+        return bFilter->maybeKeyExists(key.data(), key.size());
     } else {
         // If filter doesn't exist, allow the BgFetch to go through.
         return true;
@@ -577,12 +577,12 @@ bool VBucket::isTempFilterAvailable() {
     }
 }
 
-void VBucket::addToTempFilter(const std::string &key) {
+void VBucket::addToTempFilter(const StorageKey& key) {
     // Keys will be added to only the temp filter during
     // compaction.
     LockHolder lh(bfMutex);
     if (tempFilter) {
-        tempFilter->addKey(key.c_str(), key.length());
+        tempFilter->addKey(key.data(), key.size());
     }
 }
 

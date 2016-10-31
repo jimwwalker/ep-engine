@@ -18,7 +18,7 @@
 #pragma once
 
 #include "config.h"
-
+#include "storagekey.h"
 #include "stored-value.h"
 
 class HashTableStatVisitor;
@@ -29,8 +29,8 @@ class PauseResumeHashTableVisitor;
 /**
  * A container of StoredValue instances.
  *
- * The HashTable class is an unordered, associative array which maps keys
- * (a binary std::string) to StoredValue.
+ * The HashTable class is an unordered, associative array which maps StorageKeys
+ * to StoredValue.
  *
  * It supports a limited degreee of concurrent access - the underlying
  * HashTable buckets are guarded by N ht_locks; where N is typically of the
@@ -223,7 +223,7 @@ public:
      * @param key the key to find
      * @return a pointer to a StoredValue -- NULL if not found
      */
-    StoredValue *find(const std::string &key, bool trackReference=true);
+    StoredValue *find(const StorageKey& key, bool trackReference=true);
 
     /**
      * Find a resident item
@@ -330,7 +330,7 @@ public:
      * @return an indication of what happened
      */
     add_type_t unlocked_addTempItem(int &bucket_num,
-                                    const std::string &key,
+                                    const StorageKey& key,
                                     item_eviction_policy_t policy,
                                     bool isReplication = false);
 
@@ -342,7 +342,7 @@ public:
      * @param policy item eviction policy
      * @return an indicator of what the deletion did
      */
-    mutation_type_t softDelete(const std::string &key, uint64_t cas,
+    mutation_type_t softDelete(const StorageKey& key, uint64_t cas,
                                item_eviction_policy_t policy = VALUE_ONLY);
 
     mutation_type_t unlocked_softDelete(StoredValue *v,
@@ -368,7 +368,7 @@ public:
      *
      * @return a pointer to a StoredValue -- NULL if not found
      */
-    StoredValue* unlocked_find(const std::string &key, int bucket_num,
+    StoredValue* unlocked_find(const StorageKey& key, int bucket_num,
                                bool wantsDeleted=false,
                                bool trackReference=true);
 
@@ -392,16 +392,6 @@ public:
         }
 
         return h;
-    }
-
-    /**
-     * Compute a hash for the given string.
-     *
-     * @param s the string
-     * @return the hash value
-     */
-    inline int hash(const std::string &s) {
-        return hash(s.data(), s.length());
     }
 
     /**
@@ -441,24 +431,11 @@ public:
      * Get a lock holder holding a lock for the bucket for the hash of
      * the given key.
      *
-     * @param s the start of the key
-     * @param n the size of the key
-     * @param bucket output parameter to receive a bucket
-     * @return a locked LockHolder
-     */
-    inline LockHolder getLockedBucket(const char *s, size_t n, int *bucket) {
-        return getLockedBucket(hash(s, n), bucket);
-    }
-
-    /**
-     * Get a lock holder holding a lock for the bucket for the hash of
-     * the given key.
-     *
      * @param s the key
      * @param bucket output parameter to receive a bucket
      * @return a locked LockHolder
      */
-    inline LockHolder getLockedBucket(const std::string &s, int *bucket) {
+    inline LockHolder getLockedBucket(const StorageKey& s, int *bucket) {
         return getLockedBucket(hash(s.data(), s.size()), bucket);
     }
 
@@ -471,15 +448,15 @@ public:
      * @param bucket_num the bucket to look in (must already be locked)
      * @return true if an object was deleted, false otherwise
      */
-    bool unlocked_del(const std::string &key, int bucket_num);
+    bool unlocked_del(const StorageKey& key, int bucket_num);
 
     /**
      * Delete the item with the given key.
      *
-     * @param key the key to delete
+     * @param key the storage key of the value to delete
      * @return true if the item existed before this call
      */
-    bool del(const std::string &key) {
+    bool del(const StorageKey& key) {
         int bucket_num(0);
         LockHolder lh = getLockedBucket(key, &bucket_num);
         return unlocked_del(key, bucket_num);

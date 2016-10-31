@@ -290,7 +290,7 @@ public:
  */
 class VKeyStatBGFetchTask : public GlobalTask {
 public:
-    VKeyStatBGFetchTask(EventuallyPersistentEngine *e, const std::string &k,
+    VKeyStatBGFetchTask(EventuallyPersistentEngine *e, const StorageKey& k,
                         uint16_t vbid, uint64_t s, const void *c, int sleeptime = 0,
                         bool completeBeforeShutdown = false)
         : GlobalTask(e, TaskId::VKeyStatBGFetchTask, sleeptime, completeBeforeShutdown),
@@ -303,13 +303,14 @@ public:
 
     std::string getDescription() {
         std::stringstream ss;
-        ss << "Fetching item from disk for vkey stat:  " << key<<" vbucket "
-           <<vbucket;
+        // NOT SAFE FOR POOS SAKE key.data() may not be zero terminated
+        ss << "Fetching item from disk for vkey stat:  " << key.data() <<" vb:"
+           << vbucket;
         return ss.str();
     }
 
 private:
-    std::string                      key;
+    StorageKey                       key;
     uint16_t                         vbucket;
     uint64_t                         bySeqNum;
     const void                      *cookie;
@@ -321,7 +322,7 @@ private:
  */
 class SingleBGFetcherTask : public GlobalTask {
 public:
-    SingleBGFetcherTask(EventuallyPersistentEngine *e, const std::string &k,
+    SingleBGFetcherTask(EventuallyPersistentEngine *e, const StorageKey& k,
                        uint16_t vbid, const void *c, bool isMeta,
                        int sleeptime = 0, bool completeBeforeShutdown = false)
         : GlobalTask(e, TaskId::SingleBGFetcherTask, sleeptime, completeBeforeShutdown),
@@ -335,12 +336,12 @@ public:
 
     std::string getDescription() {
         std::stringstream ss;
-        ss << "Fetching item from disk:  " << key<<" vbucket "<<vbucket;
+        ss << "Fetching item from disk:  " << key.data() <<" vb:"<<vbucket;
         return ss.str();
     }
 
 private:
-    const std::string          key;
+    const StorageKey           key;
     uint16_t                   vbucket;
     const void                *cookie;
     bool                       metaFetch;

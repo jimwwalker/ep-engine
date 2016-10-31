@@ -48,6 +48,7 @@
 #include <vector>
 
 #include <atomic>
+#include "storagekey.h"
 #include <platform/histogram.h>
 #include "utility.h"
 
@@ -220,8 +221,17 @@ public:
      */
     static MutationLogEntry* newEntry(uint8_t *buf,
                                       uint64_t r, mutation_log_type_t t,
-                                      uint16_t vb, const std::string &k) {
+                                      uint16_t vb, const StorageKey& k) {
         return new (buf) MutationLogEntry(r, t, vb, k);
+    }
+
+    static MutationLogEntry* newEntry(uint8_t *buf,
+                                      uint64_t r, mutation_log_type_t t,
+                                      uint16_t vb) {
+        if (t == ML_NEW) {
+            throw std::invalid_argument("MutationLogEntry::newEntry: invalid type");
+        }
+        return new (buf) MutationLogEntry(r, t, vb);
     }
 
     /**
@@ -263,9 +273,8 @@ public:
      * the specified length.
      */
     static size_t len(size_t klen) {
-        // 13 == the exact empty record size as will be packed into
-        // the layout
-        return 13 + klen;
+        // the exact empty record size as will be packed into the layout
+        return sizeof(MutationLogEntry) + (klen - 1);
     }
 
     /**
@@ -273,14 +282,14 @@ public:
      * MutationLogEntry.
      */
     size_t len() const {
-        return len(keylen);
+        return len(_key.size());
     }
 
     /**
      * This entry's key.
      */
-    const std::string key() const {
-        return std::string(_key, keylen);
+    StorageKey key() const {
+        return StorageKey(_key);
     }
 
     /**
@@ -308,25 +317,33 @@ private:
                                      const MutationLogEntry &e);
 
     MutationLogEntry(uint64_t r, mutation_log_type_t t,
-                     uint16_t vb, const std::string &k)
-        : _rowid(htonll(r)), _vbucket(htons(vb)), magic(MUTATION_LOG_MAGIC),
+                     uint16_t vb, const StorageKey& k)
+        : _rowid(htonll(r)),
+          _vbucket(htons(vb)),
+          magic(MUTATION_LOG_MAGIC),
           _type(static_cast<uint8_t>(t)),
-          keylen(static_cast<uint8_t>(k.length())) {
-        if (k.length() > std::numeric_limits<uint8_t>::max()) {
+          _key(k) {
+        if (k.size() > std::numeric_limits<uint8_t>::max()) {
             throw std::invalid_argument("MutationLogEntry(): key length "
-                    "(which is " + std::to_string(k.length()) +
+                    "(which is " + std::to_string(k.size()) +
                     ") is greater than " +
                     std::to_string(std::numeric_limits<uint8_t>::max()));
         }
-        memcpy(_key, k.data(), k.length());
+    }
+
+    MutationLogEntry(uint64_t r, mutation_log_type_t t,
+                     uint16_t vb)
+        : _rowid(htonll(r)),
+          _vbucket(htons(vb)),
+          magic(MUTATION_LOG_MAGIC),
+          _type(static_cast<uint8_t>(t)) {
     }
 
     uint64_t _rowid;
     uint16_t _vbucket;
     uint8_t  magic;
     uint8_t  _type;
-    uint8_t  keylen;
-    char     _key[1];
+    SerialisedStorageKey _key;
 
     DISALLOW_COPY_AND_ASSIGN(MutationLogEntry);
 };
@@ -345,7 +362,7 @@ public:
 
     ~MutationLog();
 
-    void newItem(uint16_t vbucket, const std::string &key, uint64_t rowid);
+    void newItem(uint16_t vbucket, const StorageKey& key, uint64_t rowid);
 
     void commit1();
 
@@ -568,16 +585,16 @@ typedef std::pair<uint64_t, uint8_t> mutation_log_event_t;
 /**
  * MutationLogHarvester::apply callback type.
  */
-typedef bool (*mlCallback)(void*, uint16_t, const std::string &);
+typedef bool (*mlCallback)(void*, uint16_t, const StorageKey&);
 typedef bool (*mlCallbackWithQueue)(uint16_t,
-                                    const std::set<std::string>&,
+                                    const std::set<StorageKey>&,
                                     void *arg);
 
 /**
  * Type for mutation log leftovers.
  */
 struct mutation_log_uncommitted_t {
-    std::string         key;
+    StorageKey          key;
     uint64_t            rowid;
     mutation_log_type_t type;
     uint16_t            vbucket;
@@ -648,7 +665,7 @@ private:
     EventuallyPersistentEngine *engine;
     std::set<uint16_t> vbid_set;
 
-    std::unordered_map<uint16_t, std::set<std::string>> committed;
-    std::unordered_map<uint16_t, std::set<std::string>> loading;
+    std::unordered_map<uint16_t, std::set<StorageKey>> committed;
+    std::unordered_map<uint16_t, std::set<StorageKey>> loading;
     size_t itemsSeen[MUTATION_LOG_TYPES];
 };

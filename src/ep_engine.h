@@ -21,6 +21,7 @@
 #include "config.h"
 
 #include "ep.h"
+#include "storagekey.h"
 #include "kvbucket.h"
 #include "tapconnection.h"
 #include "taskable.h"
@@ -241,7 +242,8 @@ public:
         uint8_t ext_meta[1];
         uint8_t ext_len = EXT_META_LEN;
         *(ext_meta) = datatype;
-        *itm = new Item(key, nkey, flags, expiretime, NULL, nbytes, ext_meta,
+        *itm = new Item(StorageKey(static_cast<const char*>(key), nkey),
+                        flags, expiretime, NULL, nbytes, ext_meta,
                         ext_len);
         if (*itm == NULL) {
             return memoryCondition();
@@ -258,12 +260,12 @@ public:
                                  uint16_t vbucket,
                                  mutation_descr_t *mut_info)
     {
-        std::string k(static_cast<const char*>(key), nkey);
+        StorageKey k(static_cast<const char*>(key), nkey);
         return itemDelete(cookie, k, cas, vbucket, mut_info);
     }
 
     ENGINE_ERROR_CODE itemDelete(const void* cookie,
-                                 const std::string &key,
+                                 const StorageKey& key,
                                  uint64_t* cas,
                                  uint16_t vbucket,
                                  mutation_descr_t *mut_info)
@@ -297,7 +299,7 @@ public:
                           get_options_t options)
     {
         BlockTimer timer(&stats.getCmdHisto);
-        std::string k(static_cast<const char*>(key), nkey);
+        StorageKey k(static_cast<const char*>(key), nkey);
 
         GetValue gv(kvBucket->get(k, vbucket, cookie, options));
         ENGINE_ERROR_CODE ret = gv.getStatus();
@@ -550,21 +552,21 @@ public:
         flushAllEnabled = enabled;
     }
 
-    protocol_binary_response_status evictKey(const std::string &key,
+    protocol_binary_response_status evictKey(const StorageKey& key,
                                              uint16_t vbucket,
                                              const char **msg,
                                              size_t *msg_size) {
         return kvBucket->evictKey(key, vbucket, msg, msg_size);
     }
 
-    GetValue getLocked(const std::string &key, uint16_t vbucket,
+    GetValue getLocked(const StorageKey& key, uint16_t vbucket,
                        rel_time_t currentTime, uint32_t lockTimeout,
                        const void *cookie) {
         return kvBucket->getLocked(key, vbucket, currentTime, lockTimeout,
                                    cookie);
     }
 
-    ENGINE_ERROR_CODE unlockKey(const std::string &key,
+    ENGINE_ERROR_CODE unlockKey(const StorageKey& key,
                                 uint16_t vbucket,
                                 uint64_t cas,
                                 rel_time_t currentTime) {
@@ -760,7 +762,7 @@ protected:
     ENGINE_ERROR_CODE processTapAck(const void *cookie,
                                     uint32_t seqno,
                                     uint16_t status,
-                                    const std::string &msg);
+                                    const ProtocolKey& key);
 
     /**
      * Report the state of a memory condition when out of memory.
@@ -828,7 +830,7 @@ protected:
     ENGINE_ERROR_CODE doRunTimeStats(const void *cookie, ADD_STAT add_stat);
     ENGINE_ERROR_CODE doDispatcherStats(const void *cookie, ADD_STAT add_stat);
     ENGINE_ERROR_CODE doKeyStats(const void *cookie, ADD_STAT add_stat,
-                                 uint16_t vbid, std::string &key, bool validate=false);
+                                 uint16_t vbid, const StorageKey &key, bool validate=false);
     ENGINE_ERROR_CODE doTapVbTakeoverStats(const void *cookie,
                                            ADD_STAT add_stat,
                                            std::string& key,
@@ -859,7 +861,7 @@ protected:
             if (it->second != NULL) {
                 LOG(EXTENSION_LOG_DEBUG,
                     "Cleaning up old lookup result for '%s'",
-                    it->second->getKey().c_str());
+                    it->second->getProtocolKey().data());
                 delete it->second;
             } else {
                 LOG(EXTENSION_LOG_DEBUG, "Cleaning up old null lookup result");

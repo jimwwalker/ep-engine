@@ -20,9 +20,8 @@
 
 #include "config.h"
 
-#include <string>
-
 #include "locks.h"
+#include "storagekey.h"
 #include "syncobject.h"
 #include "utility.h"
 
@@ -30,18 +29,18 @@ class Item;
 
 class CacheLookup {
 public:
-    CacheLookup(std::string k, int64_t s, uint16_t vb) :
+    CacheLookup(const StorageKey& k, int64_t s, uint16_t vb) :
         key(k), bySeqno(s), vbid(vb) {}
 
     ~CacheLookup() {}
 
-    std::string& getKey() { return key; }
+    StorageKey& getKey() { return key; }
 
     int64_t getBySeqno() { return bySeqno; }
 
     uint16_t getVBucketId() { return vbid; }
 private:
-    std::string key;
+    StorageKey key;
     int64_t bySeqno;
     uint16_t vbid;
 };

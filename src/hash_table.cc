@@ -202,8 +202,8 @@ void HashTable::resize(size_t newSize) {
             StoredValue *v = values[i];
             values[i] = v->next;
 
-            int newBucket = getBucketForHash(hash(v->getKeyBytes(),
-                                                  v->getKeyLen()));
+            int newBucket = getBucketForHash(hash(v->getKey().data(),
+                                                  v->getKey().size()));
             v->next = newValues[newBucket];
             newValues[newBucket] = v;
         }
@@ -216,7 +216,7 @@ void HashTable::resize(size_t newSize) {
     stats.memOverhead.fetch_add(memorySize());
 }
 
-StoredValue* HashTable::find(const std::string &key, bool trackReference) {
+StoredValue* HashTable::find(const StorageKey& key, bool trackReference) {
     if (!isActive()) {
         throw std::logic_error("HashTable::find: Cannot call on a "
                 "non-active object");
@@ -246,8 +246,8 @@ mutation_type_t HashTable::set(Item &val, uint64_t cas,
                                bool allowExisting, bool hasMetaData,
                                item_eviction_policy_t policy) {
     int bucket_num(0);
-    LockHolder lh = getLockedBucket(val.getKey(), &bucket_num);
-    StoredValue *v = unlocked_find(val.getKey(), bucket_num, true, false);
+    LockHolder lh = getLockedBucket(val.getStorageKey(), &bucket_num);
+    StoredValue *v = unlocked_find(val.getStorageKey(), bucket_num, true, false);
     return unlocked_set(v, val, cas, allowExisting, hasMetaData, policy);
 }
 
@@ -330,7 +330,8 @@ mutation_type_t HashTable::unlocked_set(StoredValue*& v, Item& itm,
     } else if (cas != 0) {
         rv = NOT_FOUND;
     } else {
-        int bucket_num = getBucketForHash(hash(itm.getKey()));
+        // int bucket_num = getBucketForHash(item.getStorageKey().hash());
+        int bucket_num = getBucketForHash(hash(itm.getStorageKey().data(), itm.getStorageKey().size()));
         v = valFact(itm, values[bucket_num], *this);
         values[bucket_num] = v;
         ++numItems;
@@ -362,8 +363,8 @@ mutation_type_t HashTable::insert(Item &itm, item_eviction_policy_t policy,
     }
 
     int bucket_num(0);
-    LockHolder lh = getLockedBucket(itm.getKey(), &bucket_num);
-    StoredValue *v = unlocked_find(itm.getKey(), bucket_num, true, false);
+    LockHolder lh = getLockedBucket(itm.getStorageKey(), &bucket_num);
+    StoredValue *v = unlocked_find(itm.getStorageKey(), bucket_num, true, false);
 
     if (v == NULL) {
         v = valFact(itm, values[bucket_num], *this);
@@ -422,8 +423,8 @@ add_type_t HashTable::add(Item &val, item_eviction_policy_t policy,
                 "non-active object");
     }
     int bucket_num(0);
-    LockHolder lh = getLockedBucket(val.getKey(), &bucket_num);
-    StoredValue *v = unlocked_find(val.getKey(), bucket_num, true, false);
+    LockHolder lh = getLockedBucket(val.getStorageKey(), &bucket_num);
+    StoredValue *v = unlocked_find(val.getStorageKey(), bucket_num, true, false);
     return unlocked_add(bucket_num, v, val, policy, isDirty,
                         /*maybeKeyExists*/true, /*isReplication*/false);
 }
@@ -511,7 +512,7 @@ add_type_t HashTable::unlocked_add(int &bucket_num,
 }
 
 add_type_t HashTable::unlocked_addTempItem(int &bucket_num,
-                                           const std::string &key,
+                                           const StorageKey& key,
                                            item_eviction_policy_t policy,
                                            bool isReplication) {
 
@@ -522,7 +523,7 @@ add_type_t HashTable::unlocked_addTempItem(int &bucket_num,
     uint8_t ext_meta[1];
     uint8_t ext_len = EXT_META_LEN;
     *(ext_meta) = PROTOCOL_BINARY_RAW_BYTES;
-    Item itm(key.c_str(), key.length(), /*flags*/0, /*exp*/0, /*data*/NULL,
+    Item itm(key, /*flags*/0, /*exp*/0, /*data*/NULL,
              /*size*/0, ext_meta, ext_len, 0, StoredValue::state_temp_init);
 
     // if a temp item for a possibly deleted, set it non-resident by resetting
@@ -535,7 +536,7 @@ add_type_t HashTable::unlocked_addTempItem(int &bucket_num,
                         isReplication);
 }
 
-mutation_type_t HashTable::softDelete(const std::string &key, uint64_t cas,
+mutation_type_t HashTable::softDelete(const StorageKey& key, uint64_t cas,
                                       item_eviction_policy_t policy) {
     if (!isActive()) {
         throw std::logic_error("HashTable::softDelete: Cannot call on a "
@@ -616,7 +617,7 @@ mutation_type_t HashTable::unlocked_softDelete(StoredValue *v,
     return rv;
 }
 
-StoredValue* HashTable::unlocked_find(const std::string &key, int bucket_num,
+StoredValue* HashTable::unlocked_find(const StorageKey& key, int bucket_num,
                                       bool wantsDeleted, bool trackReference) {
     StoredValue *v = values[bucket_num];
     while (v) {
@@ -635,7 +636,7 @@ StoredValue* HashTable::unlocked_find(const std::string &key, int bucket_num,
     return NULL;
 }
 
-bool HashTable::unlocked_del(const std::string &key, int bucket_num) {
+bool HashTable::unlocked_del(const StorageKey& key, int bucket_num) {
     if (!isActive()) {
         throw std::logic_error("HashTable::unlocked_del: Cannot call on a "
                 "non-active object");
@@ -717,8 +718,8 @@ void HashTable::visit(HashTableVisitor &visitor) {
             if (v) {
                 // TODO: Perf: This check seems costly - do we think it's still
                 // worth keeping?
-                auto hashbucket = getBucketForHash(hash(v->getKeyBytes(),
-                                                        v->getKeyLen()));
+                auto hashbucket = getBucketForHash(hash(v->getKey().data(),
+                                                        v->getKey().size()));
                 if (i != hashbucket) {
                     throw std::logic_error("HashTable::visit: inconsistency "
                             "between StoredValue's calculated hashbucket "
@@ -754,8 +755,8 @@ void HashTable::visitDepth(HashTableDepthVisitor &visitor) {
             if (p) {
                 // TODO: Perf: This check seems costly - do we think it's still
                 // worth keeping?
-                auto hashbucket = getBucketForHash(hash(p->getKeyBytes(),
-                                                        p->getKeyLen()));
+                auto hashbucket = getBucketForHash(hash(p->getKey().data(),
+                                                        p->getKey().size()));
                 if (i != hashbucket) {
                     throw std::logic_error("HashTable::visit: inconsistency "
                             "between StoredValue's calculated hashbucket "
@@ -897,8 +898,8 @@ bool HashTable::unlocked_ejectItem(StoredValue*& vptr,
             StoredValue::reduceMetaDataSize(*this, stats,
                                             vptr->metaDataSize());
             StoredValue::reduceCacheSize(*this, vptr->size());
-
-            int bucket_num = getBucketForHash(hash(vptr->getKey()));
+            // TODO? Mave vptr->hash() ??
+            int bucket_num = getBucketForHash(hash(vptr->getKey().data(), vptr->getKey().size()));
             StoredValue *v = values[bucket_num];
             // Remove the item from the hash table.
             if (v == vptr) {

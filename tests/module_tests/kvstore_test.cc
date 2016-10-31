@@ -21,10 +21,12 @@
 
 #include "callbacks.h"
 #include "compress.h"
-#include "kvstore.h"
 #include "couch-kvstore/couch-kvstore.h"
-#include "tests/test_fileops.h"
+#include "kvstore.h"
+#include "makestoragekey.h"
 #include "src/internal.h"
+#include "tests/test_fileops.h"
+
 
 #include <gtest/gtest.h>
 #include <gmock/gmock.h>
@@ -224,15 +226,15 @@ TEST_P(CouchAndForestTest, BasicTest) {
     auto kvstore = setup_kv_store(config);
 
     kvstore->begin();
-
-    Item item("key", 3, 0, 0, "value", 5);
+    StorageKey key = makeStorageKey("key");
+    Item item(key, 0, 0, "value", 5);
     WriteCallback wc;
     kvstore->set(item, wc);
 
     EXPECT_TRUE(kvstore->commit());
 
     GetCallback gc;
-    kvstore->get("key", 0, gc);
+    kvstore->get(key, 0, gc);
 }
 
 TEST(CouchKVStoreTest, CompressedTest) {
@@ -248,7 +250,7 @@ TEST(CouchKVStoreTest, CompressedTest) {
     WriteCallback wc;
     for (int i = 1; i <= 5; i++) {
         std::string key("key" + std::to_string(i));
-        Item item(key.c_str(), key.length(),
+        Item item(makeStorageKey(key),
                   0, 0, "value", 5, &datatype, 1, 0, i);
         kvstore->set(item, wc);
     }
@@ -280,7 +282,7 @@ TEST(CouchKVStoreTest, StatsTest) {
     kvstore->begin();
     const std::string key{"key"};
     const std::string value{"value"};
-    Item item(key.c_str(), key.size(), 0, 0, value.c_str(), value.size());
+    Item item(makeStorageKey(key), 0, 0, value.c_str(), value.size());
     WriteCallback wc;
     kvstore->set(item, wc);
 
@@ -291,7 +293,7 @@ TEST(CouchKVStoreTest, StatsTest) {
     kvstore->addStats(add_stat_callback, &stats);
     EXPECT_EQ("1", stats["rw_0:io_num_write"]);
     const size_t io_write_bytes = stoul(stats["rw_0:io_write_bytes"]);
-    EXPECT_EQ(key.size() + value.size() +
+    EXPECT_EQ(key.size() + value.size() + 1 +
               MetaData::getMetaDataSize(MetaData::Version::V1),
               io_write_bytes);
 
@@ -314,7 +316,7 @@ TEST(CouchKVStoreTest, CompactStatsTest) {
     kvstore->begin();
     const std::string key{"key"};
     const std::string value{"value"};
-    Item item(key.c_str(), key.size(), 0, 0, value.c_str(), value.size());
+    Item item(makeStorageKey(key), 0, 0, value.c_str(), value.size());
     WriteCallback wc;
     kvstore->set(item, wc);
 
@@ -513,7 +515,7 @@ protected:
     void generate_items(size_t count) {
         for(unsigned i(0); i < count; i++) {
             std::string key("key" + std::to_string(i));
-            items.push_back(Item(key.data(), key.length(), 0, 0, "value", 5,
+            items.push_back(Item(makeStorageKey(key), 0, 0, "value", 5,
                                  nullptr, 0, 0, i + 1));
         }
     }
@@ -533,7 +535,7 @@ protected:
         vb_bgfetch_item_ctx_t ctx;
         ctx.isMetaOnly = false;
         for(const auto& item: items) {
-            itms[item.getKey()] = ctx;
+            itms[item.getStorageKey()] = ctx;
         }
         return itms;
     }
@@ -692,7 +694,7 @@ TEST_F(CouchKVStoreErrorInjectionTest, get_docinfo_by_id) {
         EXPECT_CALL(ops, pread(_, _, _, _, _))
             .WillOnce(Return(COUCHSTORE_ERROR_READ)).RetiresOnSaturation();
         EXPECT_CALL(ops, pread(_, _, _, _, _)).Times(3).RetiresOnSaturation();
-        kvstore->get(items.front().getKey(), 0, get_callback);
+        kvstore->get(items.front().getStorageKey(), 0, get_callback);
 
     }
 }
@@ -714,7 +716,7 @@ TEST_F(CouchKVStoreErrorInjectionTest, get_open_doc_with_docinfo) {
         EXPECT_CALL(ops, pread(_, _, _, _, _))
             .WillOnce(Return(COUCHSTORE_ERROR_READ)).RetiresOnSaturation();
         EXPECT_CALL(ops, pread(_, _, _, _, _)).Times(5).RetiresOnSaturation();
-        kvstore->get(items.front().getKey(), 0, get_callback);
+        kvstore->get(items.front().getStorageKey(), 0, get_callback);
 
     }
 }
@@ -1047,8 +1049,8 @@ TEST_F(CouchKVStoreErrorInjectionTest, readVBState_open_local_document) {
 TEST_F(CouchKVStoreErrorInjectionTest, getAllKeys_all_docs) {
     populate_items(1);
 
-    auto adcb(std::make_shared<CustomCallback<const std::string&>>());
-    std::string start("");
+    auto adcb(std::make_shared<CustomCallback<const StorageKeyNoHeap&>>());
+    StorageKey start = makeStorageKey("");
     {
         /* Establish Logger expectation */
         EXPECT_CALL(logger, mlog(_, _)).Times(AnyNumber());
@@ -1244,7 +1246,8 @@ class MockedGetCallback : public Callback<T> {
  *
  */
 TEST_F(CouchstoreTest, noMeta) {
-    Item item("key", 3, 0, 0, "value", 5);
+    StorageKey key = makeStorageKey("key");
+    Item item(key, 0, 0, "value", 5);
     WriteCallback wc;
     kvstore->begin();
     auto request = kvstore->setAndReturnRequest(item, wc);
@@ -1256,11 +1259,12 @@ TEST_F(CouchstoreTest, noMeta) {
     kvstore->commit();
 
     GetCallback gc(ENGINE_TMPFAIL);
-    kvstore->get("key", 0, gc);
+    kvstore->get(key, 0, gc);
 }
 
 TEST_F(CouchstoreTest, shortMeta) {
-    Item item("key", 3, 0, 0, "value", 5);
+    StorageKey key = makeStorageKey("key");
+    Item item(key, 0, 0, "value", 5);
     WriteCallback wc;
     kvstore->begin();
     auto request = kvstore->setAndReturnRequest(item, wc);
@@ -1271,14 +1275,15 @@ TEST_F(CouchstoreTest, shortMeta) {
     kvstore->commit();
 
     GetCallback gc(ENGINE_TMPFAIL);
-    kvstore->get("key", 0, gc);
+    kvstore->get(key, 0, gc);
 }
 
 TEST_F(CouchstoreTest, testV0MetaThings) {
+    StorageKey key = makeStorageKey("key");
     // Baseline test, just writes meta things and reads them
     // via standard interfaces
     // Ensure CAS, exptime and flags are set to something.
-    Item item("key", 3,
+    Item item(key,
               0x01020304/*flags*/, 0xaa00bb11/*expiry*/,
               "value", 5,
               nullptr, 0,
@@ -1295,7 +1300,7 @@ TEST_F(CouchstoreTest, testV0MetaThings) {
     EXPECT_CALL(gc, expTime(0xaa00bb11));
     EXPECT_CALL(gc, flags(0x01020304));
     EXPECT_CALL(gc, datatype(PROTOCOL_BINARY_RAW_BYTES));
-    kvstore->get("key", 0, gc);
+    kvstore->get(key, 0, gc);
 }
 
 TEST_F(CouchstoreTest, testV1MetaThings) {
@@ -1303,7 +1308,8 @@ TEST_F(CouchstoreTest, testV1MetaThings) {
     // via standard interfaces
     // Ensure CAS, exptime and flags are set to something.
     uint8_t datatype = PROTOCOL_BINARY_DATATYPE_JSON; //lies, but non-zero
-    Item item("key", 3,
+    StorageKey key = makeStorageKey("key");
+    Item item(key,
               0x01020304/*flags*/, 0xaa00bb11,/*expiry*/
               "value", 5,
               &datatype, 1, /*ext_meta is v1 extension*/
@@ -1321,11 +1327,12 @@ TEST_F(CouchstoreTest, testV1MetaThings) {
     EXPECT_CALL(gc, flags(0x01020304));
     EXPECT_CALL(gc, datatype(PROTOCOL_BINARY_DATATYPE_JSON));
 
-    kvstore->get("key", 0, gc);
+    kvstore->get(key, 0, gc);
 }
 
 TEST_F(CouchstoreTest, fuzzV0) {
-    Item item("key", 3, 0, 0, "value", 5);
+    StorageKey key = makeStorageKey("key");
+    Item item(key, 0, 0, "value", 5);
     WriteCallback wc;
     kvstore->begin();
     auto request = kvstore->setAndReturnRequest(item, wc);
@@ -1345,11 +1352,12 @@ TEST_F(CouchstoreTest, fuzzV0) {
     EXPECT_CALL(gc, expTime(htonl(0xaa00bb11)));
     EXPECT_CALL(gc, flags(0x01020304));
     EXPECT_CALL(gc, datatype(PROTOCOL_BINARY_RAW_BYTES));
-    kvstore->get("key", 0, gc);
+    kvstore->get(key, 0, gc);
 }
 
 TEST_F(CouchstoreTest, fuzzV1) {
-    Item item("key", 3, 0, 0, "value", 5);
+    StorageKey key = makeStorageKey("key");
+    Item item(key, 0, 0, "value", 5);
     WriteCallback wc;
     kvstore->begin();
     auto request = kvstore->setAndReturnRequest(item, wc);
@@ -1370,13 +1378,14 @@ TEST_F(CouchstoreTest, fuzzV1) {
     EXPECT_CALL(gc, expTime(htonl(0xaa00bb11)));
     EXPECT_CALL(gc, flags(0x01020304));
     EXPECT_CALL(gc, datatype(protocol_binary_datatype_t(expectedDataType)));
-    kvstore->get("key", 0, gc);
+    kvstore->get(key, 0, gc);
 }
 
 TEST_F(CouchstoreTest, testV0WriteReadWriteRead) {
     // Ensure CAS, exptime and flags are set to something.
     uint8_t datatype = PROTOCOL_BINARY_DATATYPE_JSON; //lies, but non-zero
-    Item item("key", 3,
+    StorageKey key = makeStorageKey("key");
+    Item item(key,
               0x01020304/*flags*/, 0xaa00bb11,/*expiry*/
               "value", 5,
               &datatype, 1, /*ext_meta is v1 extension*/
@@ -1407,7 +1416,7 @@ TEST_F(CouchstoreTest, testV0WriteReadWriteRead) {
     EXPECT_CALL(gc, expTime(htonl(0xaa00bb11)));
     EXPECT_CALL(gc, flags(0x01020304));
     EXPECT_CALL(gc, datatype(protocol_binary_datatype_t(meta.ext2)));
-    kvstore->get("key", 0, gc);
+    kvstore->get(key, 0, gc);
 
     // Write back the item we read (this will write out V1 meta)
     kvstore->begin();
@@ -1421,13 +1430,14 @@ TEST_F(CouchstoreTest, testV0WriteReadWriteRead) {
     EXPECT_CALL(gc2, expTime(htonl(0xaa00bb11)));
     EXPECT_CALL(gc2, flags(0x01020304));
     EXPECT_CALL(gc2, datatype(protocol_binary_datatype_t(meta.ext2)));
-    kvstore->get("key", 0, gc2);
+    kvstore->get(key, 0, gc2);
 }
 
 TEST_F(CouchstoreTest, testV2WriteRead) {
     // Ensure CAS, exptime and flags are set to something.
     uint8_t datatype = PROTOCOL_BINARY_DATATYPE_JSON; //lies, but non-zero
-    Item item("key", 3,
+    StorageKey key = makeStorageKey("key");
+    Item item(key,
               0x01020304/*flags*/, 0xaa00bb11,/*expiry*/
               "value", 5,
               &datatype, 1, /*ext_meta is v1 extension*/
@@ -1463,7 +1473,7 @@ TEST_F(CouchstoreTest, testV2WriteRead) {
     EXPECT_CALL(gc, expTime(htonl(0xaa00bb11)));
     EXPECT_CALL(gc, flags(0x01020304));
     EXPECT_CALL(gc, datatype(protocol_binary_datatype_t(meta.ext2)));
-    kvstore->get("key", 0, gc);
+    kvstore->get(key, 0, gc);
 }
 
 class CouchKVStoreMetaData : public ::testing::Test {
