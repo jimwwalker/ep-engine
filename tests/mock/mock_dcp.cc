@@ -178,7 +178,8 @@ static ENGINE_ERROR_CODE mock_mutation(const void* cookie,
     Item* item = reinterpret_cast<Item*>(itm);
     dcp_last_op = PROTOCOL_BINARY_CMD_DCP_MUTATION;
     dcp_last_opaque = opaque;
-    dcp_last_key.assign(item->getKey().c_str());
+    dcp_last_key.assign(reinterpret_cast<const char*>(item->getKey().data()),
+                        item->getKey().size());
     dcp_last_vbucket = vbucket;
     dcp_last_byseqno = by_seqno;
     dcp_last_revseqno = rev_seqno;

@@ -606,30 +606,21 @@ extern "C" {
                                                  protocol_binary_request_header
                                                                       *request,
                                                  const char **msg,
-                                                 size_t *msg_size) {
+                                                 size_t *msg_size,
+                                                 DocNamespace docNamespace) {
         protocol_binary_request_no_extras *req =
             (protocol_binary_request_no_extras*)request;
 
-        char keyz[256];
-
-        // Read the key.
-        int keylen = ntohs(req->message.header.request.keylen);
-        if (keylen >= (int)sizeof(keyz)) {
-            *msg = "Key is too large.";
-            return PROTOCOL_BINARY_RESPONSE_EINVAL;
-        }
-        memcpy(keyz, ((char*)request) + sizeof(req->message.header), keylen);
-        keyz[keylen] = 0x00;
-
+        const uint8_t* keyPtr = reinterpret_cast<const uint8_t*>(request) +
+                                sizeof(*request);
+        size_t keylen = ntohs(req->message.header.request.keylen);
         uint16_t vbucket = ntohs(request->request.vbucket);
 
-        std::string key(keyz, keylen);
-
         LOG(EXTENSION_LOG_DEBUG, "Manually evicting object with key %s\n",
-                keyz);
+            std::string(reinterpret_cast<const char*>(keyPtr), keylen).c_str());
 
-        protocol_binary_response_status rv = e->evictKey(key, vbucket, msg,
-                                                         msg_size);
+        auto rv = e->evictKey(DocKey(keyPtr, keylen, docNamespace), vbucket,
+                              msg, msg_size);
         if (rv == PROTOCOL_BINARY_RESPONSE_NOT_MY_VBUCKET ||
             rv == PROTOCOL_BINARY_RESPONSE_KEY_ENOENT) {
             if (e->isDegradedMode()) {
@@ -644,8 +635,8 @@ extern "C" {
                                        const void *cookie,
                                        Item **itm,
                                        const char **msg,
-                                       size_t *,
-                                       protocol_binary_response_status *res) {
+                                       protocol_binary_response_status *res,
+                                       DocNamespace docNamespace) {
 
         uint8_t extlen = req->request.extlen;
         if (extlen != 0 && extlen != 4) {
@@ -658,9 +649,7 @@ extern "C" {
             (protocol_binary_request_getl*)req;
         *res = PROTOCOL_BINARY_RESPONSE_SUCCESS;
 
-        const char *keyp = reinterpret_cast<const char*>(req->bytes);
-        keyp += sizeof(req->bytes) + extlen;
-        std::string key(keyp, ntohs(req->request.keylen));
+        const uint8_t* keyPtr = req->bytes + sizeof(req->bytes) + extlen;
         uint16_t vbucket = ntohs(req->request.vbucket);
 
         uint32_t max_timeout = (unsigned int)e->getGetlMaxTimeout();
@@ -677,6 +666,7 @@ extern "C" {
             lockTimeout = default_timeout;
         }
 
+        DocKey key(keyPtr, ntohs(req->request.keylen), docNamespace);
         GetValue result = e->getLocked(key, vbucket, ep_current_time(),
                                        lockTimeout, cookie);
 
@@ -723,32 +713,24 @@ extern "C" {
                                                  protocol_binary_request_header
                                                                       *request,
                                                  const char **msg,
-                                                 size_t *)
+                                                 DocNamespace docNamespace)
     {
         protocol_binary_request_no_extras *req =
             (protocol_binary_request_no_extras*)request;
 
         protocol_binary_response_status res = PROTOCOL_BINARY_RESPONSE_SUCCESS;
-        char keyz[256];
 
-        // Read the key.
-        int keylen = ntohs(req->message.header.request.keylen);
-        if (keylen >= (int)sizeof(keyz)) {
-            *msg = "Key is too large.";
-            return PROTOCOL_BINARY_RESPONSE_EINVAL;
-        }
-
-        memcpy(keyz, ((char*)request) + sizeof(req->message.header), keylen);
-        keyz[keylen] = 0x00;
-
+        const uint8_t* keyPtr = reinterpret_cast<const uint8_t*>(request) +
+                                sizeof(*request);
+        size_t keylen = ntohs(req->message.header.request.keylen);
         uint16_t vbucket = ntohs(request->request.vbucket);
-        std::string key(keyz, keylen);
 
-        LOG(EXTENSION_LOG_DEBUG, "Executing unl for key %s\n", keyz);
+        LOG(EXTENSION_LOG_DEBUG, "Executing unl for key %s\n",
+            std::string(reinterpret_cast<const char*>(keyPtr), keylen).c_str());
 
         RememberingCallback<GetValue> getCb;
         uint64_t cas = ntohll(request->request.cas);
-
+        DocKey key(keyPtr, keylen, docNamespace);
         ENGINE_ERROR_CODE rv = e->unlockKey(key, vbucket, cas,
                                             ep_current_time());
 
@@ -1000,17 +982,18 @@ extern "C" {
                                        const void *cookie,
                                        Item **it,
                                        const char **msg,
-                                       protocol_binary_response_status *res) {
+                                       protocol_binary_response_status *res,
+                                       DocNamespace docNamespace) {
         KVBucket* kvb = e->getKVBucket();
         protocol_binary_request_no_extras *req =
             (protocol_binary_request_no_extras*)request;
         int keylen = ntohs(req->message.header.request.keylen);
         uint16_t vbucket = ntohs(req->message.header.request.vbucket);
         ENGINE_ERROR_CODE error_code;
-        std::string keystr(((char *)request) + sizeof(req->message.header),
-                            keylen);
+        DocKey key(reinterpret_cast<const uint8_t*>(request) + sizeof(*request),
+                   keylen, docNamespace);
 
-        GetValue rv(kvb->getReplica(keystr, vbucket, cookie));
+        GetValue rv(kvb->getReplica(key, vbucket, cookie));
 
         if ((error_code = rv.getStatus()) != ENGINE_SUCCESS) {
             if (error_code == ENGINE_NOT_MY_VBUCKET) {
@@ -1124,7 +1107,7 @@ extern "C" {
                                        const void* cookie,
                                        protocol_binary_request_header *request,
                                        ADD_RESPONSE response,
-                                       DocNamespace doc_namespace)
+                                       DocNamespace docNamespace)
     {
         protocol_binary_response_status res =
                                       PROTOCOL_BINARY_RESPONSE_UNKNOWN_COMMAND;
@@ -1197,7 +1180,7 @@ extern "C" {
         case PROTOCOL_BINARY_CMD_GAT:
         case PROTOCOL_BINARY_CMD_GATQ:
             {
-                rv = h->touch(cookie, request, response);
+                rv = h->touch(cookie, request, response, docNamespace);
                 return rv;
             }
         case PROTOCOL_BINARY_CMD_STOP_PERSISTENCE:
@@ -1215,20 +1198,20 @@ extern "C" {
             h->decrementSessionCtr();
             break;
         case PROTOCOL_BINARY_CMD_EVICT_KEY:
-            res = evictKey(h, request, &msg, &msg_size);
+            res = evictKey(h, request, &msg, &msg_size, docNamespace);
             break;
         case PROTOCOL_BINARY_CMD_GET_LOCKED:
-            rv = getLocked(h, request, cookie, &itm, &msg, &msg_size, &res);
+            rv = getLocked(h, request, cookie, &itm, &msg, &res, docNamespace);
             if (rv == ENGINE_EWOULDBLOCK) {
                 // we dont have the value for the item yet
                 return rv;
             }
             break;
         case PROTOCOL_BINARY_CMD_UNLOCK_KEY:
-            res = unlockKey(h, request, &msg, &msg_size);
+            res = unlockKey(h, request, &msg, docNamespace);
             break;
         case PROTOCOL_BINARY_CMD_OBSERVE:
-            return h->observe(cookie, request, response);
+            return h->observe(cookie, request, response, docNamespace);
         case PROTOCOL_BINARY_CMD_OBSERVE_SEQNO:
             return h->observe_seqno(cookie, request, response);
         case PROTOCOL_BINARY_CMD_DEREGISTER_TAP_CLIENT:
@@ -1265,7 +1248,8 @@ extern "C" {
             {
                 rv = h->getMeta(cookie,
                         reinterpret_cast<protocol_binary_request_get_meta*>
-                                                          (request), response);
+                                                          (request), response,
+                                                          docNamespace);
                 return rv;
             }
         case PROTOCOL_BINARY_CMD_SET_WITH_META:
@@ -1275,7 +1259,8 @@ extern "C" {
             {
                 rv = h->setWithMeta(cookie,
                      reinterpret_cast<protocol_binary_request_set_with_meta*>
-                                                          (request), response);
+                                                          (request), response,
+                                                          docNamespace);
                 return rv;
             }
         case PROTOCOL_BINARY_CMD_DEL_WITH_META:
@@ -1283,17 +1268,19 @@ extern "C" {
             {
                 rv = h->deleteWithMeta(cookie,
                     reinterpret_cast<protocol_binary_request_delete_with_meta*>
-                                                          (request), response);
+                                                          (request), response,
+                                                          docNamespace);
                 return rv;
             }
         case PROTOCOL_BINARY_CMD_RETURN_META:
             {
                 return h->returnMeta(cookie,
                 reinterpret_cast<protocol_binary_request_return_meta*>
-                                                          (request), response);
+                                                          (request), response,
+                                                          docNamespace);
             }
         case PROTOCOL_BINARY_CMD_GET_REPLICA:
-            rv = getReplicaCmd(h, request, cookie, &itm, &msg, &res);
+            rv = getReplicaCmd(h, request, cookie, &itm, &msg, &res, docNamespace);
             if (rv != ENGINE_SUCCESS && rv != ENGINE_NOT_MY_VBUCKET) {
                 return rv;
             }
@@ -1340,7 +1327,8 @@ extern "C" {
             {
                 return h->getAllKeys(cookie,
                    reinterpret_cast<protocol_binary_request_get_keys*>
-                                                           (request), response);
+                                                           (request), response,
+                                                           docNamespace);
             }
         // MB-21143: Remove adjusted time/drift API, but return NOT_SUPPORTED
         case PROTOCOL_BINARY_CMD_GET_ADJUSTED_TIME:
@@ -1364,10 +1352,10 @@ extern "C" {
                               cookie);
             delete itm;
         } else if (itm) {
-            const std::string &key  = itm->getKey();
             uint32_t flags = itm->getFlags();
-            rv = sendResponse(response, static_cast<const void *>(key.data()),
-                              itm->getNKey(),
+            rv = sendResponse(response,
+                              static_cast<const void *>(itm->getKey().data()),
+                              itm->getKey().size(),
                               (const void *)&flags, sizeof(uint32_t),
                               static_cast<const void *>(itm->getData()),
                               itm->getNBytes(), itm->getDataType(),
@@ -1908,9 +1896,9 @@ extern "C" {
         itm_info->nbytes = it->getNBytes();
         itm_info->datatype = it->getDataType();
         itm_info->flags = it->getFlags();
-        itm_info->nkey = static_cast<uint16_t>(it->getNKey());
+        itm_info->nkey = static_cast<uint16_t>(it->getKey().size());
         itm_info->nvalue = 1;
-        itm_info->key = it->getKey().c_str();
+        itm_info->key = it->getKey().data();
         itm_info->value[0].iov_base = const_cast<char*>(it->getData());
         itm_info->value[0].iov_len = it->getNBytes();
         return true;
@@ -2635,7 +2623,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::tapNotify(const void *cookie,
         connection = reinterpret_cast<ConnHandler *>(specific);
     }
 
-    std::string k(static_cast<const char*>(key), nkey);
+
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
 
     if (tap_event == TAP_MUTATION || tap_event == TAP_DELETION) {
@@ -2655,7 +2643,10 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::tapNotify(const void *cookie,
 
     switch (tap_event) {
     case TAP_ACK:
-        ret = processTapAck(cookie, tap_seqno, tap_flags, k);
+        // TAP works only with the DefaultCollection
+        ret = processTapAck(cookie, tap_seqno, tap_flags,
+                            DocKey(static_cast<const uint8_t*>(key), nkey,
+                                   DocNamespace::DefaultCollection));
         break;
     case TAP_FLUSH:
         ret = flush(cookie, 0);
@@ -2929,8 +2920,7 @@ void EventuallyPersistentEngine::initializeEngineCallbacks() {
 ENGINE_ERROR_CODE EventuallyPersistentEngine::processTapAck(const void *cookie,
                                                             uint32_t seqno,
                                                             uint16_t status,
-                                                            const std::string
-                                                            &msg)
+                                                            const DocKey key)
 {
     TapProducer *connection = getTapProducer(cookie);
     if (!connection) {
@@ -2939,7 +2929,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::processTapAck(const void *cookie,
         return ENGINE_DISCONNECT;
     }
 
-    return connection->processAck(seqno, status, msg);
+    return connection->processAck(seqno, status, key);
 }
 
 void EventuallyPersistentEngine::queueBackfill(const VBucketFilter
@@ -4195,7 +4185,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doDcpStats(const void *cookie,
 ENGINE_ERROR_CODE EventuallyPersistentEngine::doKeyStats(const void *cookie,
                                                          ADD_STAT add_stat,
                                                          uint16_t vbid,
-                                                         std::string &key,
+                                                         const StorageKey& key,
                                                          bool validate) {
     ENGINE_ERROR_CODE rv = ENGINE_FAILED;
 
@@ -4232,7 +4222,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doKeyStats(const void *cookie,
             } else {
                 valid.assign("ram_but_not_disk");
             }
-            LOG(EXTENSION_LOG_DEBUG, "Key '%s' is %s\n", key.c_str(),
+            LOG(EXTENSION_LOG_DEBUG, "Key '%s' is %s\n", key.data(),
                 valid.c_str());
         }
         add_casted_stat("key_is_dirty", kstats.dirty, add_stat, cookie);
@@ -4651,7 +4641,10 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getStats(const void* cookie,
         uint16_t vbucket_id(0);
         parseUint16(vbid.c_str(), &vbucket_id);
         // Non-validating, non-blocking version
-        rv = doKeyStats(cookie, add_stat, vbucket_id, key, false);
+        // TODO: Collection - getStats needs DocNamespace
+        // TODO: Can use DocKey in-place of StorageKey (defer heap use to later)
+        rv = doKeyStats(cookie, add_stat, vbucket_id,
+                        StorageKey(key, DocNamespace::DefaultCollection), false);
     } else if (nkey > 5 && cb_isPrefix(statKey, "vkey ")) {
         std::string key;
         std::string vbid;
@@ -4662,7 +4655,10 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getStats(const void* cookie,
         uint16_t vbucket_id(0);
         parseUint16(vbid.c_str(), &vbucket_id);
         // Validating version; blocks
-        rv = doKeyStats(cookie, add_stat, vbucket_id, key, true);
+        // TODO: Collection - getStats needs DocNamespace
+        // TODO: Can use DocKey in-place of StorageKey (defer heap use to later)
+        rv = doKeyStats(cookie, add_stat, vbucket_id,
+                        StorageKey(key, DocNamespace::DefaultCollection), true);
     } else if (statKey == "kvtimings") {
         getKVBucket()->addKVStoreTimingStats(add_stat, cookie);
         rv = ENGINE_SUCCESS;
@@ -4739,13 +4735,13 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getStats(const void* cookie,
 ENGINE_ERROR_CODE EventuallyPersistentEngine::observe(
                                        const void* cookie,
                                        protocol_binary_request_header *request,
-                                       ADD_RESPONSE response) {
+                                       ADD_RESPONSE response,
+                                       DocNamespace docNamespace) {
     protocol_binary_request_no_extras *req =
         (protocol_binary_request_no_extras*)request;
 
     size_t offset = 0;
-    const char* data = reinterpret_cast<const char*>(req->bytes) +
-                                                            sizeof(req->bytes);
+    const uint8_t* data = req->bytes + sizeof(req->bytes);
     uint32_t data_len = ntohl(req->message.header.request.bodylen);
     std::stringstream result;
 
@@ -4780,11 +4776,11 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::observe(
                                 cookie);
         }
 
-        const std::string key(data + offset, keylen);
+        DocKey key(data + offset, keylen, docNamespace);
         offset += keylen;
-
         LOG(EXTENSION_LOG_DEBUG, "Observing key: %s, in vbucket %d.",
-            key.c_str(), vb_id);
+            std::string(reinterpret_cast<const char*>(key.data()),
+                        key.size()).c_str(), vb_id);
 
         // Get key stats
         uint16_t keystatus = 0;
@@ -4821,7 +4817,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::observe(
         uint64_t cas = htonll(kstats.cas);
         result.write((char*) &vb_id, sizeof(uint16_t));
         result.write((char*) &keylen, sizeof(uint16_t));
-        result.write(key.c_str(), ntohs(keylen));
+        result.write(reinterpret_cast<const char*>(key.data()), key.size());
         result.write((char*) &keystatus, sizeof(uint8_t));
         result.write((char*) &cas, sizeof(uint64_t));
     }
@@ -4930,7 +4926,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::observe_seqno(
 
 ENGINE_ERROR_CODE EventuallyPersistentEngine::touch(const void *cookie,
                                        protocol_binary_request_header *request,
-                                       ADD_RESPONSE response)
+                                       ADD_RESPONSE response,
+                                       DocNamespace docNamespace)
 {
     if (request->request.extlen != 4 || request->request.keylen == 0) {
         return sendResponse(response, NULL, 0, NULL, 0, NULL, 0,
@@ -4940,13 +4937,13 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::touch(const void *cookie,
 
     protocol_binary_request_touch *t =
                      reinterpret_cast<protocol_binary_request_touch*>(request);
-    void *key = t->bytes + sizeof(t->bytes);
+    const uint8_t* key = t->bytes + sizeof(t->bytes);
     uint32_t exptime = ntohl(t->message.body.expiration);
     uint16_t nkey = ntohs(request->request.keylen);
     uint16_t vbucket = ntohs(request->request.vbucket);
 
     // try to get the object
-    std::string k(static_cast<const char*>(key), nkey);
+    StorageKey k(key, nkey, docNamespace);
 
     if (exptime != 0) {
         exptime = serverApi->core->abstime(serverApi->core->realtime(exptime));
@@ -5229,7 +5226,8 @@ static protocol_binary_response_status engine_error_2_protocol_error(
 
 ENGINE_ERROR_CODE EventuallyPersistentEngine::getMeta(const void* cookie,
                                      protocol_binary_request_get_meta *request,
-                                                      ADD_RESPONSE response)
+                                     ADD_RESPONSE response,
+                                     DocNamespace docNamespace)
 {
     if (request->message.header.request.keylen == 0) {
         return sendResponse(response, NULL, 0, NULL, 0, NULL, 0,
@@ -5238,8 +5236,9 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getMeta(const void* cookie,
     }
 
     uint8_t extlen = request->message.header.request.extlen;
-    std::string key((char *)(request->bytes + sizeof(request->bytes) + extlen),
-                    (size_t)ntohs(request->message.header.request.keylen));
+    DocKey key((request->bytes + sizeof(request->bytes) + extlen),
+               (size_t)ntohs(request->message.header.request.keylen),
+                docNamespace);
     uint16_t vbucket = ntohs(request->message.header.request.vbucket);
 
     ItemMetaData metadata;
@@ -5329,7 +5328,8 @@ protocol_binary_response_status EventuallyPersistentEngine::decodeWithMetaOption
 
 ENGINE_ERROR_CODE EventuallyPersistentEngine::setWithMeta(const void* cookie,
                                 protocol_binary_request_set_with_meta *request,
-                                ADD_RESPONSE response)
+                                ADD_RESPONSE response,
+                                DocNamespace docNamespace)
 {
     // revid_nbytes, flags and exptime is mandatory fields.. and we need a key
     uint8_t extlen = request->message.header.request.extlen;
@@ -5355,7 +5355,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::setWithMeta(const void* cookie,
     }
 
     uint8_t opcode = request->message.header.request.opcode;
-    uint8_t *key = request->bytes + sizeof(request->bytes);
+    uint8_t* key = request->bytes + sizeof(request->bytes);
     uint16_t vbucket = ntohs(request->message.header.request.vbucket);
     uint32_t bodylen = ntohl(request->message.header.request.bodylen);
     uint8_t datatype = request->message.header.request.datatype;
@@ -5425,7 +5425,10 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::setWithMeta(const void* cookie,
     uint8_t ext_meta[1];
     uint8_t ext_len = EXT_META_LEN;
     *(ext_meta) = datatype;
-    Item *itm = new Item(key + keyOffset, keylen, flags, expiration, dta, vallen,
+    Item *itm = new Item(StorageKey(key + keyOffset,
+                                    keylen,
+                                    docNamespace),
+                         flags, expiration, dta, vallen,
                          ext_meta, ext_len, cas, -1, vbucket);
 
     if (itm == NULL) {
@@ -5521,7 +5524,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::setWithMeta(const void* cookie,
 ENGINE_ERROR_CODE EventuallyPersistentEngine::deleteWithMeta(
                              const void* cookie,
                              protocol_binary_request_delete_with_meta *request,
-                             ADD_RESPONSE response) {
+                             ADD_RESPONSE response,
+                             DocNamespace docNamespace) {
     // revid_nbytes, flags and exptime is mandatory fields.. and we need a key
     uint16_t nkey = ntohs(request->message.header.request.keylen);
     uint8_t extlen = request->message.header.request.extlen;
@@ -5591,10 +5595,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::deleteWithMeta(
         }
     }
 
-    const char *key_ptr = reinterpret_cast<const char*>(request->bytes +
-                                                        keyOffset +
-                                                        sizeof(request->bytes));
-    std::string key(key_ptr, nkey);
+    const uint8_t *keyPtr = request->bytes + keyOffset + sizeof(request->bytes);
+    StorageKey key(keyPtr, nkey, docNamespace);
 
     ItemMetaData itm_meta(metacas, seqno, flags, expiration);
 
@@ -5861,7 +5863,8 @@ EventuallyPersistentEngine::doTapVbTakeoverStats(const void *cookie,
 ENGINE_ERROR_CODE
 EventuallyPersistentEngine::returnMeta(const void* cookie,
                                   protocol_binary_request_return_meta *request,
-                                  ADD_RESPONSE response) {
+                                  ADD_RESPONSE response,
+                                  DocNamespace docNamespace) {
     uint8_t extlen = request->message.header.request.extlen;
     uint16_t keylen = ntohs(request->message.header.request.keylen);
     if (extlen != 12 || request->message.header.request.keylen == 0) {
@@ -5877,7 +5880,7 @@ EventuallyPersistentEngine::returnMeta(const void* cookie,
                             0, cookie);
     }
 
-    uint8_t *key = request->bytes + sizeof(request->bytes);
+    uint8_t* keyPtr = request->bytes + sizeof(request->bytes);
     uint16_t vbucket = ntohs(request->message.header.request.vbucket);
     uint32_t bodylen = ntohl(request->message.header.request.bodylen);
     uint64_t cas = ntohll(request->message.header.request.cas);
@@ -5891,7 +5894,7 @@ EventuallyPersistentEngine::returnMeta(const void* cookie,
 
     ENGINE_ERROR_CODE ret = ENGINE_EINVAL;
     if (mutate_type == SET_RET_META || mutate_type == ADD_RET_META) {
-        uint8_t *dta = key + keylen;
+        uint8_t *dta = keyPtr + keylen;
 
         if (!isDatatypeSupported(cookie)) {
             const int len = vallen;
@@ -5904,7 +5907,10 @@ EventuallyPersistentEngine::returnMeta(const void* cookie,
         uint8_t ext_meta[1];
         uint8_t ext_len = EXT_META_LEN;
         *(ext_meta) = datatype;
-        Item *itm = new Item(key, keylen, flags, exp, dta, vallen, ext_meta,
+        Item *itm = new Item(StorageKey(keyPtr,
+                                        keylen,
+                                        docNamespace),
+                             flags, exp, dta, vallen, ext_meta,
                              ext_len, cas, -1, vbucket);
 
         if (!itm) {
@@ -5927,8 +5933,8 @@ EventuallyPersistentEngine::returnMeta(const void* cookie,
     } else if (mutate_type == DEL_RET_META) {
         ItemMetaData itm_meta;
         mutation_descr_t mut_info;
-        std::string key_str(reinterpret_cast<char*>(key), keylen);
-        ret = kvBucket->deleteItem(key_str, &cas, vbucket, cookie, false,
+        StorageKey key(keyPtr, keylen, docNamespace);
+        ret = kvBucket->deleteItem(key, &cas, vbucket, cookie, false,
                                    &itm_meta, &mut_info);
         if (ret == ENGINE_SUCCESS) {
             ++stats.numOpsDelRetMeta;
@@ -6077,7 +6083,7 @@ private:
 class FetchAllKeysTask : public GlobalTask {
 public:
     FetchAllKeysTask(EventuallyPersistentEngine *e, const void *c,
-                     ADD_RESPONSE resp, const std::string &start_key_,
+                     ADD_RESPONSE resp, const StorageKey &start_key_,
                      uint16_t vbucket, uint32_t count_) :
         GlobalTask(e, TaskId::FetchAllKeysTask, 0, false), engine(e), cookie(c),
         response(resp), start_key(start_key_), vbid(vbucket),
@@ -6119,7 +6125,7 @@ private:
     EventuallyPersistentEngine *engine;
     const void *cookie;
     ADD_RESPONSE response;
-    std::string start_key;
+    StorageKey start_key;
     uint16_t vbid;
     uint32_t count;
 };
@@ -6127,7 +6133,8 @@ private:
 ENGINE_ERROR_CODE
 EventuallyPersistentEngine::getAllKeys(const void* cookie,
                                 protocol_binary_request_get_keys *request,
-                                ADD_RESPONSE response) {
+                                ADD_RESPONSE response,
+                                DocNamespace docNamespace) {
     {
         LockHolder lh(lookupMutex);
         auto it = allKeysLookups.find(cookie);
@@ -6168,8 +6175,8 @@ EventuallyPersistentEngine::getAllKeys(const void* cookie,
         LOG(EXTENSION_LOG_WARNING, "No key passed as argument for getAllKeys");
         return ENGINE_EINVAL;
     }
-    char *keyptr = (char*)(request->bytes + sizeof(request->bytes) + extlen);
-    std::string start_key(keyptr, keylen);
+    const uint8_t* keyPtr = (request->bytes + sizeof(request->bytes) + extlen);
+    StorageKey start_key(keyPtr, keylen, docNamespace);
 
     ExTask task = new FetchAllKeysTask(this, cookie, response, start_key,
                                        vbucket, count);
@@ -6184,10 +6191,9 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getRandomKey(const void *cookie,
 
     if (ret == ENGINE_SUCCESS) {
         Item *it = gv.getValue();
-        const std::string &key  = it->getKey();
         uint32_t flags = it->getFlags();
-        ret = sendResponse(response, static_cast<const void *>(key.data()),
-                           it->getNKey(),
+        ret = sendResponse(response, static_cast<const void *>(it->getKey().data()),
+                           it->getKey().size(),
                            (const void *)&flags, sizeof(uint32_t),
                            static_cast<const void *>(it->getData()),
                            it->getNBytes(), it->getDataType(),

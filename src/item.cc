@@ -58,7 +58,7 @@ bool operator==(const Item& lhs, const Item& rhs) {
 
 std::ostream& operator<<(std::ostream& os, const Item& i) {
     os << "Item[" << &i << "] with"
-       << " key:" << i.key << "\n"
+       << " key:" << i.key.data() << "\n"
        << "\tvalue:" << *i.value << "\n"
        << "\tmetadata:" << i.metaData << "\n"
        << "\tbySeqno:" << i.bySeqno

@@ -20,6 +20,7 @@
  */
 
 #include "evp_store_test.h"
+#include "makestoragekey.h"
 
 class RollbackTest : public EPBucketTest,
                      public ::testing::WithParamInterface<std::string>
@@ -38,7 +39,8 @@ class RollbackTest : public EPBucketTest,
         // "active" items.
         const auto dummy_elements = size_t{5};
         for (size_t ii = 1; ii <= dummy_elements; ii++) {
-            auto res = store_item(vbid, "dummy" + std::to_string(ii),
+            auto res = store_item(vbid,
+                                  makeStorageKey("dummy" + std::to_string(ii)),
                                   "dummy");
             ASSERT_EQ(ii, res.getBySeqno());
         }
@@ -56,7 +58,7 @@ protected:
     void rollback_after_deletion_test(bool flush_before_rollback) {
         // Setup: Store an item then flush the vBucket (creating a checkpoint);
         // then delete the item and create a second checkpoint.
-        std::string a("a");
+        StorageKey a = makeStorageKey("key");
         auto item_v1 = store_item(vbid, a, "1");
         ASSERT_EQ(initial_seqno + 1, item_v1.getBySeqno());
         ASSERT_EQ(1, store->flushVBucket(vbid));
@@ -93,7 +95,7 @@ protected:
     void rollback_after_mutation_test(bool flush_before_rollback) {
         // Setup: Store an item then flush the vBucket (creating a checkpoint);
         // then update the item with a new value and create a second checkpoint.
-        std::string a("a");
+        StorageKey a = makeStorageKey("key");
         auto item_v1 = store_item(vbid, a, "old");
         ASSERT_EQ(initial_seqno + 1, item_v1.getBySeqno());
         ASSERT_EQ(1, store->flushVBucket(vbid));
@@ -101,7 +103,7 @@ protected:
         auto item2 = store_item(vbid, a, "new");
         ASSERT_EQ(initial_seqno + 2, item2.getBySeqno());
 
-        std::string key("key");
+        StorageKey key = makeStorageKey("key");
         store_item(vbid, key, "meh");
 
         if (flush_before_rollback) {
@@ -144,23 +146,21 @@ protected:
         // need to store a certain number of keys because rollback
         // 'bails' if the rollback is too much.
         for (int i = 0; i < 6; i++) {
-            std::string key = "key_" + std::to_string(i);
-            store_item(vbid, key.c_str(), "dontcare");
+            store_item(vbid, makeStorageKey("key_" + std::to_string(i)), "dontcare");
         }
         // the roll back function will rewind disk to key7.
-        auto rollback_item = store_item(vbid, "key7", "dontcare");
+        auto rollback_item = store_item(vbid, makeStorageKey("key7"), "dontcare");
         ASSERT_EQ(7, store->flushVBucket(vbid));
 
         // every key past this point will be lost from disk in a mid-point.
-        auto item_v1 = store_item(vbid, "rollback-cp-1", "keep-me");
-        auto item_v2 = store_item(vbid, "rollback-cp-2", "rollback to me");
-        store_item(vbid, "rollback-cp-3", "i'm gone");
+        auto item_v1 = store_item(vbid, makeStorageKey("rollback-cp-1"), "keep-me");
+        auto item_v2 = store_item(vbid, makeStorageKey("rollback-cp-2"), "rollback to me");
+        store_item(vbid, makeStorageKey("rollback-cp-3"), "i'm gone");
         auto rollback = item_v2.getBySeqno(); // ask to rollback to here.
         ASSERT_EQ(3, store->flushVBucket(vbid));
 
         for (int i = 0; i < 3; i++) {
-            std::string key = "anotherkey_" + std::to_string(i);
-            store_item(vbid, key.c_str(), "dontcare");
+            store_item(vbid, makeStorageKey("anotherkey_" + std::to_string(i)), "dontcare");
         }
 
         if (flush_before_rollback) {
@@ -174,16 +174,14 @@ protected:
 
         // These keys should be gone after the rollback
         for (int i = 0; i < 3; i++) {
-            std::string key = "rollback-cp-" + std::to_string(i);
-            auto result = store->get(key, vbid, nullptr, {});
+            auto result = store->get(makeStorageKey("rollback-cp-" + std::to_string(i)), vbid, nullptr, {});
             EXPECT_EQ(ENGINE_KEY_ENOENT, result.getStatus())
                 << "A key set after the rollback point was found";
         }
 
         // These keys should be gone after the rollback
         for (int i = 0; i < 3; i++) {
-            std::string key = "anotherkey_" + std::to_string(i);
-            auto result = store->get(key, vbid, nullptr, {});
+            auto result = store->get(makeStorageKey("anotherkey_" + std::to_string(i)), vbid, nullptr, {});
             EXPECT_EQ(ENGINE_KEY_ENOENT, result.getStatus())
                 << "A key set after the rollback point was found";
         }
