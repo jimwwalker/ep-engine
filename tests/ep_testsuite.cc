@@ -1823,12 +1823,12 @@ static enum test_result test_mem_stats(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
 }
 
 static enum test_result test_io_stats(ENGINE_HANDLE *h, ENGINE_HANDLE_V1 *h1) {
-    int exp_read_bytes = 4, exp_write_bytes;
+    int exp_read_bytes = 5, exp_write_bytes;
     std::string backend = get_str_stat(h, h1, "ep_backend");
     if (backend == "forestdb") {
         exp_write_bytes = 35; /* TBD: Do not hard code the value */
     } else if (backend == "couchdb") {
-        exp_write_bytes = 22; /* TBD: Do not hard code the value */
+        exp_write_bytes = 23; /* TBD: Do not hard code the value */
     } else {
         return SKIPPED;
     }

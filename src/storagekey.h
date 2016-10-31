@@ -112,20 +112,31 @@ class StorageKey {
 public:
 
     /*
-     * A StorageKey can be created from a char* c and length n.
+     * A StorageKey can be created from a char* c, length n and a meta flag.
      * Triggers heap allocation and a copy-in of the data.
      */
-    StorageKey(const char* c, size_t n)
-          : storage(n + terminatorBytes) {
-        std::copy(c, c + n, storage.data());
+    StorageKey(const char* c, size_t n, StorageMetaFlag flag)
+          : storage(n + metaBytes + 1) {
+        storage[0] = static_cast<std::underlying_type<StorageMetaFlag>::type>(flag);
+        std::copy(c, c + n, storage.data() + metaBytes);
         storage.back() = 0;
     }
 
     /*
      * StorageKey can be created from a std::string
      */
-    StorageKey(const std::string& s)
+    StorageKey(const std::string& s, StorageMetaFlag flag)
           : StorageKey(s.data(), s.size()) {}
+
+    /*
+     * A StorageKey can be created from a char* c and length n.
+     * The c/n buffer is assmed to contain the StorageMetaFlag
+     */
+    StorageKey(const char* c, size_t n)
+          : storage(n + 1) {
+        std::copy(c, c + n, storage.data());
+        storage.back() = 0;
+    }
 
     /*
      * A StorageKey can be created from its serialised equivalent.
@@ -140,6 +151,10 @@ public:
 
     size_t size() const {
         return storage.size() - storage.get_allocator().getTerminatingBytes();
+    }
+
+    StorageMetaFlag getMetaFlag() const {
+        return static_cast<StorageMetaFlag>(storage.at(0));
     }
 
     bool operator == (const StorageKey& rhs) const {
@@ -168,11 +183,11 @@ public:
 
 protected:
     const char* getStartOfProtocolKey() const {
-        return storage.data();
+        return storage.data() + metaBytes;
     }
 
     size_t getSizeofProtocolKey() const {
-        return size();
+        return size() - metaBytes;
     }
 
     /*
@@ -186,8 +201,8 @@ protected:
             storage.resize(n);
     }
 
-
-    static const int terminatorBytes = 1;
+private:
+    static const int metaBytes = sizeof(std::underlying_type<StorageMetaFlag>::type);
     std::vector<char, StorageKeyAllocator<char> > storage;
 };
 
@@ -250,6 +265,10 @@ public:
         return length;
     }
 
+    StorageMetaFlag getMetaFlag() const {
+        return static_cast<StorageMetaFlag>(bytes[0]);
+    }
+
     /*
      * Return how many bytes are (or should be) allocated to this object
      */
@@ -263,22 +282,22 @@ public:
      * Return how many bytes are needed to store a key of len.
      */
     static size_t getObjectSize(size_t len) {
-        return sizeof(SerialisedStorageKey) + len - 1;
+        return sizeof(SerialisedStorageKey) + (metaBytes + len) - 1;
     }
 
-    static std::unique_ptr<SerialisedStorageKey> make(const char* c, size_t n) {
+    static std::unique_ptr<SerialisedStorageKey> make(const char* c, size_t n, StorageMetaFlag flag) {
         std::unique_ptr<SerialisedStorageKey> rval(reinterpret_cast<SerialisedStorageKey*>(new char[getObjectSize(n)]));
-        new (rval.get()) SerialisedStorageKey(c, n);
+        new (rval.get()) SerialisedStorageKey(c, n, flag);
         return rval;
-    }
+   }
 
 protected:
     const char* getStartOfProtocolKey() const {
-        return bytes;
+        return &bytes[metaBytes];
     }
 
     size_t getSizeofProtocolKey() const {
-        return size();
+        return size() - metaBytes;
     }
 
 private:
@@ -297,13 +316,14 @@ private:
      * Copy-in c to c+n bytes.
      * n must be less than 255
      */
-    SerialisedStorageKey(const char* c, uint8_t n) {
-        if (n > std::numeric_limits<uint8_t>::max()) {
+    SerialisedStorageKey(const char* c, uint8_t n, StorageMetaFlag flag) {
+        if ((n + metaBytes) > std::numeric_limits<uint8_t>::max()) {
             throw std::length_error("SerialisedStorageKey size exceeded " +
-                                    std::to_string(n));
+                                    std::to_string(n + metaBytes));
         }
-        length = n;
-        std::memcpy(bytes, c, n);
+        length = n + metaBytes;
+        bytes[0] = static_cast<std::underlying_type<StorageMetaFlag>::type>(flag);
+        std::memcpy(&bytes[metaBytes], c, n);
     }
 
     /*
@@ -311,6 +331,7 @@ private:
      */
     SerialisedStorageKey(const StorageKey& key);
 
+    static const int metaBytes = sizeof(std::underlying_type<StorageMetaFlag>::type);
     uint8_t length;
     char bytes[1];
 };

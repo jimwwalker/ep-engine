@@ -2190,7 +2190,9 @@ ENGINE_ERROR_CODE TapConsumer::mutation(uint32_t opaque, const void* key,
         cas = Item::nextCas();
     }
 
-    Item *item = new Item(StorageKey(static_cast<const char*>(key), nkey),
+    Item *item = new Item(StorageKey(static_cast<const char*>(key),
+                                     nkey,
+                                     StorageMetaFlag::DefaultCollection),
                           flags, exptime, value, nvalue,
                           &datatype, EXT_META_LEN, cas, -1,
                           vbucket, revSeqno, nru);
@@ -2235,7 +2237,9 @@ ENGINE_ERROR_CODE TapConsumer::deletion(uint32_t opaque, const void* key,
                                         uint64_t revSeqno, const void* meta,
                                         uint16_t nmeta) {
     uint64_t delCas = 0;
-    StorageKey key_str(static_cast<const char*>(key), nkey);
+    StorageKey key_str(static_cast<const char*>(key),
+                       nkey,
+                       StorageMetaFlag::DefaultCollection);
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
     KVBucket* kvBucket = engine_.getKVBucket();
 

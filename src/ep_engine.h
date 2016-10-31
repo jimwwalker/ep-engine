@@ -242,7 +242,8 @@ public:
         uint8_t ext_meta[1];
         uint8_t ext_len = EXT_META_LEN;
         *(ext_meta) = datatype;
-        *itm = new Item(StorageKey(static_cast<const char*>(key), nkey),
+        *itm = new Item(StorageKey(static_cast<const char*>(key), nkey,
+                                   StorageMetaFlag::DefaultCollection),
                         flags, expiretime, NULL, nbytes, ext_meta,
                         ext_len);
         if (*itm == NULL) {
@@ -260,7 +261,8 @@ public:
                                  uint16_t vbucket,
                                  mutation_descr_t *mut_info)
     {
-        StorageKey k(static_cast<const char*>(key), nkey);
+        StorageKey k(static_cast<const char*>(key), nkey,
+                     StorageMetaFlag::DefaultCollection);
         return itemDelete(cookie, k, cas, vbucket, mut_info);
     }
 
@@ -299,7 +301,8 @@ public:
                           get_options_t options)
     {
         BlockTimer timer(&stats.getCmdHisto);
-        StorageKey k(static_cast<const char*>(key), nkey);
+        StorageKey k(static_cast<const char*>(key), nkey,
+                     StorageMetaFlag::DefaultCollection);
 
         GetValue gv(kvBucket->get(k, vbucket, cookie, options));
         ENGINE_ERROR_CODE ret = gv.getStatus();

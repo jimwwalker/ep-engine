@@ -293,7 +293,7 @@ TEST(CouchKVStoreTest, StatsTest) {
     kvstore->addStats(add_stat_callback, &stats);
     EXPECT_EQ("1", stats["rw_0:io_num_write"]);
     const size_t io_write_bytes = stoul(stats["rw_0:io_write_bytes"]);
-    EXPECT_EQ(key.size() + value.size() + 1 +
+    EXPECT_EQ(key.size() + value.size() + 2 +
               MetaData::getMetaDataSize(MetaData::Version::V1),
               io_write_bytes);
 

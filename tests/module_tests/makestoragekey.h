@@ -21,15 +21,16 @@
 #include "storagekey.h"
 
 /*
- * Create a StorageKey object from a C string.
+ * Create a StorageKey object from a C string in the default collection.
  */
 inline StorageKey makeStorageKey(const char* c_string) {
     return StorageKey(c_string,
-                      std::strlen(c_string) + 1);
+                      std::strlen(c_string) + 1,
+                      StorageMetaFlag::DefaultCollection);
 }
 
 /*
- * Create a StorageKey object from a std::string.
+ * Create a StorageKey object from a std::string in the default collection.
  */
 inline StorageKey makeStorageKey(const std::string& string) {
     return makeStorageKey(string.c_str());

@@ -16,33 +16,43 @@
 
 #include <gtest/gtest.h>
 
-#include "makestoragekey.h"
 #include "storagekey.h"
 
 #include <map>
 #include <unordered_map>
 
 TEST(StorageKeyTest, constructor) {
-    StorageKey key = makeStorageKey("key");
-    EXPECT_EQ(sizeof("key"), key.size());
+    StorageKey key("key", sizeof("key"), StorageMetaFlag::DefaultCollection);
+    EXPECT_EQ(1, sizeof(std::underlying_type<StorageMetaFlag>::type));
+    EXPECT_EQ(sizeof("key") +
+              sizeof(std::underlying_type<StorageMetaFlag>::type),
+              key.size());
+    EXPECT_EQ(StorageMetaFlag::DefaultCollection, key.getMetaFlag());
     EXPECT_EQ(sizeof("key"), key.getProtocolKey().size());
     EXPECT_EQ(0, std::memcmp("key", key.getProtocolKey().data(), sizeof("key")));
-    EXPECT_EQ(0, std::memcmp("key", key.data(), sizeof("key")));
+    EXPECT_NE(0, std::memcmp("key", key.data(), sizeof("key")));
 }
 
 TEST(StorageKeyTest, equalityOperators) {
-    StorageKey key1 = makeStorageKey("key1");
-    StorageKey key2 = makeStorageKey("key1");
-    StorageKey key3 = makeStorageKey("key3");
-
+    StorageKey key1("key1", sizeof("key1"), StorageMetaFlag::DefaultCollection);
+    StorageKey key2("key1", sizeof("key1"), StorageMetaFlag::DefaultCollection);
+    StorageKey key3("key1", sizeof("key1"), StorageMetaFlag::Collection);
+    StorageKey key4("key1", sizeof("key1"), StorageMetaFlag::Collection);
     EXPECT_TRUE(key1 == key2);
+    EXPECT_TRUE(key3 == key4);
+    EXPECT_FALSE(key1 == key3);
+    EXPECT_FALSE(key3 == key2);
+
+    EXPECT_FALSE(key1 != key2);
+    EXPECT_FALSE(key3 != key4);
     EXPECT_TRUE(key1 != key3);
+    EXPECT_TRUE(key3 != key2);
 }
 
 TEST(StorageKeyTest, lessThan) {
-    StorageKey key1 = makeStorageKey("zzb");
-    StorageKey key2 = makeStorageKey("zzb");
-    StorageKey key3 = makeStorageKey("zza::thing");
+    StorageKey key1("zzb", sizeof("zzb"), StorageMetaFlag::DefaultCollection);
+    StorageKey key2("zzb", sizeof("zzb"), StorageMetaFlag::DefaultCollection);
+    StorageKey key3("zza::thing", sizeof("zza::thing"), StorageMetaFlag::DefaultCollection);
 
     EXPECT_FALSE(key1 < key2);
     EXPECT_FALSE(key1 < key3);
@@ -51,28 +61,33 @@ TEST(StorageKeyTest, lessThan) {
 }
 
 TEST(SerialisedStorageKeyTest, constructor) {
-    auto key = SerialisedStorageKey::make("key", sizeof("key"));
-    EXPECT_EQ(sizeof("key"), key->size());
+    auto key = SerialisedStorageKey::make("key", sizeof("key"), StorageMetaFlag::DefaultCollection);
+    EXPECT_EQ(sizeof("key") +
+              sizeof(std::underlying_type<StorageMetaFlag>::type),
+              key->size());
+    EXPECT_EQ(StorageMetaFlag::DefaultCollection, key->getMetaFlag());
     EXPECT_EQ(sizeof("key"), key->getProtocolKey().size());
     EXPECT_EQ(0, std::memcmp("key", key->getProtocolKey().data(), sizeof("key")));
-    EXPECT_EQ(0, std::memcmp("key", key->data(), sizeof("key")));
+    EXPECT_NE(0, std::memcmp("key", key->data(), sizeof("key")));
 }
 
 TEST(StorageKeyTest, constructFromSerialisedStorageKey) {
-    auto serialKey = SerialisedStorageKey::make("key", sizeof("key"));
+    auto serialKey = SerialisedStorageKey::make("key", sizeof("key"), StorageMetaFlag::Collection);
     StorageKey key(*serialKey.get());
 
-    EXPECT_EQ(serialKey->size(), key.size());
+    EXPECT_EQ(serialKey->size(),
+              key.size());
+    EXPECT_EQ(StorageMetaFlag::Collection, key.getMetaFlag());
     EXPECT_EQ(sizeof("key"), key.getProtocolKey().size());
     EXPECT_EQ(0, std::memcmp("key", key.getProtocolKey().data(), sizeof("key")));
-    EXPECT_EQ(0, std::memcmp("key", key.data(), sizeof("key")));
+    EXPECT_NE(0, std::memcmp("key", key.data(), sizeof("key")));
 }
 
 // Test that the StorageKey can be used in std::map
 TEST(StorageKeyTest, map) {
     std::map<StorageKey, int> map;
-    StorageKey key1 = makeStorageKey("key1");
-    StorageKey key3 = makeStorageKey("key2");
+    StorageKey key1("key1", sizeof("key1"), StorageMetaFlag::DefaultCollection);
+    StorageKey key3("key1", sizeof("key1"), StorageMetaFlag::Collection);
 
     EXPECT_EQ(0, map.count(key1));
     map[key1] = 8;
@@ -88,8 +103,8 @@ TEST(StorageKeyTest, map) {
 // Test that the StorageKey can be used in std::unordered_map
 TEST(StorageKeyTest, unordered_map) {
     std::unordered_map<StorageKey, int> map;
-    StorageKey key1 = makeStorageKey("key1");
-    StorageKey key3 = makeStorageKey("key2");
+    StorageKey key1("key1", sizeof("key1"), StorageMetaFlag::DefaultCollection);
+    StorageKey key3("key1", sizeof("key1"), StorageMetaFlag::Collection);
 
     // map is empty, so no key1
     EXPECT_EQ(0, map.count(key1));
@@ -119,6 +134,15 @@ TEST(StorageKeyTest, noheap) {
 
     EXPECT_EQ(mykey, key1.data());
     EXPECT_EQ(sizeof(mykey), key1.size());
-    EXPECT_EQ(0, std::memcmp("this_is_my_key", key1.getProtocolKey().data(), sizeof("this_is_my_key")));
+    EXPECT_NE(0, std::memcmp("this_is_my_key", key1.getProtocolKey().data(), sizeof("this_is_my_key")));
     EXPECT_EQ(0, std::memcmp("this_is_my_key", key1.data(), sizeof("this_is_my_key")));
+}
+
+TEST(StorageKeyTest, protocolKey) {
+    StorageKey key1("key1andjunk", 4, StorageMetaFlag::Collection);
+
+    EXPECT_EQ(4, key1.getProtocolKey().size());
+
+    // StorageKey is safe to assume a C string via data()
+    EXPECT_EQ(4, strlen(key1.getProtocolKey().data()));
 }

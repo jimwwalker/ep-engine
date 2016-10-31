@@ -626,7 +626,7 @@ extern "C" {
 
         uint16_t vbucket = ntohs(request->request.vbucket);
 
-        StorageKey key(keyz, keylen);
+        StorageKey key(keyz, keylen, StorageMetaFlag::DefaultCollection);
 
         LOG(EXTENSION_LOG_DEBUG, "Manually evicting object with key %s\n",
                 keyz);
@@ -663,7 +663,8 @@ extern "C" {
 
         const char *keyp = reinterpret_cast<const char*>(req->bytes);
         keyp += sizeof(req->bytes) + extlen;
-        StorageKey key(keyp, ntohs(req->request.keylen));
+        StorageKey key(keyp, ntohs(req->request.keylen),
+                       StorageMetaFlag::DefaultCollection);
         uint16_t vbucket = ntohs(req->request.vbucket);
 
         uint32_t max_timeout = (unsigned int)e->getGetlMaxTimeout();
@@ -745,7 +746,7 @@ extern "C" {
         keyz[keylen] = 0x00;
 
         uint16_t vbucket = ntohs(request->request.vbucket);
-        StorageKey key(keyz, keylen);
+        StorageKey key(keyz, keylen, StorageMetaFlag::DefaultCollection);
 
         LOG(EXTENSION_LOG_DEBUG, "Executing unl for key %s\n", keyz);
 
@@ -1011,7 +1012,8 @@ extern "C" {
         uint16_t vbucket = ntohs(req->message.header.request.vbucket);
         ENGINE_ERROR_CODE error_code;
         StorageKey keystr(((char *)request) + sizeof(req->message.header),
-                            keylen);
+                            keylen,
+                            StorageMetaFlag::DefaultCollection);
 
         GetValue rv(kvb->getReplica(keystr, vbucket, cookie));
 
@@ -2638,7 +2640,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::tapNotify(const void *cookie,
         connection = reinterpret_cast<ConnHandler *>(specific);
     }
 
-    StorageKey k(static_cast<const char*>(key), nkey);
+    StorageKey k(static_cast<const char*>(key), nkey,
+                 StorageMetaFlag::DefaultCollection);
     ENGINE_ERROR_CODE ret = ENGINE_SUCCESS;
 
     if (tap_event == TAP_MUTATION || tap_event == TAP_DELETION) {
@@ -4671,7 +4674,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getStats(const void* cookie,
         uint16_t vbucket_id(0);
         parseUint16(vbid.c_str(), &vbucket_id);
         // Non-validating, non-blocking version
-        rv = doKeyStats(cookie, add_stat, vbucket_id, StorageKey(key), false);
+        rv = doKeyStats(cookie, add_stat, vbucket_id,
+                        StorageKey(key, StorageMetaFlag::DefaultCollection), false);
     } else if (nkey > 5 && cb_isPrefix(statKey, "vkey ")) {
         std::string key;
         std::string vbid;
@@ -4682,7 +4686,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getStats(const void* cookie,
         uint16_t vbucket_id(0);
         parseUint16(vbid.c_str(), &vbucket_id);
         // Validating version; blocks
-        rv = doKeyStats(cookie, add_stat, vbucket_id, StorageKey(key), true);
+        rv = doKeyStats(cookie, add_stat, vbucket_id,
+                        StorageKey(key, StorageMetaFlag::DefaultCollection), true);
     } else if (statKey == "kvtimings") {
         getKVBucket()->addKVStoreTimingStats(add_stat, cookie);
         rv = ENGINE_SUCCESS;
@@ -4800,7 +4805,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::observe(
                                 cookie);
         }
 
-        const StorageKey key(data + offset, keylen);
+        const StorageKey key(data + offset, keylen,
+                             StorageMetaFlag::DefaultCollection);
         offset += keylen;
         LOG(EXTENSION_LOG_DEBUG, "Observing key: %s, in vbucket %d.",
             key.getProtocolKey().data(), vb_id);
@@ -4965,7 +4971,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::touch(const void *cookie,
     uint16_t vbucket = ntohs(request->request.vbucket);
 
     // try to get the object
-    StorageKey k(static_cast<const char*>(key), nkey);
+    StorageKey k(static_cast<const char*>(key), nkey,
+                 StorageMetaFlag::DefaultCollection);
 
     if (exptime != 0) {
         exptime = serverApi->core->abstime(serverApi->core->realtime(exptime));
@@ -5258,7 +5265,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getMeta(const void* cookie,
 
     uint8_t extlen = request->message.header.request.extlen;
     StorageKey key((char *)(request->bytes + sizeof(request->bytes) + extlen),
-                    (size_t)ntohs(request->message.header.request.keylen));
+                    (size_t)ntohs(request->message.header.request.keylen),
+                    StorageMetaFlag::DefaultCollection);
     uint16_t vbucket = ntohs(request->message.header.request.vbucket);
 
     ItemMetaData metadata;
@@ -5398,7 +5406,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::setWithMeta(const void* cookie,
     uint8_t ext_len = EXT_META_LEN;
     *(ext_meta) = datatype;
     Item *itm = new Item(StorageKey(reinterpret_cast<const char*>(key),
-                                    keylen),
+                                    keylen,
+                                    StorageMetaFlag::DefaultCollection),
                          flags, expiration, dta, vallen,
                          ext_meta, ext_len, cas, -1, vbucket);
 
@@ -5559,7 +5568,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::deleteWithMeta(
         }
     }
 
-    StorageKey key(key_ptr, nkey);
+    StorageKey key(key_ptr, nkey, StorageMetaFlag::DefaultCollection);
 
     ItemMetaData itm_meta(metacas, seqno, flags, expiration);
 
@@ -5869,7 +5878,8 @@ EventuallyPersistentEngine::returnMeta(const void* cookie,
         uint8_t ext_len = EXT_META_LEN;
         *(ext_meta) = datatype;
         Item *itm = new Item(StorageKey(reinterpret_cast<const char*>(key),
-                                        keylen),
+                                        keylen,
+                                        StorageMetaFlag::DefaultCollection),
                              flags, exp, dta, vallen, ext_meta,
                              ext_len, cas, -1, vbucket);
 
@@ -5893,7 +5903,8 @@ EventuallyPersistentEngine::returnMeta(const void* cookie,
     } else if (mutate_type == DEL_RET_META) {
         ItemMetaData itm_meta;
         mutation_descr_t mut_info;
-        StorageKey key_str(reinterpret_cast<char*>(key), keylen);
+        StorageKey key_str(reinterpret_cast<char*>(key), keylen,
+                           StorageMetaFlag::DefaultCollection);
         ret = kvBucket->deleteItem(key_str, &cas, vbucket, cookie, false,
                                    &itm_meta, &mut_info);
         if (ret == ENGINE_SUCCESS) {
@@ -6138,7 +6149,7 @@ EventuallyPersistentEngine::getAllKeys(const void* cookie,
         return ENGINE_EINVAL;
     }
     char *keyptr = (char*)(request->bytes + sizeof(request->bytes) + extlen);
-    StorageKey start_key(keyptr, keylen);
+    StorageKey start_key(keyptr, keylen, StorageMetaFlag::DefaultCollection);
 
     ExTask task = new FetchAllKeysTask(this, cookie, response, start_key,
                                        vbucket, count);

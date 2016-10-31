@@ -57,3 +57,9 @@ static inline std::string to_string(GenerateCas generateCas) {
             return "";
     }
 }
+
+enum class StorageMetaFlag : uint8_t {
+    DefaultCollection,
+    Collection,
+    Event
+};

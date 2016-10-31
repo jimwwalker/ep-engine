@@ -207,9 +207,9 @@ queue_dirty_t Checkpoint::queueDirty(const queued_item &qi,
     return rv;
 }
 
-StorageKey Checkpoint::dummyKey("dummy_key", sizeof("dummy_key"));
-StorageKey Checkpoint::checkpointStartKey("checkpoint_start", sizeof("checkpoint_start"));
-StorageKey Checkpoint::checkpointEndKey("checkpoint_end", sizeof("checkpoint_end"));
+StorageKey Checkpoint::dummyKey("dummy_key", sizeof("dummy_key"), StorageMetaFlag::Event);
+StorageKey Checkpoint::checkpointStartKey("checkpoint_start", sizeof("checkpoint_start"), StorageMetaFlag::Event);
+StorageKey Checkpoint::checkpointEndKey("checkpoint_end", sizeof("checkpoint_end"), StorageMetaFlag::Event);
 
 size_t Checkpoint::mergePrevCheckpoint(Checkpoint *pPrevCheckpoint) {
     size_t numNewItems = 0;
@@ -1096,7 +1096,7 @@ queued_item CheckpointManager::nextItem(const std::string &name,
         LOG(EXTENSION_LOG_WARNING,
         "The cursor with name \"%s\" is not found in the checkpoint of vbucket"
         "%d.\n", name.c_str(), vbucketId);
-        queued_item qi(new Item(StorageKey("", 0), 0xffff,
+        queued_item qi(new Item(StorageKey("", 0, StorageMetaFlag::Event), 0xffff,
                                 queue_op_empty, 0, 0));
         return qi;
     }
@@ -1105,7 +1105,7 @@ queued_item CheckpointManager::nextItem(const std::string &name,
             "VBucket %d is still in backfill phase that doesn't allow "
             " the cursor to fetch an item from it's current checkpoint",
             vbucketId);
-        queued_item qi(new Item(StorageKey("", 0), 0xffff,
+        queued_item qi(new Item(StorageKey("", 0, StorageMetaFlag::Event), 0xffff,
                                 queue_op_empty, 0, 0));
         return qi;
     }
@@ -1116,7 +1116,7 @@ queued_item CheckpointManager::nextItem(const std::string &name,
         return *(cursor.currentPos);
     } else {
         isLastMutationItem = false;
-        queued_item qi(new Item(StorageKey("", 0), 0xffff,
+        queued_item qi(new Item(StorageKey("", 0, StorageMetaFlag::Event), 0xffff,
                                 queue_op_empty, 0, 0));
         return qi;
     }
@@ -1622,7 +1622,10 @@ queued_item CheckpointManager::createCheckpointItem(uint64_t id, uint16_t vbid,
                         ") is not a valid item to create");
     }
 
-    queued_item qi(new Item(StorageKey(key.data(), key.size()), vbid, checkpoint_op, id, bySeqno));
+    queued_item qi(new Item(StorageKey(key.data(),
+                                       key.size(),
+                                       StorageMetaFlag::Event),
+                   vbid, checkpoint_op, id, bySeqno));
     return qi;
 }
 
