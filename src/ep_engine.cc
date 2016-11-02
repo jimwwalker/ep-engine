@@ -6002,40 +6002,33 @@ EventuallyPersistentEngine::getClusterConfig(const void* cookie,
  * This initially allocated buffersize is doubled whenever the length
  * of the buffer holding all the keys, crosses the buffersize.
  */
-class AllKeysCallback : public Callback<uint16_t&, char*&> {
+class AllKeysCallback : public Callback<const std::string&> {
 public:
-    AllKeysCallback() {
-        length = 0;
-        buffersize = (avgKeySize + sizeof(uint16_t)) * expNumKeys;
-        buffer = (char *) cb_malloc(buffersize);
-    }
+    AllKeysCallback()
+          : length(0),
+            buffer((avgKeySize + sizeof(uint16_t)) * expNumKeys) {}
 
-    ~AllKeysCallback() {
-        cb_free(buffer);
-    }
-
-    void callback(uint16_t& len, char*& buf) {
-        if (length + len + sizeof(uint16_t) > buffersize) {
-            buffersize *= 2;
-            char *temp = (char *) cb_malloc(buffersize);
-            memcpy (temp, buffer, length);
-            cb_free(buffer);
-            buffer = temp;
+    void callback(const std::string& key) {
+        if (buffer.size() + key.size() + sizeof(uint16_t) >
+            buffer.size()) {
+            // Resize the copy-to buffer.
+            buffer.resize(buffer.size()*2);
         }
-        len = htons(len);
-        memcpy (buffer + length, &len, sizeof(uint16_t));
-        len = ntohs(len);
-        memcpy (buffer + length + sizeof(uint16_t), buf, len);
-        length += len + sizeof(uint16_t);
+        uint16_t len = htons(key.size());
+        memcpy (buffer.data() + length, &len, sizeof(uint16_t));
+
+        memcpy (buffer.data() + length + sizeof(uint16_t),
+                key.data(),
+                key.size());
+        length += key.size() + sizeof(uint16_t);
     }
 
-    char* getAllKeysPtr() { return buffer; }
+    char* getAllKeysPtr() { return buffer.data(); }
     uint64_t getAllKeysLen() { return length; }
 
 private:
     uint64_t length;
-    uint64_t buffersize;
-    char *buffer;
+    std::vector<char> buffer;
 
     static const int avgKeySize = 32;
     static const int expNumKeys = 1000;
@@ -6070,7 +6063,7 @@ public:
                                PROTOCOL_BINARY_RESPONSE_SUCCESS, 0,
                                cookie);
         } else {
-            std::shared_ptr<Callback<uint16_t&, char*&> > cb(new AllKeysCallback());
+            std::shared_ptr<Callback<const std::string&> > cb(new AllKeysCallback());
             err = engine->getKVBucket()->getROUnderlying(vbid)->getAllKeys(
                                                     vbid, start_key, count, cb);
             if (err == ENGINE_SUCCESS) {

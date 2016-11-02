@@ -1228,8 +1228,10 @@ void ForestKVStore::get(const std::string& key, uint16_t vb,
 }
 
 ENGINE_ERROR_CODE
-ForestKVStore::getAllKeys(uint16_t vbid, std::string& start_key, uint32_t count,
-                         std::shared_ptr<Callback<uint16_t&, char*&> > cb) {
+ForestKVStore::getAllKeys(uint16_t vbid,
+                          const std::string& start_key,
+                          uint32_t count,
+                          std::shared_ptr<Callback<const std::string&> > cb) {
 
     std::unique_ptr<ForestKvsHandle> fkvsHandle;
     try {
@@ -1272,9 +1274,8 @@ ForestKVStore::getAllKeys(uint16_t vbid, std::string& start_key, uint32_t count,
                        "get failed for vbucket id " + std::to_string(vbid) +
                        " and start key:" + start_key.c_str());
         }
-        uint16_t keylen = static_cast<uint16_t>(rdoc->keylen);
-        char* key = static_cast<char *>(rdoc->key);
-        cb->callback(keylen, key);
+        cb->callback(std::string(static_cast<const char *>(rdoc->key),
+                                 rdoc->keylen));
 
         if (fdb_iterator_next(fdb_iter) != FDB_RESULT_SUCCESS) {
             break;

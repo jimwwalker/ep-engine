@@ -162,10 +162,10 @@ public:
 };
 
 struct AllKeysCtx {
-    AllKeysCtx(std::shared_ptr<Callback<uint16_t&, char*&> > callback, uint32_t cnt)
+    AllKeysCtx(std::shared_ptr<Callback<const std::string&> > callback, uint32_t cnt)
         : cb(callback), count(cnt) { }
 
-    std::shared_ptr<Callback<uint16_t&, char*&> > cb;
+    std::shared_ptr<Callback<const std::string&> > cb;
     uint32_t count;
 };
 
@@ -2404,9 +2404,7 @@ RollbackResult CouchKVStore::rollback(uint16_t vbid, uint64_t rollbackSeqno,
 
 int populateAllKeys(Db *db, DocInfo *docinfo, void *ctx) {
     AllKeysCtx *allKeysCtx = (AllKeysCtx *)ctx;
-    uint16_t keylen = docinfo->id.size;
-    char *key = docinfo->id.buf;
-    (allKeysCtx->cb)->callback(keylen, key);
+    (allKeysCtx->cb)->callback(std::string(docinfo->id.buf, docinfo->id.size));
     if (--(allKeysCtx->count) <= 0) {
         //Only when count met is less than the actual number of entries
         return COUCHSTORE_ERROR_CANCEL;
@@ -2415,8 +2413,10 @@ int populateAllKeys(Db *db, DocInfo *docinfo, void *ctx) {
 }
 
 ENGINE_ERROR_CODE
-CouchKVStore::getAllKeys(uint16_t vbid, std::string &start_key, uint32_t count,
-                         std::shared_ptr<Callback<uint16_t&, char*&> > cb) {
+CouchKVStore::getAllKeys(uint16_t vbid,
+                         const std::string &start_key,
+                         uint32_t count,
+                         std::shared_ptr<Callback<const std::string&> > cb) {
     Db *db = NULL;
     uint64_t rev = dbFileRevMap[vbid];
     couchstore_error_t errCode = openDB(vbid, rev, &db,
