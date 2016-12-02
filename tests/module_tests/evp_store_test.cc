@@ -34,7 +34,7 @@
 #include "dcp/flow-control-manager.h"
 #include "ep_engine.h"
 #include "flusher.h"
-#include "makestoragekey.h"
+#include "makestoreddockey.h"
 #include "replicationthrottle.h"
 #include "tapconnmap.h"
 
@@ -156,7 +156,7 @@ void EPBucketTest::TearDown() {
 }
 
 Item EPBucketTest::make_item(uint16_t vbid,
-                             const StorageKey& key,
+                             const StoredDocKey& key,
                              const std::string& value) {
     uint8_t ext_meta[EXT_META_LEN] = {PROTOCOL_BINARY_DATATYPE_JSON};
     Item item(key, /*flags*/0, /*exp*/0, value.c_str(), value.size(),
@@ -166,7 +166,7 @@ Item EPBucketTest::make_item(uint16_t vbid,
 }
 
 Item EPBucketTest::store_item(uint16_t vbid,
-                              const StorageKey& key,
+                              const StoredDocKey& key,
                               const std::string& value) {
     auto item = make_item(vbid, key, value);
     EXPECT_EQ(ENGINE_SUCCESS, store->set(item, nullptr));
@@ -208,7 +208,7 @@ void EPBucketTest::flush_vbucket_to_disk(uint16_t vbid) {
     store->commit(vbid % numShards);
 }
 
-void EPBucketTest::delete_item(uint16_t vbid, const StorageKey& key) {
+void EPBucketTest::delete_item(uint16_t vbid, const StoredDocKey& key) {
     uint64_t cas = 0;
     mutation_descr_t mut_info;
     EXPECT_EQ(ENGINE_SUCCESS,
@@ -216,7 +216,7 @@ void EPBucketTest::delete_item(uint16_t vbid, const StorageKey& key) {
                                 /*itemMeta*/nullptr, &mut_info));
 }
 
-void EPBucketTest::evict_key(uint16_t vbid, const StorageKey& key) {
+void EPBucketTest::evict_key(uint16_t vbid, const StoredDocKey& key) {
     const char* msg;
     size_t msg_size{sizeof(msg)};
     EXPECT_EQ(ENGINE_SUCCESS, store->evictKey(key, vbid, &msg, &msg_size));
@@ -283,12 +283,12 @@ TEST_P(EPStoreEvictionTest, GetKeyStatsResident) {
 
     // Should start with key not existing.
     EXPECT_EQ(ENGINE_KEY_ENOENT,
-              store->getKeyStats(makeStorageKey("key"), 0, cookie, kstats,
+              store->getKeyStats(makeStoredDocKey("key"), 0, cookie, kstats,
                                  /*wantsDeleted*/false));
 
-    store_item(0, makeStorageKey("key"), "value");
+    store_item(0, makeStoredDocKey("key"), "value");
     EXPECT_EQ(ENGINE_SUCCESS,
-              store->getKeyStats(makeStorageKey("key"), 0, cookie, kstats,
+              store->getKeyStats(makeStoredDocKey("key"), 0, cookie, kstats,
                                  /*wantsDeleted*/false))
         << "Expected to get key stats on existing item";
     EXPECT_EQ(vbucket_state_active, kstats.vb_state);
@@ -302,17 +302,17 @@ TEST_P(EPStoreEvictionTest, GetKeyStatsEjected) {
 
     // Store then eject an item. Note we cannot forcefully evict as we have
     // to ensure it's own disk so we can later bg fetch from there :)
-    store_item(vbid, makeStorageKey("key"), "value");
+    store_item(vbid, makeStoredDocKey("key"), "value");
 
     // Trigger a flush to disk.
     flush_vbucket_to_disk(vbid);
 
-    evict_key(vbid, makeStorageKey("key"));
+    evict_key(vbid, makeStoredDocKey("key"));
 
     // Setup a lambda for how we want to call getKeyStats (saves repeating the
     // same arguments for each instance below).
     auto do_getKeyStats = [this, &kstats]() {
-        return store->getKeyStats(makeStorageKey("key"), vbid, cookie, kstats,
+        return store->getKeyStats(makeStoredDocKey("key"), vbid, cookie, kstats,
                                   /*wantsDeleted*/false);
     };
 
@@ -355,18 +355,18 @@ TEST_P(EPStoreEvictionTest, GetKeyStatsDeleted) {
     auto& kvbucket = *engine->getKVBucket();
     key_stats kstats;
 
-    store_item(0, makeStorageKey("key"), "value");
-    delete_item(vbid, makeStorageKey("key"));
+    store_item(0, makeStoredDocKey("key"), "value");
+    delete_item(vbid, makeStoredDocKey("key"));
 
     // Should get ENOENT if we don't ask for deleted items.
     EXPECT_EQ(ENGINE_KEY_ENOENT,
-              kvbucket.getKeyStats(makeStorageKey("key"), 0, cookie,
+              kvbucket.getKeyStats(makeStoredDocKey("key"), 0, cookie,
                                    kstats, /*wantsDeleted*/false));
 
     // Should get success (and item flagged as deleted) if we ask for deleted
     // items.
     EXPECT_EQ(ENGINE_SUCCESS,
-              kvbucket.getKeyStats(makeStorageKey("key"), 0, cookie,
+              kvbucket.getKeyStats(makeStoredDocKey("key"), 0, cookie,
                                   kstats, /*wantsDeleted*/true));
     EXPECT_EQ(vbucket_state_active, kstats.vb_state);
     EXPECT_TRUE(kstats.logically_deleted);
@@ -378,7 +378,7 @@ TEST_P(EPStoreEvictionTest, GetKeyStatsNMVB) {
     key_stats kstats;
 
     EXPECT_EQ(ENGINE_NOT_MY_VBUCKET,
-              kvbucket.getKeyStats(makeStorageKey("key"), 1, cookie,
+              kvbucket.getKeyStats(makeStoredDocKey("key"), 1, cookie,
                                    kstats, /*wantsDeleted*/false));
 }
 
@@ -387,7 +387,7 @@ TEST_P(EPStoreEvictionTest, GetKeyStatsNMVB) {
 // Test replace against a non-existent key.
 TEST_P(EPStoreEvictionTest, ReplaceENOENT) {
     // Should start with key not existing (and hence cannot replace).
-    auto item = make_item(vbid, makeStorageKey("key"), "value");
+    auto item = make_item(vbid, makeStoredDocKey("key"), "value");
     EXPECT_EQ(ENGINE_KEY_ENOENT, store->replace(item, cookie));
 }
 
@@ -395,14 +395,14 @@ TEST_P(EPStoreEvictionTest, ReplaceENOENT) {
 TEST_P(EPStoreEvictionTest, ReplaceEExists) {
 
     // Store then eject an item.
-    store_item(vbid, makeStorageKey("key"), "value");
+    store_item(vbid, makeStoredDocKey("key"), "value");
     flush_vbucket_to_disk(vbid);
-    evict_key(vbid, makeStorageKey("key"));
+    evict_key(vbid, makeStoredDocKey("key"));
 
     // Setup a lambda for how we want to call replace (saves repeating the
     // same arguments for each instance below).
     auto do_replace = [this]() {
-        auto item = make_item(vbid, makeStorageKey("key"), "value2");
+        auto item = make_item(vbid, makeStoredDocKey("key"), "value2");
         return store->replace(item, cookie);
     };
 
@@ -434,24 +434,24 @@ TEST_P(EPStoreEvictionTest, ReplaceEExists) {
 
 // Create then delete an item, checking replace reports ENOENT.
 TEST_P(EPStoreEvictionTest, ReplaceDeleted) {
-    store_item(vbid, makeStorageKey("key"), "value");
-    delete_item(vbid, makeStorageKey("key"));
+    store_item(vbid, makeStoredDocKey("key"), "value");
+    delete_item(vbid, makeStoredDocKey("key"));
 
     // Replace should fail.
-    auto item = make_item(vbid, makeStorageKey("key"), "value2");
+    auto item = make_item(vbid, makeStoredDocKey("key"), "value2");
     EXPECT_EQ(ENGINE_KEY_ENOENT, store->replace(item, cookie));
 }
 
 // Check incorrect vbucket returns not-my-vbucket.
 TEST_P(EPStoreEvictionTest, ReplaceNMVB) {
-    auto item = make_item(vbid + 1, makeStorageKey("key"), "value2");
+    auto item = make_item(vbid + 1, makeStoredDocKey("key"), "value2");
     EXPECT_EQ(ENGINE_NOT_MY_VBUCKET, store->replace(item, cookie));
 }
 
 // Check pending vbucket returns EWOULDBLOCK.
 TEST_P(EPStoreEvictionTest, ReplacePendingVB) {
     store->setVBucketState(vbid, vbucket_state_pending, false);
-    auto item = make_item(vbid, makeStorageKey("key"), "value2");
+    auto item = make_item(vbid, makeStoredDocKey("key"), "value2");
     EXPECT_EQ(ENGINE_EWOULDBLOCK, store->replace(item, cookie));
 }
 
@@ -461,7 +461,7 @@ TEST_P(EPStoreEvictionTest, ReplacePendingVB) {
 TEST_P(EPStoreEvictionTest, SetEExists) {
 
     // Store an item, then eject it.
-    auto item = make_item(vbid, makeStorageKey("key"), "value");
+    auto item = make_item(vbid, makeStoredDocKey("key"), "value");
     EXPECT_EQ(ENGINE_SUCCESS, store->set(item, nullptr));
     flush_vbucket_to_disk(vbid);
     evict_key(item.getVBucketId(), item.getKey());
@@ -497,7 +497,7 @@ TEST_P(EPStoreEvictionTest, SetEExists) {
 // Test CAS set against a non-existent key
 TEST_P(EPStoreEvictionTest, SetCASNonExistent) {
     // Create an item with a non-zero CAS.
-    auto item = make_item(vbid, makeStorageKey("key"), "value");
+    auto item = make_item(vbid, makeStoredDocKey("key"), "value");
     item.setCas();
     ASSERT_NE(0, item.getCas());
 
@@ -510,7 +510,7 @@ TEST_P(EPStoreEvictionTest, SetCASNonExistent) {
 
 // Test successful add
 TEST_P(EPStoreEvictionTest, Add) {
-    auto item = make_item(vbid, makeStorageKey("key"), "value");
+    auto item = make_item(vbid, makeStoredDocKey("key"), "value");
     EXPECT_EQ(ENGINE_SUCCESS, store->add(item, nullptr));
 }
 
@@ -518,15 +518,15 @@ TEST_P(EPStoreEvictionTest, Add) {
 TEST_P(EPStoreEvictionTest, AddEExists) {
 
     // Store an item, then eject it.
-    auto item = make_item(vbid, makeStorageKey("key"), "value");
+    auto item = make_item(vbid, makeStoredDocKey("key"), "value");
     EXPECT_EQ(ENGINE_SUCCESS, store->set(item, nullptr));
     flush_vbucket_to_disk(vbid);
-    evict_key(item.getVBucketId(), StorageKey(item.getKey()));
+    evict_key(item.getVBucketId(), item.getKey());
 
     // Setup a lambda for how we want to call add (saves repeating the
     // same arguments for each instance below).
     auto do_add = [this]() {
-        auto item = make_item(vbid, makeStorageKey("key"), "value2");
+        auto item = make_item(vbid, makeStoredDocKey("key"), "value2");
         return store->add(item, cookie);
     };
 
@@ -558,7 +558,7 @@ TEST_P(EPStoreEvictionTest, AddEExists) {
 
 // Check incorrect vbucket returns not-my-vbucket.
 TEST_P(EPStoreEvictionTest, AddNMVB) {
-    auto item = make_item(vbid + 1, makeStorageKey("key"), "value2");
+    auto item = make_item(vbid + 1, makeStoredDocKey("key"), "value2");
     EXPECT_EQ(ENGINE_NOT_MY_VBUCKET, store->add(item, cookie));
 }
 
@@ -566,7 +566,7 @@ TEST_P(EPStoreEvictionTest, AddNMVB) {
 
 // Test basic setWithMeta
 TEST_P(EPStoreEvictionTest, SetWithMeta) {
-    auto item = make_item(vbid, makeStorageKey("key"), "value");
+    auto item = make_item(vbid, makeStoredDocKey("key"), "value");
     item.setCas();
     uint64_t seqno;
     EXPECT_EQ(ENGINE_SUCCESS,
@@ -576,7 +576,7 @@ TEST_P(EPStoreEvictionTest, SetWithMeta) {
 
 // Test setWithMeta with a conflict with an existing item.
 TEST_P(EPStoreEvictionTest, SetWithMeta_Conflicted) {
-    auto item = make_item(vbid, makeStorageKey("key"), "value");
+    auto item = make_item(vbid, makeStoredDocKey("key"), "value");
     EXPECT_EQ(ENGINE_SUCCESS, store->set(item, nullptr));
 
     uint64_t seqno;
@@ -588,7 +588,7 @@ TEST_P(EPStoreEvictionTest, SetWithMeta_Conflicted) {
 
 // Test setWithMeta replacing existing item
 TEST_P(EPStoreEvictionTest, SetWithMeta_Replace) {
-    auto item = make_item(vbid, makeStorageKey("key"), "value");
+    auto item = make_item(vbid, makeStoredDocKey("key"), "value");
     EXPECT_EQ(ENGINE_SUCCESS, store->set(item, nullptr));
 
     // Increase revSeqno so conflict resolution doesn't fail.
@@ -608,10 +608,10 @@ TEST_P(EPStoreEvictionTest, SetWithMeta_Replace) {
 // Test setWithMeta replacing an existing, non-resident item
 TEST_P(EPStoreEvictionTest, SetWithMeta_ReplaceNonResident) {
     // Store an item, then evict it.
-    auto item = make_item(vbid, makeStorageKey("key"), "value");
+    auto item = make_item(vbid, makeStoredDocKey("key"), "value");
     EXPECT_EQ(ENGINE_SUCCESS, store->set(item, nullptr));
     flush_vbucket_to_disk(vbid);
-    evict_key(item.getVBucketId(), StorageKey(item.getKey()));
+    evict_key(item.getVBucketId(), item.getKey());
 
     // Increase revSeqno so conflict resolution doesn't fail.
     item.setRevSeqno(item.getRevSeqno() + 1);
@@ -652,7 +652,7 @@ TEST_P(EPStoreEvictionTest, SetWithMeta_ReplaceNonResident) {
 
 // Test forced setWithMeta
 TEST_P(EPStoreEvictionTest, SetWithMeta_Forced) {
-    auto item = make_item(vbid, makeStorageKey("key"), "value");
+    auto item = make_item(vbid, makeStoredDocKey("key"), "value");
     item.setCas();
     uint64_t seqno;
     EXPECT_EQ(ENGINE_SUCCESS,

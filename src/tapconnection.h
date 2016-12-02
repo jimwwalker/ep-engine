@@ -679,7 +679,7 @@ public:
 class BGFetchCallback : public GlobalTask {
 public:
     BGFetchCallback(EventuallyPersistentEngine& e, const std::string &n,
-                    const StorageKey& k, uint16_t vbid, hrtime_t token,
+                    const DocKey k, uint16_t vbid, hrtime_t token,
                     double sleeptime = 0)
         : GlobalTask(&e, TaskId::BGFetchCallback, sleeptime, false),
           name(n),
@@ -699,7 +699,7 @@ public:
 
 private:
     const std::string name;
-    const StorageKey key;
+    const StoredDocKey key;
     EventuallyPersistentEngine& epe;
     hrtime_t init;
     hrtime_t connToken;
@@ -1246,7 +1246,7 @@ protected:
      * @param id the disk id of the item to fetch
      * @param vb the vbucket ID
      */
-    void queueBGFetch_UNLOCKED(const StorageKey& key, uint64_t id,
+    void queueBGFetch_UNLOCKED(const StoredDocKey& key, uint64_t id,
                                uint16_t vb);
 
     ENGINE_ERROR_CODE processAck(uint32_t seqno, uint16_t status, const DocKey key);

@@ -128,6 +128,7 @@ bool BloomFilter::maybeKeyExists(const DocKey key) {
         uint32_t i;
         uint64_t result;
         for (i = 0; i < noOfHashes; i++) {
+#warning "Not hashing namespace"
             MURMURHASH_3(key.data(), key.size(), i, &result);
             if (bitArray[result % filterSize] == 0) {
                 // The key does NOT exist.

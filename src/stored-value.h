@@ -122,7 +122,7 @@ public:
     /**
      * Get this item's key.
      */
-    const SerialisedStorageKey& getKey() const {
+    const SerialisedDocKey& getKey() const {
         return key;
     }
 
@@ -526,7 +526,7 @@ private:
 
     */
     static size_t getRequiredStorage(const Item& item) {
-        return sizeof(StoredValue) + SerialisedStorageKey::getObjectSize(item.getKey().size());
+        return sizeof(StoredValue) + SerialisedDocKey::getObjectSize(item.getKey().size());
     }
 
     friend class HashTable;
@@ -544,7 +544,7 @@ private:
     bool               deleted   :  1;
     bool               newCacheItem : 1;
     uint8_t            nru       :  2; //!< True if referenced since last sweep
-    SerialisedStorageKey key; //!< The key itself.
+    SerialisedDocKey key; //!< The key itself.
 
     static void increaseMetaDataSize(HashTable &ht, EPStats &st, size_t by);
     static void reduceMetaDataSize(HashTable &ht, EPStats &st, size_t by);

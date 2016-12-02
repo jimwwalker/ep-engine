@@ -291,17 +291,17 @@ bool BloomFilterCallback::initTempFilter(uint16_t vbucketId) {
     return true;
 }
 
-class ExpiredItemsCallback : public Callback<uint16_t&, const StorageKey&, uint64_t&,
+class ExpiredItemsCallback : public Callback<uint16_t&, const DocKey&, uint64_t&,
                                              time_t&> {
     public:
         ExpiredItemsCallback(EPBucket& store)
             : epstore(store) { }
 
-        void callback(uint16_t& vbid, const StorageKey& key, uint64_t& revSeqno,
+        void callback(uint16_t& vbid, const DocKey& key, uint64_t& revSeqno,
                       time_t& startTime) {
             if (epstore.compactionCanExpireItems()) {
                 epstore.deleteExpiredItem(vbid, key, startTime, revSeqno,
-                                              EXP_BY_COMPACTOR);
+                                          EXP_BY_COMPACTOR);
             }
         }
 
@@ -685,7 +685,7 @@ void EPBucket::stopBgFetcher() {
     }
 }
 
-void EPBucket::deleteExpiredItem(uint16_t vbid, const StorageKey& key,
+void EPBucket::deleteExpiredItem(uint16_t vbid, const DocKey key,
                                  time_t startTime, uint64_t revSeqno,
                                  exp_type_t source) {
     RCPtr<VBucket> vb = getVBucket(vbid);
@@ -738,7 +738,7 @@ void EPBucket::deleteExpiredItem(uint16_t vbid, const StorageKey& key,
 }
 
 void EPBucket::deleteExpiredItems(std::list<std::pair<uint16_t,
-                                  StorageKey> > &keys, exp_type_t source) {
+                                  StoredDocKey> > &keys, exp_type_t source) {
     std::list<std::pair<uint16_t, std::string> >::iterator it;
     time_t startTime = ep_real_time();
     for (const auto& it : keys) {
@@ -773,7 +773,7 @@ StoredValue *EPBucket::fetchValidValue(RCPtr<VBucket> &vb,
     return v;
 }
 
-bool EPBucket::isMetaDataResident(RCPtr<VBucket> &vb, const StorageKey& key) {
+bool EPBucket::isMetaDataResident(RCPtr<VBucket> &vb, const DocKey key) {
 
     if (!vb) {
         throw std::invalid_argument("EPStore::isMetaDataResident: vb is NULL");
@@ -814,7 +814,7 @@ protocol_binary_response_status EPBucket::evictKey(const DocKey key,
 
                 // Add key to bloom filter incase of full eviction mode
                 if (getItemEvictionPolicy() == FULL_EVICTION) {
-                    vb->addToFilter(StorageKey(key));
+                    vb->addToFilter(key);
                 }
             } else {
                 *msg = "Can't eject: Dirty object.";
@@ -1650,7 +1650,7 @@ void EPBucket::updateBGStats(const hrtime_t init, const hrtime_t start,
     }
 }
 
-void EPBucket::completeBGFetch(const StorageKey& key, uint16_t vbucket,
+void EPBucket::completeBGFetch(const DocKey key, uint16_t vbucket,
                                const void *cookie, hrtime_t init, bool isMeta) {
     hrtime_t start(gethrtime());
     // Go find the data
@@ -2060,7 +2060,7 @@ ENGINE_ERROR_CODE EPBucket::setWithMeta(Item &itm,
     return ret;
 }
 
-GetValue EPBucket::getAndUpdateTtl(const StorageKey& key, uint16_t vbucket,
+GetValue EPBucket::getAndUpdateTtl(const DocKey& key, uint16_t vbucket,
                                    const void *cookie, time_t exptime)
 {
     RCPtr<VBucket> vb = getVBucket(vbucket);
@@ -2137,7 +2137,7 @@ GetValue EPBucket::getAndUpdateTtl(const StorageKey& key, uint16_t vbucket,
     }
 }
 
-ENGINE_ERROR_CODE EPBucket::statsVKey(const StorageKey& key, uint16_t vbucket,
+ENGINE_ERROR_CODE EPBucket::statsVKey(const DocKey key, uint16_t vbucket,
                                       const void *cookie) {
     RCPtr<VBucket> vb = getVBucket(vbucket);
     if (!vb) {
@@ -2193,7 +2193,7 @@ ENGINE_ERROR_CODE EPBucket::statsVKey(const StorageKey& key, uint16_t vbucket,
     }
 }
 
-void EPBucket::completeStatsVKey(const void* cookie, const StorageKey& key,
+void EPBucket::completeStatsVKey(const void* cookie, const DocKey key,
                                  uint16_t vbid, uint64_t bySeqNum) {
     RememberingCallback<GetValue> gcb;
 
@@ -2394,7 +2394,7 @@ ENGINE_ERROR_CODE EPBucket::getKeyStats(const DocKey key,
     }
 }
 
-std::string EPBucket::validateKey(const StorageKey& key, uint16_t vbucket,
+std::string EPBucket::validateKey(const DocKey key, uint16_t vbucket,
                                   Item &diskItem) {
     int bucket_num(0);
     RCPtr<VBucket> vb = getVBucket(vbucket);
@@ -2423,7 +2423,7 @@ std::string EPBucket::validateKey(const StorageKey& key, uint16_t vbucket,
 
 }
 
-ENGINE_ERROR_CODE EPBucket::deleteItem(const StorageKey& key,
+ENGINE_ERROR_CODE EPBucket::deleteItem(const DocKey key,
                                        uint64_t *cas,
                                        uint16_t vbucket,
                                        const void *cookie,
@@ -2569,7 +2569,7 @@ ENGINE_ERROR_CODE EPBucket::deleteItem(const StorageKey& key,
     return ret;
 }
 
-ENGINE_ERROR_CODE EPBucket::deleteWithMeta(const StorageKey& key,
+ENGINE_ERROR_CODE EPBucket::deleteWithMeta(const DocKey key,
                                            uint64_t *cas,
                                            uint64_t *seqno,
                                            uint16_t vbucket,
@@ -3409,7 +3409,7 @@ void EPBucket::stopWarmup(void)
 }
 
 void EPBucket::completeBGFetchForSingleItem(RCPtr<VBucket> vb,
-                                            const StorageKey& key,
+                                            const DocKey key,
                                             const hrtime_t startTime,
                                             VBucketBGFetchItem& fetched_item)
 {

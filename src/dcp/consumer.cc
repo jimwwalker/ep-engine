@@ -302,9 +302,8 @@ ENGINE_ERROR_CODE DcpConsumer::mutation(uint32_t opaque, const void* key,
     auto stream = findStream(vbucket);
     if (stream && stream->getOpaque() == opaque && stream->isActive()) {
         // Create key in DefaultCollection unti DCP supports collections
-        queued_item item(new Item(StorageKey(static_cast<const uint8_t*>(key),
-                                             nkey,
-                                             DocNamespace::DefaultCollection),
+        queued_item item(new Item(DocKey(static_cast<const uint8_t*>(key), nkey,
+                                         DocNamespace::DefaultCollection),
                                   flags, exptime, value, nvalue,
                                   &datatype, EXT_META_LEN, cas, bySeqno,
                                   vbucket, revSeqno));
@@ -370,9 +369,8 @@ ENGINE_ERROR_CODE DcpConsumer::deletion(uint32_t opaque, const void* key,
     auto stream = findStream(vbucket);
     if (stream && stream->getOpaque() == opaque && stream->isActive()) {
         // Create key in DefaultCollection until DCP supports collections
-        queued_item item(new Item(StorageKey(static_cast<const uint8_t*>(key),
-                                             nkey,
-                                             DocNamespace::DefaultCollection),
+        queued_item item(new Item(DocKey(static_cast<const uint8_t*>(key), nkey,
+                                         DocNamespace::DefaultCollection),
                                   0, 0, NULL, 0, NULL, 0, cas, bySeqno,
                                   vbucket, revSeqno));
         item->setDeleted();

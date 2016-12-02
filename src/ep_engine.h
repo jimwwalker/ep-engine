@@ -21,7 +21,7 @@
 #include "config.h"
 
 #include "ep.h"
-#include "storagekey.h"
+#include "storeddockey.h"
 #include "kvbucket.h"
 #include "tapconnection.h"
 #include "taskable.h"
@@ -238,7 +238,7 @@ public:
         uint8_t ext_meta[1];
         uint8_t ext_len = EXT_META_LEN;
         *(ext_meta) = datatype;
-        *itm = new Item(StorageKey(key), flags, expiretime, nullptr, nbytes,
+        *itm = new Item(key, flags, expiretime, nullptr, nbytes,
                         ext_meta, ext_len, 0/*cas*/, -1/*seq*/, vbucket);
         if (*itm == NULL) {
             return memoryCondition();
@@ -538,7 +538,7 @@ public:
         flushAllEnabled = enabled;
     }
 
-    protocol_binary_response_status evictKey(const StorageKey& key,
+    protocol_binary_response_status evictKey(const DocKey key,
                                              uint16_t vbucket,
                                              const char **msg,
                                              size_t *msg_size) {
@@ -552,7 +552,7 @@ public:
                                    cookie);
     }
 
-    ENGINE_ERROR_CODE unlockKey(const StorageKey& key,
+    ENGINE_ERROR_CODE unlockKey(const StoredDocKey& key,
                                 uint16_t vbucket,
                                 uint64_t cas,
                                 rel_time_t currentTime) {
@@ -818,7 +818,7 @@ protected:
     ENGINE_ERROR_CODE doRunTimeStats(const void *cookie, ADD_STAT add_stat);
     ENGINE_ERROR_CODE doDispatcherStats(const void *cookie, ADD_STAT add_stat);
     ENGINE_ERROR_CODE doKeyStats(const void *cookie, ADD_STAT add_stat,
-                                 uint16_t vbid, const StorageKey &key, bool validate=false);
+                                 uint16_t vbid, const DocKey key, bool validate=false);
     ENGINE_ERROR_CODE doTapVbTakeoverStats(const void *cookie,
                                            ADD_STAT add_stat,
                                            std::string& key,

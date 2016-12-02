@@ -22,7 +22,7 @@
 #include "evp_engine_test.h"
 
 #include "ep_engine.h"
-#include "makestoragekey.h"
+#include "makestoreddockey.h"
 #include "programs/engine_testapp/mock_server.h"
 #include <platform/dirutils.h>
 
@@ -66,7 +66,7 @@ void EventuallyPersistentEngineTest::TearDown() {
 void EventuallyPersistentEngineTest::store_item(uint16_t vbid,
                                                 const std::string& key,
                                                 const std::string& value) {
-    Item item(makeStorageKey(key), /*flags*/0, /*exp*/0, value.c_str(),
+    Item item(makeStoredDocKey(key), /*flags*/0, /*exp*/0, value.c_str(),
               value.size(), nullptr/*extmeta*/, 0/*extlen*/, 0/*cas*/,
               -1/*seqno*/, vbid);
     uint64_t cas;

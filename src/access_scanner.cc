@@ -61,7 +61,7 @@ public:
                 "INFO: Skipping expired/deleted item: %" PRIu64, v->getBySeqno());
             } else {
                 accessed.push_back(std::make_pair(v->getBySeqno(),
-                                                  StorageKey(v->getKey())));
+                                                  StoredDocKey(v->getKey())));
             }
         }
     }
@@ -175,7 +175,7 @@ private:
     std::string name;
     uint16_t shardID;
 
-    std::list<std::pair<uint64_t, StorageKey> > accessed;
+    std::list<std::pair<uint64_t, StoredDocKey> > accessed;
 
     MutationLog *log;
     std::atomic<bool> &stateFinalizer;

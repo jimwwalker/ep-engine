@@ -18,18 +18,18 @@
 #pragma once
 
 #include "ep_types.h"
-#include "storagekey.h"
+#include "storeddockey.h"
 
 /*
- * Create a StorageKey object from a C string.
+ * Create a StoredDocKey object from a C string.
  */
-inline StorageKey makeStorageKey(const char* cString) {
-    return StorageKey(cString, DocNamespace::DefaultCollection);
+inline StoredDocKey makeStoredDocKey(const char* cString) {
+    return StoredDocKey(cString, DocNamespace::DefaultCollection);
 }
 
 /*
- * Create a StorageKey object from a std::string.
+ * Create a StoredDocKey object from a std::string.
  */
-inline StorageKey makeStorageKey(const std::string& string) {
-    return StorageKey(string, DocNamespace::DefaultCollection);
+inline StoredDocKey makeStoredDocKey(const std::string& string) {
+    return StoredDocKey(string, DocNamespace::DefaultCollection);
 }

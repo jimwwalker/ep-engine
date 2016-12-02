@@ -626,7 +626,7 @@ ENGINE_ERROR_CODE ForestKVStore::forestErr2EngineErr(fdb_status errCode) {
     }
 }
 
-void ForestKVStore::getWithHeader(void* handle, const StorageKey& key,
+void ForestKVStore::getWithHeader(void* handle, const DocKey key,
                                   uint16_t vb, Callback<GetValue>& cb,
                                   bool fetchDelete) {
     fdb_kvs_handle* kvsHandle = static_cast<fdb_kvs_handle*>(handle);
@@ -719,9 +719,9 @@ fdb_changes_decision ForestKVStore::recordChanges(fdb_kvs_handle* handle,
     const uint16_t vbucketId = sctx->vbid;
 
     // Collections in-progress: create key in DefaultCollection
-    StorageKey docKey(reinterpret_cast<uint8_t*>(doc->key), doc->keylen,
+    StoredDocKey docKey(reinterpret_cast<uint8_t*>(doc->key), doc->keylen,
                       DocNamespace::DefaultCollection);
-    // DocKey TODO; CacheLookup in this case doesn't really need StorageKey
+    // DocKey TODO; CacheLookup in this case doesn't really need StoredDocKey
     // until we create the Item below.
     CacheLookup lookup(docKey, byseqno, vbucketId);
 
@@ -810,8 +810,8 @@ GetValue ForestKVStore::docToItem(fdb_kvs_handle* kvsHandle, fdb_doc* rdoc,
 
     if (metaOnly || (fetchDelete && rdoc->deleted)) {
         // Collections in-progress - create key in DefaultCollection
-        it = new Item(StorageKey(reinterpret_cast<uint8_t*>(rdoc->key),
-                                 rdoc->keylen, DocNamespace::DefaultCollection),
+        it = new Item(DocKey(reinterpret_cast<uint8_t*>(rdoc->key),
+                             rdoc->keylen, DocNamespace::DefaultCollection),
                       forestMetaData.flags, forestMetaData.exptime, NULL, 0,
                       forestMetaData.ext_meta, EXT_META_LEN, forestMetaData.cas,
                       (uint64_t)rdoc->seqnum, vbId);
@@ -833,8 +833,8 @@ GetValue ForestKVStore::docToItem(fdb_kvs_handle* kvsHandle, fdb_doc* rdoc,
         }
 
         // Collections in-progress - create key in DefaultCollection
-        it = new Item(StorageKey(reinterpret_cast<uint8_t*>(rdoc->key),
-                                 rdoc->keylen, DocNamespace::DefaultCollection),
+        it = new Item(DocKey(reinterpret_cast<uint8_t*>(rdoc->key),
+                             rdoc->keylen, DocNamespace::DefaultCollection),
                       forestMetaData.flags, forestMetaData.exptime, valuePtr,
                       valuelen, ext_meta, EXT_META_LEN, forestMetaData.cas,
                       (uint64_t)rdoc->seqnum, vbId);
@@ -1223,7 +1223,7 @@ void ForestKVStore::set(const Item& itm, Callback<mutation_result>& cb) {
     pendingReqsQ.push_back(req);
 }
 
-void ForestKVStore::get(const StorageKey& key, uint16_t vb,
+void ForestKVStore::get(const DocKey key, uint16_t vb,
                         Callback<GetValue>& cb, bool fetchDelete) {
     getWithHeader(getOrCreateKvsHandle(vb, handleType::READER), key, vb,
                   cb, fetchDelete);
@@ -1231,7 +1231,7 @@ void ForestKVStore::get(const StorageKey& key, uint16_t vb,
 
 ENGINE_ERROR_CODE
 ForestKVStore::getAllKeys(uint16_t vbid,
-                          const StorageKey& start_key,
+                          const DocKey start_key,
                           uint32_t count,
                           std::shared_ptr<Callback<const DocKey&>> cb) {
 
@@ -1656,7 +1656,7 @@ fdb_compact_decision ForestKVStore::compaction_cb(fdb_file_handle* fhandle,
     ForestMetaData forestMetaData = forestMetaDecode(doc);
 
     // Collections in-progress - creating key in DefaultCollection
-    StorageKey key(reinterpret_cast<uint8_t*>(doc->key), doc->keylen,
+    StoredDocKey key(reinterpret_cast<uint8_t*>(doc->key), doc->keylen,
                    DocNamespace::DefaultCollection);
     if (doc->deleted) {
         uint64_t max_purge_seq = 0;

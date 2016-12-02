@@ -4185,7 +4185,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::doDcpStats(const void *cookie,
 ENGINE_ERROR_CODE EventuallyPersistentEngine::doKeyStats(const void *cookie,
                                                          ADD_STAT add_stat,
                                                          uint16_t vbid,
-                                                         const StorageKey& key,
+                                                         const DocKey key,
                                                          bool validate) {
     ENGINE_ERROR_CODE rv = ENGINE_FAILED;
 
@@ -4642,9 +4642,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getStats(const void* cookie,
         parseUint16(vbid.c_str(), &vbucket_id);
         // Non-validating, non-blocking version
         // TODO: Collection - getStats needs DocNamespace
-        // TODO: Can use DocKey in-place of StorageKey (defer heap use to later)
         rv = doKeyStats(cookie, add_stat, vbucket_id,
-                        StorageKey(key, DocNamespace::DefaultCollection), false);
+                        DocKey(key, DocNamespace::DefaultCollection), false);
     } else if (nkey > 5 && cb_isPrefix(statKey, "vkey ")) {
         std::string key;
         std::string vbid;
@@ -4656,9 +4655,8 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getStats(const void* cookie,
         parseUint16(vbid.c_str(), &vbucket_id);
         // Validating version; blocks
         // TODO: Collection - getStats needs DocNamespace
-        // TODO: Can use DocKey in-place of StorageKey (defer heap use to later)
         rv = doKeyStats(cookie, add_stat, vbucket_id,
-                        StorageKey(key, DocNamespace::DefaultCollection), true);
+                        DocKey(key, DocNamespace::DefaultCollection), true);
     } else if (statKey == "kvtimings") {
         getKVBucket()->addKVStoreTimingStats(add_stat, cookie);
         rv = ENGINE_SUCCESS;
@@ -4943,7 +4941,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::touch(const void *cookie,
     uint16_t vbucket = ntohs(request->request.vbucket);
 
     // try to get the object
-    StorageKey k(key, nkey, docNamespace);
+    DocKey k(key, nkey, docNamespace);
 
     if (exptime != 0) {
         exptime = serverApi->core->abstime(serverApi->core->realtime(exptime));
@@ -5425,9 +5423,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::setWithMeta(const void* cookie,
     uint8_t ext_meta[1];
     uint8_t ext_len = EXT_META_LEN;
     *(ext_meta) = datatype;
-    Item *itm = new Item(StorageKey(key + keyOffset,
-                                    keylen,
-                                    docNamespace),
+    Item *itm = new Item(DocKey(key + keyOffset, keylen, docNamespace),
                          flags, expiration, dta, vallen,
                          ext_meta, ext_len, cas, -1, vbucket);
 
@@ -5596,7 +5592,7 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::deleteWithMeta(
     }
 
     const uint8_t *keyPtr = request->bytes + keyOffset + sizeof(request->bytes);
-    StorageKey key(keyPtr, nkey, docNamespace);
+    DocKey key(keyPtr, nkey, docNamespace);
 
     ItemMetaData itm_meta(metacas, seqno, flags, expiration);
 
@@ -5907,9 +5903,7 @@ EventuallyPersistentEngine::returnMeta(const void* cookie,
         uint8_t ext_meta[1];
         uint8_t ext_len = EXT_META_LEN;
         *(ext_meta) = datatype;
-        Item *itm = new Item(StorageKey(keyPtr,
-                                        keylen,
-                                        docNamespace),
+        Item *itm = new Item(DocKey(keyPtr, keylen, docNamespace),
                              flags, exp, dta, vallen, ext_meta,
                              ext_len, cas, -1, vbucket);
 
@@ -5933,7 +5927,7 @@ EventuallyPersistentEngine::returnMeta(const void* cookie,
     } else if (mutate_type == DEL_RET_META) {
         ItemMetaData itm_meta;
         mutation_descr_t mut_info;
-        StorageKey key(keyPtr, keylen, docNamespace);
+        DocKey key(keyPtr, keylen, docNamespace);
         ret = kvBucket->deleteItem(key, &cas, vbucket, cookie, false,
                                    &itm_meta, &mut_info);
         if (ret == ENGINE_SUCCESS) {
@@ -6083,7 +6077,7 @@ private:
 class FetchAllKeysTask : public GlobalTask {
 public:
     FetchAllKeysTask(EventuallyPersistentEngine *e, const void *c,
-                     ADD_RESPONSE resp, const StorageKey &start_key_,
+                     ADD_RESPONSE resp, const DocKey start_key_,
                      uint16_t vbucket, uint32_t count_) :
         GlobalTask(e, TaskId::FetchAllKeysTask, 0, false), engine(e), cookie(c),
         response(resp), start_key(start_key_), vbid(vbucket),
@@ -6125,7 +6119,7 @@ private:
     EventuallyPersistentEngine *engine;
     const void *cookie;
     ADD_RESPONSE response;
-    StorageKey start_key;
+    StoredDocKey start_key;
     uint16_t vbid;
     uint32_t count;
 };
@@ -6176,7 +6170,7 @@ EventuallyPersistentEngine::getAllKeys(const void* cookie,
         return ENGINE_EINVAL;
     }
     const uint8_t* keyPtr = (request->bytes + sizeof(request->bytes) + extlen);
-    StorageKey start_key(keyPtr, keylen, docNamespace);
+    DocKey start_key(keyPtr, keylen, docNamespace);
 
     ExTask task = new FetchAllKeysTask(this, cookie, response, start_key,
                                        vbucket, count);

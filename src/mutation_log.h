@@ -48,7 +48,7 @@
 #include <vector>
 
 #include <atomic>
-#include "storagekey.h"
+#include "storeddockey.h"
 #include <platform/histogram.h>
 #include "utility.h"
 
@@ -221,7 +221,7 @@ public:
      */
     static MutationLogEntry* newEntry(uint8_t *buf,
                                       uint64_t r, mutation_log_type_t t,
-                                      uint16_t vb, const StorageKey& k) {
+                                      uint16_t vb, const StoredDocKey& k) {
         return new (buf) MutationLogEntry(r, t, vb, k);
     }
 
@@ -288,8 +288,8 @@ public:
     /**
      * This entry's key.
      */
-    StorageKey key() const {
-        return StorageKey(_key);
+    StoredDocKey key() const {
+        return StoredDocKey(_key);
     }
 
     /**
@@ -317,7 +317,7 @@ private:
                                      const MutationLogEntry &e);
 
     MutationLogEntry(uint64_t r, mutation_log_type_t t,
-                     uint16_t vb, const StorageKey& k)
+                     uint16_t vb, const StoredDocKey& k)
         : _rowid(htonll(r)),
           _vbucket(htons(vb)),
           magic(MUTATION_LOG_MAGIC),
@@ -343,7 +343,7 @@ private:
     uint16_t _vbucket;
     uint8_t  magic;
     uint8_t  _type;
-    SerialisedStorageKey _key;
+    SerialisedDocKey _key;
 
     DISALLOW_COPY_AND_ASSIGN(MutationLogEntry);
 };
@@ -362,7 +362,7 @@ public:
 
     ~MutationLog();
 
-    void newItem(uint16_t vbucket, const StorageKey& key, uint64_t rowid);
+    void newItem(uint16_t vbucket, const StoredDocKey& key, uint64_t rowid);
 
     void commit1();
 
@@ -585,16 +585,16 @@ typedef std::pair<uint64_t, uint8_t> mutation_log_event_t;
 /**
  * MutationLogHarvester::apply callback type.
  */
-typedef bool (*mlCallback)(void*, uint16_t, const StorageKey&);
+typedef bool (*mlCallback)(void*, uint16_t, const StoredDocKey&);
 typedef bool (*mlCallbackWithQueue)(uint16_t,
-                                    const std::set<StorageKey>&,
+                                    const std::set<StoredDocKey>&,
                                     void *arg);
 
 /**
  * Type for mutation log leftovers.
  */
 struct mutation_log_uncommitted_t {
-    StorageKey          key;
+    StoredDocKey          key;
     uint64_t            rowid;
     mutation_log_type_t type;
     uint16_t            vbucket;
@@ -665,7 +665,7 @@ private:
     EventuallyPersistentEngine *engine;
     std::set<uint16_t> vbid_set;
 
-    std::unordered_map<uint16_t, std::set<StorageKey>> committed;
-    std::unordered_map<uint16_t, std::set<StorageKey>> loading;
+    std::unordered_map<uint16_t, std::set<StoredDocKey>> committed;
+    std::unordered_map<uint16_t, std::set<StoredDocKey>> loading;
     size_t itemsSeen[MUTATION_LOG_TYPES];
 };

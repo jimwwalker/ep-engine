@@ -215,7 +215,7 @@ void HashTable::resize(size_t newSize) {
     stats.memOverhead->fetch_add(memorySize());
 }
 
-StoredValue* HashTable::find(const StorageKey& key, bool trackReference) {
+StoredValue* HashTable::find(const StoredDocKey& key, bool trackReference) {
     if (!isActive()) {
         throw std::logic_error("HashTable::find: Cannot call on a "
                 "non-active object");

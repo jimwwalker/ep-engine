@@ -18,7 +18,7 @@
 #pragma once
 
 #include "config.h"
-#include "storagekey.h"
+#include "storeddockey.h"
 #include "stored-value.h"
 
 class HashTableStatVisitor;
@@ -29,7 +29,7 @@ class PauseResumeHashTableVisitor;
 /**
  * A container of StoredValue instances.
  *
- * The HashTable class is an unordered, associative array which maps StorageKeys
+ * The HashTable class is an unordered, associative array which maps StoredDocKeys
  * to StoredValue.
  *
  * It supports a limited degreee of concurrent access - the underlying
@@ -223,7 +223,7 @@ public:
      * @param key the key to find
      * @return a pointer to a StoredValue -- NULL if not found
      */
-    StoredValue *find(const StorageKey& key, bool trackReference=true);
+    StoredValue *find(const StoredDocKey& key, bool trackReference=true);
 
     /**
      * Find a resident item
@@ -413,7 +413,7 @@ public:
      * @param bucket output parameter to receive a bucket
      * @return a locked LockHolder
      */
-    inline std::unique_lock<std::mutex> getLockedBucket(const StorageKey& s, int *bucket) {
+    inline std::unique_lock<std::mutex> getLockedBucket(const StoredDocKey& s, int *bucket) {
         if (!isActive()) {
             throw std::logic_error("HashTable::getLockedBucket: Cannot call on a "
                     "non-active object");

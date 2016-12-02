@@ -19,7 +19,7 @@
 
 #include "ep_types.h"
 #include "executorpool.h"
-#include "storagekey.h"
+#include "storeddockey.h"
 #include "stored-value.h"
 #include "task_type.h"
 #include "vbucket.h"
@@ -240,7 +240,7 @@ public:
      *
      * @return a GetValue representing the result of the request
      */
-    GetValue getAndUpdateTtl(const StorageKey& key, uint16_t vbucket,
+    GetValue getAndUpdateTtl(const DocKey& key, uint16_t vbucket,
                              const void *cookie, time_t exptime);
 
     /**
@@ -253,11 +253,11 @@ public:
      *
      * @return a status resulting form executing the method
      */
-    ENGINE_ERROR_CODE statsVKey(const StorageKey &key,
+    ENGINE_ERROR_CODE statsVKey(const DocKey key,
                                 uint16_t vbucket,
                                 const void *cookie);
 
-    void completeStatsVKey(const void* cookie, const StorageKey &key, uint16_t vbid,
+    void completeStatsVKey(const void* cookie, const DocKey key, uint16_t vbid,
                            uint64_t bySeqNum);
 
     protocol_binary_response_status evictKey(const DocKey key,
@@ -283,7 +283,7 @@ public:
      *
      * @return the result of the delete operation
      */
-    ENGINE_ERROR_CODE deleteItem(const StorageKey &key,
+    ENGINE_ERROR_CODE deleteItem(const DocKey key,
                                  uint64_t* cas,
                                  uint16_t vbucket,
                                  const void *cookie,
@@ -291,7 +291,7 @@ public:
                                  ItemMetaData *itemMeta,
                                  mutation_descr_t *mutInfo);
 
-    ENGINE_ERROR_CODE deleteWithMeta(const StorageKey &key,
+    ENGINE_ERROR_CODE deleteWithMeta(const DocKey key,
                                      uint64_t* cas,
                                      uint64_t* seqno,
                                      uint16_t vbucket,
@@ -368,7 +368,7 @@ public:
      * @param type whether the fetch is for a non-resident value or metadata of
      *             a (possibly) deleted item
      */
-    void completeBGFetch(const StorageKey &key,
+    void completeBGFetch(const DocKey key,
                          uint16_t vbucket,
                          const void *cookie,
                          hrtime_t init,
@@ -557,7 +557,7 @@ public:
                                   const void* cookie, key_stats &kstats,
                                   bool wantsDeleted);
 
-    std::string validateKey(const StorageKey &key,  uint16_t vbucket,
+    std::string validateKey(const DocKey key,  uint16_t vbucket,
                             Item &diskItem);
 
     GetValue getLocked(const DocKey key, uint16_t vbucket,
@@ -586,9 +586,9 @@ public:
         return vbMap.getShardByVbId(vbId)->getROUnderlying();
     }
 
-    void deleteExpiredItem(uint16_t, const StorageKey&, time_t, uint64_t,
+    void deleteExpiredItem(uint16_t, const DocKey, time_t, uint64_t,
                            exp_type_t);
-    void deleteExpiredItems(std::list<std::pair<uint16_t, StorageKey> > &,
+    void deleteExpiredItems(std::list<std::pair<uint16_t, StoredDocKey> > &,
                             exp_type_t);
 
 
@@ -655,7 +655,7 @@ public:
         bfilterResidencyThreshold = to;
     }
 
-    bool isMetaDataResident(RCPtr<VBucket> &vb, const StorageKey& key);
+    bool isMetaDataResident(RCPtr<VBucket> &vb, const DocKey key);
 
     void incExpirationStat(RCPtr<VBucket> &vb, exp_type_t source) {
         switch (source) {
@@ -848,7 +848,7 @@ protected:
      * @param fetched_item The item which has been fetched.
      */
     void completeBGFetchForSingleItem(RCPtr<VBucket> vb,
-                                      const StorageKey& key,
+                                      const DocKey key,
                                       const hrtime_t startTime,
                                       VBucketBGFetchItem& fetched_item);
 
@@ -915,7 +915,7 @@ protected:
      *
      * @return true if the object was found and method was invoked
      */
-    bool invokeOnLockedStoredValue(const StorageKey &key, uint16_t vbid,
+    bool invokeOnLockedStoredValue(const DocKey key, uint16_t vbid,
                                    void (StoredValue::* f)()) {
         RCPtr<VBucket> vb = getVBucket(vbid);
         if (!vb) {
@@ -924,7 +924,7 @@ protected:
 
         int bucket_num(0);
         auto lh = vb->ht.getLockedBucket(key, &bucket_num);
-        StoredValue *v = vb->ht.unlocked_find(key.getDocKey(), bucket_num, true);
+        StoredValue *v = vb->ht.unlocked_find(key, bucket_num, true);
 
         if (v) {
             std::mem_fun(f)(v);

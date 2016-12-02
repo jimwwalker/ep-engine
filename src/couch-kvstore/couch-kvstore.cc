@@ -389,7 +389,7 @@ void CouchKVStore::set(const Item &itm, Callback<mutation_result> &cb) {
     pendingReqsQ.push_back(req);
 }
 
-void CouchKVStore::get(const StorageKey& key, uint16_t vb,
+void CouchKVStore::get(const DocKey key, uint16_t vb,
                        Callback<GetValue> &cb, bool fetchDelete) {
     Db *db = NULL;
     GetValue rv;
@@ -411,7 +411,7 @@ void CouchKVStore::get(const StorageKey& key, uint16_t vb,
     closeDatabaseHandle(db);
 }
 
-void CouchKVStore::getWithHeader(void *dbHandle, const StorageKey& key,
+void CouchKVStore::getWithHeader(void *dbHandle, const DocKey key,
                                  uint16_t vb, Callback<GetValue> &cb,
                                  bool fetchDelete) {
 
@@ -424,7 +424,7 @@ void CouchKVStore::getWithHeader(void *dbHandle, const StorageKey& key,
     GetValue rv;
 
     id.size = key.size();
-    id.buf = const_cast<char *>(reinterpret_cast<const char*>(key.data()));
+    id.buf = const_cast<char*>(reinterpret_cast<const char*>(key.data()));
 
     couchstore_error_t errCode = couchstore_docinfo_by_id(db, (uint8_t *)id.buf,
                                                           id.size, &docInfo);
@@ -753,7 +753,7 @@ static int time_purge_hook(Db* d, DocInfo* info, void* ctx_p) {
             if (exptime && exptime < currtime) {
                 // Collections in-progress - currently persist/restore to the
                 // DefaultCollection namespace.
-                StorageKey key(reinterpret_cast<const uint8_t*>(info->id.buf),
+                StoredDocKey key(reinterpret_cast<const uint8_t*>(info->id.buf),
                                info->id.size, DocNamespace::DefaultCollection);
                 ctx->expiryCallback->callback(ctx->db_file_id, key,
                                               info->rev_seq, currtime);
@@ -1517,9 +1517,9 @@ couchstore_error_t CouchKVStore::fetchDoc(Db *db, DocInfo *docinfo,
         uint8_t extMeta[EXT_META_LEN];
         extMeta[0] = metadata->getDataType();
         // Collections in-progress - restore key to DefaultCollection only
-        Item *it = new Item(StorageKey(reinterpret_cast<uint8_t*>(docinfo->id.buf),
-                                       docinfo->id.size,
-                                       DocNamespace::DefaultCollection),
+        Item *it = new Item(DocKey(reinterpret_cast<uint8_t*>(docinfo->id.buf),
+                                   docinfo->id.size,
+                                   DocNamespace::DefaultCollection),
                             metadata->getFlags(),
                             metadata->getExptime(),
                             nullptr,
@@ -1575,9 +1575,9 @@ couchstore_error_t CouchKVStore::fetchDoc(Db *db, DocInfo *docinfo,
                 }
 
                 // Collections in progress - restore key to DefaultCollection
-                Item* it = new Item(StorageKey(reinterpret_cast<uint8_t*>(docinfo->id.buf),
-                                               docinfo->id.size,
-                                               DocNamespace::DefaultCollection),
+                Item* it = new Item(DocKey(reinterpret_cast<uint8_t*>(docinfo->id.buf),
+                                        docinfo->id.size,
+                                        DocNamespace::DefaultCollection),
                                     metadata->getFlags(),
                                     metadata->getExptime(),
                                     valuePtr,
@@ -1621,9 +1621,9 @@ int CouchKVStore::recordDbDump(Db *db, DocInfo *docinfo, void *ctx) {
     }
 
     // Collections in-progress - restore key to DefaultCollection
-    StorageKey docKey(reinterpret_cast<uint8_t*>(docinfo->id.buf),
-                      docinfo->id.size,
-                      DocNamespace::DefaultCollection);
+    DocKey docKey(reinterpret_cast<uint8_t*>(docinfo->id.buf),
+                  docinfo->id.size,
+                  DocNamespace::DefaultCollection);
     CacheLookup lookup(docKey, byseqno, vbucketId);
     cl->callback(lookup);
     if (cl->getStatus() == ENGINE_KEY_EEXISTS) {
@@ -1684,8 +1684,8 @@ int CouchKVStore::recordDbDump(Db *db, DocInfo *docinfo, void *ctx) {
     uint8_t extMeta = metadata->getDataType();
     uint8_t extMetaLen = metadata->getFlexCode() == FLEX_META_CODE ? EXT_META_LEN : 0;
     // Collections in-progress - restore key to DefaultCollection
-    Item *it = new Item(StorageKey(reinterpret_cast<uint8_t*>(key.buf),
-                                   key.size, DocNamespace::DefaultCollection),
+    Item *it = new Item(DocKey(reinterpret_cast<uint8_t*>(key.buf), key.size,
+                               DocNamespace::DefaultCollection),
                         metadata->getFlags(),
                         metadata->getExptime(),
                         valueptr,
@@ -1785,7 +1785,7 @@ static int readDocInfos(Db *db, DocInfo *docinfo, void *ctx) {
     if(docinfo) {
         // An item exists in the VB DB file.
         if (!docinfo->deleted) {
-            StorageKey key(reinterpret_cast<uint8_t*>(docinfo->id.buf),
+            StoredDocKey key(reinterpret_cast<uint8_t*>(docinfo->id.buf),
                            docinfo->id.size, DocNamespace::DefaultCollection);
             auto itr = cbCtx->keyStats.find(key);
             if (itr != cbCtx->keyStats.end()) {
@@ -1829,7 +1829,7 @@ couchstore_error_t CouchKVStore::saveDocs(uint16_t vbid, uint64_t rev,
         for (size_t idx = 0; idx < docCount; idx++) {
             ids[idx] = docinfos[idx]->id;
             maxDBSeqno = std::max(maxDBSeqno, docinfos[idx]->db_seq);
-            StorageKey key(reinterpret_cast<uint8_t*>(ids[idx].buf),
+            StoredDocKey key(reinterpret_cast<uint8_t*>(ids[idx].buf),
                            ids[idx].size, DocNamespace::DefaultCollection);
             kvctx.keyStats[key] = std::make_pair(false,
                     !docinfos[idx]->deleted);
@@ -2128,7 +2128,7 @@ int CouchKVStore::getMultiCb(Db *db, DocInfo *docinfo, void *ctx) {
     }
 
     // Collections in-progress: Restore key to default collection
-    StorageKey key(reinterpret_cast<const uint8_t*>(docinfo->id.buf),
+    StoredDocKey key(reinterpret_cast<const uint8_t*>(docinfo->id.buf),
                    docinfo->id.size, DocNamespace::DefaultCollection);
     GetMultiCbCtx *cbCtx = static_cast<GetMultiCbCtx *>(ctx);
     KVStoreStats& st = cbCtx->cks.getKVStoreStat();
@@ -2456,7 +2456,7 @@ int populateAllKeys(Db *db, DocInfo *docinfo, void *ctx) {
 
 ENGINE_ERROR_CODE
 CouchKVStore::getAllKeys(uint16_t vbid,
-                         const StorageKey& start_key,
+                         const DocKey start_key,
                          uint32_t count,
                          std::shared_ptr<Callback<const DocKey&>> cb) {
     Db *db = NULL;

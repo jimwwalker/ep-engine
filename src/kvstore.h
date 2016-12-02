@@ -76,8 +76,8 @@ typedef struct {
     bool isMetaOnly;
 } vb_bgfetch_item_ctx_t;
 
-typedef std::unordered_map<StorageKey, vb_bgfetch_item_ctx_t> vb_bgfetch_queue_t;
-typedef std::pair<StorageKey, VBucketBGFetchItem *> bgfetched_item_t;
+typedef std::unordered_map<StoredDocKey, vb_bgfetch_item_ctx_t> vb_bgfetch_queue_t;
+typedef std::pair<StoredDocKey, VBucketBGFetchItem *> bgfetched_item_t;
 
 /**
  * Compaction context to perform compaction
@@ -91,7 +91,7 @@ typedef struct {
 typedef uint16_t DBFileId;
 
 typedef std::shared_ptr<Callback<uint16_t&, const DocKey&, bool&> > BloomFilterCBPtr;
-typedef std::shared_ptr<Callback<uint16_t&, const StorageKey&, uint64_t&, time_t&> > ExpiredItemsCBPtr;
+typedef std::shared_ptr<Callback<uint16_t&, const DocKey&, uint64_t&, time_t&> > ExpiredItemsCBPtr;
 
 typedef struct {
     uint64_t purge_before_ts;
@@ -283,7 +283,7 @@ struct KVStatsCtx{
     KVStatsCtx() : vbucket(std::numeric_limits<uint16_t>::max()) {}
 
     uint16_t vbucket;
-    std::unordered_map<StorageKey, kstat_entry_t> keyStats;
+    std::unordered_map<StoredDocKey, kstat_entry_t> keyStats;
 };
 
 typedef struct KVStatsCtx kvstats_ctx;
@@ -602,7 +602,7 @@ private:
 class IORequest {
 public:
     IORequest(uint16_t vbId, MutationRequestCallback &cb, bool del,
-              const StorageKey& itmKey);
+              const DocKey itmKey);
 
     virtual ~IORequest() { }
 
@@ -626,7 +626,7 @@ public:
         return callback.delCb;
     }
 
-    const StorageKey& getKey(void) const {
+    const StoredDocKey& getKey(void) const {
         return key;
     }
 
@@ -635,7 +635,7 @@ protected:
     bool deleteItem;
     MutationRequestCallback callback;
     hrtime_t start;
-    StorageKey key;
+    StoredDocKey key;
     size_t dataSize;
 };
 
@@ -723,10 +723,10 @@ public:
     /**
      * Get an item from the kv store.
      */
-    virtual void get(const StorageKey& key, uint16_t vb,
+    virtual void get(const DocKey key, uint16_t vb,
                      Callback<GetValue> &cb, bool fetchDelete = false) = 0;
 
-    virtual void getWithHeader(void *dbHandle, const StorageKey& key,
+    virtual void getWithHeader(void *dbHandle, const DocKey key,
                                uint16_t vb, Callback<GetValue> &cb,
                                bool fetchDelete = false) = 0;
     /**
@@ -893,7 +893,7 @@ public:
     }
 
     virtual ENGINE_ERROR_CODE getAllKeys(uint16_t vbid,
-                            const StorageKey& start_key, uint32_t count,
+                            const DocKey start_key, uint32_t count,
                             std::shared_ptr<Callback<const DocKey&>> cb) = 0;
 
     virtual ScanContext* initScanContext(std::shared_ptr<Callback<GetValue> > cb,

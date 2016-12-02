@@ -136,7 +136,7 @@ void Checkpoint::popBackCheckpointEndItem() {
     }
 }
 
-bool Checkpoint::keyExists(const StorageKey& key) {
+bool Checkpoint::keyExists(const StoredDocKey& key) {
     return keyIndex.find(key) != keyIndex.end();
 }
 
@@ -149,7 +149,6 @@ queue_dirty_t Checkpoint::queueDirty(const queued_item &qi,
     }
     queue_dirty_t rv;
     checkpoint_index::iterator it = keyIndex.find(qi->getKey());
-
     // Check if the item is a meta item
     if (qi->isCheckPointMetaItem()) {
         // empty items act only as a dummy element for the start of the
@@ -269,9 +268,10 @@ queue_dirty_t Checkpoint::queueDirty(const queued_item &qi,
     return rv;
 }
 
-StorageKey Checkpoint::dummyKey("dummy_key", DocNamespace::System);
-StorageKey Checkpoint::checkpointStartKey("checkpoint_start", DocNamespace::System);
-StorageKey Checkpoint::checkpointEndKey("checkpoint_end", DocNamespace::System);
+StoredDocKey Checkpoint::dummyKey("dummy_key", DocNamespace::System);
+StoredDocKey Checkpoint::checkpointStartKey("checkpoint_start", DocNamespace::System);
+StoredDocKey Checkpoint::checkpointEndKey("checkpoint_end", DocNamespace::System);
+StoredDocKey Checkpoint::setVBucketStateKey("set_vbucket_state", DocNamespace::System);
 
 size_t Checkpoint::mergePrevCheckpoint(Checkpoint *pPrevCheckpoint) {
     size_t numNewItems = 0;
@@ -296,7 +296,7 @@ size_t Checkpoint::mergePrevCheckpoint(Checkpoint *pPrevCheckpoint) {
     // into the current checkpoint as necessary.
     for (auto rit = pPrevCheckpoint->rbegin(); rit != pPrevCheckpoint->rend();
             ++rit) {
-        const StorageKey& key = (*rit)->getKey();
+        const StoredDocKey& key = (*rit)->getKey();
         switch ((*rit)->getOperation()) {
             case queue_op::set:
             case queue_op::del:
@@ -376,7 +376,7 @@ size_t Checkpoint::mergePrevCheckpoint(Checkpoint *pPrevCheckpoint) {
     return numNewItems;
 }
 
-uint64_t Checkpoint::getMutationIdForKey(const StorageKey& key, bool isMeta) {
+uint64_t Checkpoint::getMutationIdForKey(const StoredDocKey& key, bool isMeta) {
     uint64_t mid = 0;
     checkpoint_index& chkIdx = isMeta ? metaKeyIndex : keyIndex;
 
@@ -412,7 +412,8 @@ std::ostream& operator <<(std::ostream& os, const Checkpoint& c) {
     for (const auto& e : c.toWrite) {
         os << "\t{" << e->getBySeqno() << ","
            << to_string(e->getOperation()) << ","
-           << e->getKey().data() << "}" << std::endl;
+           << std::string(reinterpret_cast<const char*>(e->getKey().data()))
+           << "}" << std::endl;
     }
     os << "]";
     return os;
@@ -1042,7 +1043,7 @@ void CheckpointManager::collapseClosedCheckpoints(
                 (*rit)->getCursorNameList().begin();
             for (; nameItr != (*rit)->getCursorNameList().end(); ++nameItr) {
                 cursor_index::iterator cc = connCursors.find(*nameItr);
-                const StorageKey& key = (*(cc->second.currentPos))->getKey();
+                const StoredDocKey& key = (*(cc->second.currentPos))->getKey();
                 bool isMetaItem =
                             (*(cc->second.currentPos))->isCheckPointMetaItem();
                 bool cursor_on_chk_start = false;
@@ -1260,7 +1261,7 @@ queued_item CheckpointManager::nextItem(const std::string &name,
         LOG(EXTENSION_LOG_WARNING,
         "The cursor with name \"%s\" is not found in the checkpoint of vbucket"
         "%d.\n", name.c_str(), vbucketId);
-        queued_item qi(new Item(StorageKey("", DocNamespace::System), 0xffff,
+        queued_item qi(new Item(DocKey("", DocNamespace::System), 0xffff,
                                 queue_op::empty, 0, 0));
         return qi;
     }
@@ -1269,7 +1270,7 @@ queued_item CheckpointManager::nextItem(const std::string &name,
             "VBucket %d is still in backfill phase that doesn't allow "
             " the cursor to fetch an item from it's current checkpoint",
             vbucketId);
-        queued_item qi(new Item(StorageKey("", DocNamespace::System), 0xffff,
+        queued_item qi(new Item(DocKey("", DocNamespace::System), 0xffff,
                                 queue_op::empty, 0, 0));
         return qi;
     }
@@ -1280,7 +1281,7 @@ queued_item CheckpointManager::nextItem(const std::string &name,
         return *(cursor.currentPos);
     } else {
         isLastMutationItem = false;
-        queued_item qi(new Item(StorageKey("", DocNamespace::System), 0xffff,
+        queued_item qi(new Item(DocKey("", DocNamespace::System), 0xffff,
                                 queue_op::empty, 0, 0));
         return qi;
     }
@@ -1645,7 +1646,7 @@ void CheckpointManager::collapseCheckpoints(uint64_t id) {
                 queue_op::checkpoint_start;
 
         Checkpoint* chk = *(itr.second.currentCheckpoint);
-        const StorageKey& key = (*(itr.second.currentPos))->getKey();
+        const StoredDocKey& key = (*(itr.second.currentPos))->getKey();
         cursorMap[itr.first] = CursorPosition{chk->getMutationIdForKey(key, isMetaItem),
                                               cursor_on_chk_start};
     }
@@ -1778,22 +1779,17 @@ queued_item CheckpointManager::createCheckpointItem(uint64_t id, uint16_t vbid,
                                                     queue_op checkpoint_op) {
     switch (checkpoint_op) {
     case queue_op::checkpoint_start:
-        return queued_item(new Item(StorageKey("checkpoint_start",
-                                               DocNamespace::System),
-                                    vbid, checkpoint_op, id, lastBySeqno + 1));
+        return queued_item(new Item(Checkpoint::checkpointStartKey, vbid,
+                                    checkpoint_op, id, lastBySeqno + 1));
     case queue_op::checkpoint_end:
-        return queued_item(new Item(StorageKey("checkpoint_end",
-                                               DocNamespace::System),
-                                    vbid, checkpoint_op, id, lastBySeqno));
+        return queued_item(new Item(Checkpoint::checkpointEndKey, vbid,
+                                    checkpoint_op, id, lastBySeqno));
     case queue_op::empty:
-        return queued_item(new Item(StorageKey("dummy_key",
-                                               DocNamespace::System),
-                                    vbid, checkpoint_op, id, lastBySeqno));
+        return queued_item(new Item(Checkpoint::dummyKey, vbid, checkpoint_op,
+                                    id, lastBySeqno));
     case queue_op::set_vbucket_state:
-        return queued_item(new Item(StorageKey("set_vbucket_state",
-                                               DocNamespace::System),
-                                    vbid, checkpoint_op, id, lastBySeqno + 1));
-
+        return queued_item(new Item(Checkpoint::setVBucketStateKey, vbid,
+                                    checkpoint_op, id, lastBySeqno + 1));
     default:
         throw std::invalid_argument("CheckpointManager::createCheckpointItem:"
                         "checkpoint_op (which is " +

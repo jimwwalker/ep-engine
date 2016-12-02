@@ -356,7 +356,7 @@ size_t VBucket::queueBGFetchItem(const DocKey key,
                                  BgFetcher *bgFetcher) {
     LockHolder lh(pendingBGFetchesLock);
     vb_bgfetch_item_ctx_t& bgfetch_itm_ctx =
-        pendingBGFetches[StorageKey(key)];
+        pendingBGFetches[key];
 
     if (bgfetch_itm_ctx.bgfetched_list.empty()) {
         bgfetch_itm_ctx.isMetaOnly = true;
@@ -565,7 +565,7 @@ void VBucket::initTempFilter(size_t key_count, double probability) {
     }
 }
 
-void VBucket::addToFilter(const StorageKey& key) {
+void VBucket::addToFilter(const StoredDocKey& key) {
     LockHolder lh(bfMutex);
     if (bFilter) {
         bFilter->addKey(key);
@@ -602,7 +602,7 @@ bool VBucket::isTempFilterAvailable() {
     }
 }
 
-void VBucket::addToTempFilter(const StorageKey& key) {
+void VBucket::addToTempFilter(const StoredDocKey& key) {
     // Keys will be added to only the temp filter during
     // compaction.
     LockHolder lh(bfMutex);

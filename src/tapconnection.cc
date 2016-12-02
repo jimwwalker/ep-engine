@@ -1042,7 +1042,7 @@ const char *TapProducer::opaqueCmdToString(uint32_t opaque_code) {
     return "unknown";
 }
 
-void TapProducer::queueBGFetch_UNLOCKED(const StorageKey& key, uint64_t id, uint16_t vb) {
+void TapProducer::queueBGFetch_UNLOCKED(const StoredDocKey& key, uint64_t id, uint16_t vb) {
     ExTask task = new BGFetchCallback(engine(), getName(), key, vb,
                                       getConnectionToken(), 0);
     ExecutorPool::get()->schedule(task, AUXIO_TASK_IDX);
@@ -1822,7 +1822,7 @@ Item* TapProducer::getNextItem(const void *c, uint16_t *vbucket, uint16_t &ret,
         }
         *vbucket = checkpoint_msg->getVBucketId();
         uint64_t cid = htonll(checkpoint_msg->getRevSeqno());
-        const StorageKey& key = checkpoint_msg->getKey();
+        const StoredDocKey& key = checkpoint_msg->getKey();
         itm = new Item(key, /*flags*/0, /*exp*/0,
                        &cid, sizeof(cid), /*ext_meta*/NULL, /*ext_len*/0,
                        /*cas*/0, /*seqno*/-1,
@@ -2208,8 +2208,8 @@ ENGINE_ERROR_CODE TapConsumer::mutation(uint32_t opaque, const void* key,
     }
 
     // TAP has no concept of collections - DefaultCollection only.
-    Item *item = new Item(StorageKey(static_cast<const uint8_t*>(key), nkey,
-                                     DocNamespace::DefaultCollection),
+    Item *item = new Item(DocKey(static_cast<const uint8_t*>(key), nkey,
+                                 DocNamespace::DefaultCollection),
                           flags, exptime, value, nvalue,
                           &datatype, EXT_META_LEN, cas, -1,
                           vbucket, revSeqno, nru);
@@ -2275,9 +2275,8 @@ ENGINE_ERROR_CODE TapConsumer::deletion(uint32_t opaque, const void* key,
 
     ItemMetaData itemMeta(cas, revSeqno, 0, 0);
     // TAP has no concept of collections - DefaultCollection only.
-    ret = kvBucket->deleteWithMeta(StorageKey(static_cast<const uint8_t*>(key),
-                                              nkey,
-                                              DocNamespace::DefaultCollection),
+    ret = kvBucket->deleteWithMeta(DocKey(static_cast<const uint8_t*>(key), nkey,
+                                          DocNamespace::DefaultCollection),
                                    &delCas, NULL, vbucket, this, true,
                                    &itemMeta, isBackfillPhase(vbucket),
                                    GenerateBySeqno::Yes, GenerateCas::No, 0,

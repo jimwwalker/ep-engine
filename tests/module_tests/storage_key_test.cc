@@ -16,39 +16,39 @@
 
 #include <gtest/gtest.h>
 
-#include "makestoragekey.h"
-#include "storagekey.h"
+#include "makestoreddockey.h"
+#include "storeddockey.h"
 
 #include <map>
 #include <unordered_map>
 
-TEST(StorageKeyTest, constructor) {
-    StorageKey key = makeStorageKey("key");
+TEST(StoredDocKeyTest, constructor) {
+    StoredDocKey key = makeStoredDocKey("key");
     EXPECT_EQ(strlen("key"), key.size());
     EXPECT_EQ(0, std::memcmp("key", key.data(), sizeof("key")));
     EXPECT_EQ(DocNamespace::DefaultCollection, key.getDocNamespace());
 }
 
-TEST(StorageKeyTest, cStringSafe) {
+TEST(StoredDocKeyTest, cStringSafe) {
     uint8_t raw[5] = {1,2,3,4,5};
-    StorageKey key(raw, sizeof(raw), DocNamespace::DefaultCollection);
+    StoredDocKey key(raw, sizeof(raw), DocNamespace::DefaultCollection);
     EXPECT_EQ(5, strlen(reinterpret_cast<const char*>(key.data())));
     EXPECT_EQ(5, key.size());
 }
 
-TEST(StorageKeyTest, equalityOperators) {
-    StorageKey key1 = makeStorageKey("key1");
-    StorageKey key2 = makeStorageKey("key1");
-    StorageKey key3 = makeStorageKey("key3");
+TEST(StoredDocKeyTest, equalityOperators) {
+    StoredDocKey key1 = makeStoredDocKey("key1");
+    StoredDocKey key2 = makeStoredDocKey("key1");
+    StoredDocKey key3 = makeStoredDocKey("key3");
 
     EXPECT_TRUE(key1 == key2);
     EXPECT_TRUE(key1 != key3);
 }
 
-TEST(StorageKeyTest, lessThan) {
-    StorageKey key1 = makeStorageKey("zzb");
-    StorageKey key2 = makeStorageKey("zzb");
-    StorageKey key3 = makeStorageKey("zza::thing");
+TEST(StoredDocKeyTest, lessThan) {
+    StoredDocKey key1 = makeStoredDocKey("zzb");
+    StoredDocKey key2 = makeStoredDocKey("zzb");
+    StoredDocKey key3 = makeStoredDocKey("zza::thing");
 
     EXPECT_FALSE(key1 < key2);
     EXPECT_FALSE(key1 < key3);
@@ -56,17 +56,17 @@ TEST(StorageKeyTest, lessThan) {
     EXPECT_TRUE(key3 < key2);
 }
 
-TEST(SerialisedStorageKeyTest, constructor) {
-    StorageKey key = makeStorageKey("key");
-    auto serialKey = SerialisedStorageKey::make(key);
+TEST(SerialisedDocKeyTest, constructor) {
+    StoredDocKey key = makeStoredDocKey("key");
+    auto serialKey = SerialisedDocKey::make(key);
     EXPECT_EQ(sizeof("key"), serialKey->size());
     EXPECT_EQ(0, std::memcmp("key", serialKey->data(), sizeof("key")));
 }
 
-TEST(StorageKeyTest, constructFromSerialisedStorageKey) {
-    StorageKey key1 = makeStorageKey("key");
-    auto serialKey = SerialisedStorageKey::make(key1);
-    StorageKey key2(*serialKey);
+TEST(StoredDocKeyTest, constructFromSerialisedDocKey) {
+    StoredDocKey key1 = makeStoredDocKey("key");
+    auto serialKey = SerialisedDocKey::make(key1);
+    StoredDocKey key2(*serialKey);
 
     // Key 1 must be the same as key2
     EXPECT_EQ(key1, key2);
@@ -77,11 +77,11 @@ TEST(StorageKeyTest, constructFromSerialisedStorageKey) {
     EXPECT_EQ(serialKey->getDocNamespace(), key2.getDocNamespace());
 }
 
-// Test that the StorageKey can be used in std::map
-TEST(StorageKeyTest, map) {
-    std::map<StorageKey, int> map;
-    StorageKey key1 = makeStorageKey("key1");
-    StorageKey key3 = makeStorageKey("key2");
+// Test that the StoredDocKey can be used in std::map
+TEST(StoredDocKeyTest, map) {
+    std::map<StoredDocKey, int> map;
+    StoredDocKey key1 = makeStoredDocKey("key1");
+    StoredDocKey key3 = makeStoredDocKey("key2");
 
     EXPECT_EQ(0, map.count(key1));
     map[key1] = 8;
@@ -94,11 +94,11 @@ TEST(StorageKeyTest, map) {
     EXPECT_TRUE(map[key3] == 121);
 }
 
-// Test that the StorageKey can be used in std::unordered_map
-TEST(StorageKeyTest, unordered_map) {
-    std::unordered_map<StorageKey, int> map;
-    StorageKey key1 = makeStorageKey("key1");
-    StorageKey key3 = makeStorageKey("key2");
+// Test that the StoredDocKey can be used in std::unordered_map
+TEST(StoredDocKeyTest, unordered_map) {
+    std::unordered_map<StoredDocKey, int> map;
+    StoredDocKey key1 = makeStoredDocKey("key1");
+    StoredDocKey key3 = makeStoredDocKey("key2");
 
     // map is empty, so no key1
     EXPECT_EQ(0, map.count(key1));
@@ -120,4 +120,14 @@ TEST(StorageKeyTest, unordered_map) {
     map[key1] = 1000;
     EXPECT_EQ(1, map.count(key1));
     EXPECT_TRUE(map[key1] == 1000);
+}
+
+TEST(StoredDocKeyTest, vector_of_keys) {
+    // test code does this
+    std::vector<StoredDocKey> keys;
+    for (int i = 0; i < 10; i++) {
+        keys.push_back(makeStoredDocKey(std::to_string(i)));
+    }
+
+    std::random_shuffle(keys.begin(), keys.end());
 }

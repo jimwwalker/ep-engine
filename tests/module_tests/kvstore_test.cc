@@ -23,7 +23,7 @@
 #include "compress.h"
 #include "couch-kvstore/couch-kvstore.h"
 #include "kvstore.h"
-#include "makestoragekey.h"
+#include "makestoreddockey.h"
 #include "src/internal.h"
 #include "tests/test_fileops.h"
 
@@ -226,7 +226,7 @@ TEST_P(CouchAndForestTest, BasicTest) {
     auto kvstore = setup_kv_store(config);
 
     kvstore->begin();
-    StorageKey key = makeStorageKey("key");
+    StoredDocKey key = makeStoredDocKey("key");
     Item item(key, 0, 0, "value", 5);
     WriteCallback wc;
     kvstore->set(item, wc);
@@ -250,7 +250,7 @@ TEST(CouchKVStoreTest, CompressedTest) {
     WriteCallback wc;
     for (int i = 1; i <= 5; i++) {
         std::string key("key" + std::to_string(i));
-        Item item(makeStorageKey(key),
+        Item item(makeStoredDocKey(key),
                   0, 0, "value", 5, &datatype, 1, 0, i);
         kvstore->set(item, wc);
     }
@@ -282,7 +282,7 @@ TEST(CouchKVStoreTest, StatsTest) {
     kvstore->begin();
     const std::string key{"key"};
     const std::string value{"value"};
-    Item item(makeStorageKey(key), 0, 0, value.c_str(), value.size());
+    Item item(makeStoredDocKey(key), 0, 0, value.c_str(), value.size());
     WriteCallback wc;
     kvstore->set(item, wc);
 
@@ -316,7 +316,7 @@ TEST(CouchKVStoreTest, CompactStatsTest) {
     kvstore->begin();
     const std::string key{"key"};
     const std::string value{"value"};
-    Item item(makeStorageKey(key), 0, 0, value.c_str(), value.size());
+    Item item(makeStoredDocKey(key), 0, 0, value.c_str(), value.size());
     WriteCallback wc;
     kvstore->set(item, wc);
 
@@ -515,7 +515,7 @@ protected:
     void generate_items(size_t count) {
         for(unsigned i(0); i < count; i++) {
             std::string key("key" + std::to_string(i));
-            items.push_back(Item(makeStorageKey(key), 0, 0, "value", 5,
+            items.push_back(Item(makeStoredDocKey(key), 0, 0, "value", 5,
                                  nullptr, 0, 0, i + 1));
         }
     }
@@ -1048,7 +1048,7 @@ TEST_F(CouchKVStoreErrorInjectionTest, getAllKeys_all_docs) {
     populate_items(1);
 
     auto adcb(std::make_shared<CustomCallback<const DocKey&>>());
-    StorageKey start = makeStorageKey("");
+    StoredDocKey start = makeStoredDocKey("");
     {
         /* Establish Logger expectation */
         EXPECT_CALL(logger, mlog(_, _)).Times(AnyNumber());
@@ -1244,7 +1244,7 @@ class MockedGetCallback : public Callback<T> {
  *
  */
 TEST_F(CouchstoreTest, noMeta) {
-    StorageKey key = makeStorageKey("key");
+    StoredDocKey key = makeStoredDocKey("key");
     Item item(key, 0, 0, "value", 5);
     WriteCallback wc;
     kvstore->begin();
@@ -1261,7 +1261,7 @@ TEST_F(CouchstoreTest, noMeta) {
 }
 
 TEST_F(CouchstoreTest, shortMeta) {
-    StorageKey key = makeStorageKey("key");
+    StoredDocKey key = makeStoredDocKey("key");
     Item item(key, 0, 0, "value", 5);
     WriteCallback wc;
     kvstore->begin();
@@ -1277,7 +1277,7 @@ TEST_F(CouchstoreTest, shortMeta) {
 }
 
 TEST_F(CouchstoreTest, testV0MetaThings) {
-    StorageKey key = makeStorageKey("key");
+    StoredDocKey key = makeStoredDocKey("key");
     // Baseline test, just writes meta things and reads them
     // via standard interfaces
     // Ensure CAS, exptime and flags are set to something.
@@ -1306,7 +1306,7 @@ TEST_F(CouchstoreTest, testV1MetaThings) {
     // via standard interfaces
     // Ensure CAS, exptime and flags are set to something.
     uint8_t datatype = PROTOCOL_BINARY_DATATYPE_JSON; //lies, but non-zero
-    StorageKey key = makeStorageKey("key");
+    StoredDocKey key = makeStoredDocKey("key");
     Item item(key,
               0x01020304/*flags*/, 0xaa00bb11,/*expiry*/
               "value", 5,
@@ -1329,7 +1329,7 @@ TEST_F(CouchstoreTest, testV1MetaThings) {
 }
 
 TEST_F(CouchstoreTest, fuzzV0) {
-    StorageKey key = makeStorageKey("key");
+    StoredDocKey key = makeStoredDocKey("key");
     Item item(key, 0, 0, "value", 5);
     WriteCallback wc;
     kvstore->begin();
@@ -1354,7 +1354,7 @@ TEST_F(CouchstoreTest, fuzzV0) {
 }
 
 TEST_F(CouchstoreTest, fuzzV1) {
-    StorageKey key = makeStorageKey("key");
+    StoredDocKey key = makeStoredDocKey("key");
     Item item(key, 0, 0, "value", 5);
     WriteCallback wc;
     kvstore->begin();
@@ -1382,7 +1382,7 @@ TEST_F(CouchstoreTest, fuzzV1) {
 TEST_F(CouchstoreTest, testV0WriteReadWriteRead) {
     // Ensure CAS, exptime and flags are set to something.
     uint8_t datatype = PROTOCOL_BINARY_DATATYPE_JSON; //lies, but non-zero
-    StorageKey key = makeStorageKey("key");
+    StoredDocKey key = makeStoredDocKey("key");
     Item item(key,
               0x01020304/*flags*/, 0xaa00bb11,/*expiry*/
               "value", 5,
@@ -1434,7 +1434,7 @@ TEST_F(CouchstoreTest, testV0WriteReadWriteRead) {
 TEST_F(CouchstoreTest, testV2WriteRead) {
     // Ensure CAS, exptime and flags are set to something.
     uint8_t datatype = PROTOCOL_BINARY_DATATYPE_JSON; //lies, but non-zero
-    StorageKey key = makeStorageKey("key");
+    StoredDocKey key = makeStoredDocKey("key");
     Item item(key,
               0x01020304/*flags*/, 0xaa00bb11,/*expiry*/
               "value", 5,

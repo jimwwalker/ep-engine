@@ -23,7 +23,7 @@
 #include <vector>
 
 #include "checkpoint.h"
-#include "makestoragekey.h"
+#include "makestoreddockey.h"
 #include "stats.h"
 #include "vbucket.h"
 
@@ -82,7 +82,7 @@ protected:
     // manager.
     bool queueNewItem(const std::string& key) {
 
-        queued_item qi{new Item(makeStorageKey(key), vbucket->getId(), queue_op::set,
+        queued_item qi{new Item(makeStoredDocKey(key), vbucket->getId(), queue_op::set,
                                 /*revSeq*/0, /*bySeq*/0)};
         return manager->queueDirty(*vbucket, qi,
                                    GenerateBySeqno::Yes, GenerateCas::Yes);
@@ -190,7 +190,7 @@ static void launch_set_thread(void *arg) {
     int i(0);
     for (i = 0; i < NUM_ITEMS; ++i) {
         std::string key = "key-" + std::to_string(i);
-        queued_item qi(new Item(makeStorageKey(key), args->vbucket->getId(),
+        queued_item qi(new Item(makeStoredDocKey(key), args->vbucket->getId(),
                                 queue_op::set, 0, 0));
         args->checkpoint_manager->queueDirty(*args->vbucket,
                                              qi,
@@ -261,7 +261,7 @@ TEST_F(CheckpointTest, basic_chk_test) {
     }
 
     // Push the flush command into the queue so that all other threads can be terminated.
-    queued_item qi(new Item(makeStorageKey("flush"), vbucket->getId(), queue_op::flush, 0xffff, 0));
+    queued_item qi(new Item(makeStoredDocKey("flush"), vbucket->getId(), queue_op::flush, 0xffff, 0));
     checkpoint_manager->queueDirty(*vbucket, qi, GenerateBySeqno::Yes, GenerateCas::Yes);
 
     rc = cb_join_thread(persistence_thread);
@@ -351,7 +351,7 @@ MATCHER_P(HasOperation, op, "") { return arg->getOperation() == op; }
 TEST_F(CheckpointTest, OneOpenCkpt) {
 
     // Queue a set operation.
-    queued_item qi(new Item(makeStorageKey("key1"), vbucket->getId(), queue_op::set,
+    queued_item qi(new Item(makeStoredDocKey("key1"), vbucket->getId(), queue_op::set,
                             /*revSeq*/20, /*bySeq*/0));
 
     // No set_ops in queue, expect queueDirty to return true (increase
@@ -365,7 +365,7 @@ TEST_F(CheckpointTest, OneOpenCkpt) {
     EXPECT_EQ(1, manager->getNumItemsForCursor(CheckpointManager::pCursorName));
 
     // Adding the same key again shouldn't increase the size.
-    queued_item qi2(new Item(makeStorageKey("key1"), vbucket->getId(), queue_op::set,
+    queued_item qi2(new Item(makeStoredDocKey("key1"), vbucket->getId(), queue_op::set,
                             /*revSeq*/21, /*bySeq*/0));
     EXPECT_FALSE(manager->queueDirty(*vbucket, qi2, GenerateBySeqno::Yes,
                                      GenerateCas::Yes));
@@ -376,7 +376,7 @@ TEST_F(CheckpointTest, OneOpenCkpt) {
     EXPECT_EQ(1, manager->getNumItemsForCursor(CheckpointManager::pCursorName));
 
     // Adding a different key should increase size.
-    queued_item qi3(new Item(makeStorageKey("key2"), vbucket->getId(), queue_op::set,
+    queued_item qi3(new Item(makeStoredDocKey("key2"), vbucket->getId(), queue_op::set,
                             /*revSeq*/0, /*bySeq*/0));
     EXPECT_TRUE(manager->queueDirty(*vbucket, qi3, GenerateBySeqno::Yes,
                                     GenerateCas::Yes));
@@ -908,7 +908,7 @@ TEST_F(CheckpointTest, SeqnoAndHLCOrdering) {
         threads.push_back(std::thread([this, ii, n_items, &threadsData](){
             std::string key = "key" + std::to_string(ii);
             for (int item  = 0; item < n_items; item++) {
-                queued_item qi(new Item(makeStorageKey(key + std::to_string(item)),
+                queued_item qi(new Item(makeStoredDocKey(key + std::to_string(item)),
                                         vbucket->getId(), queue_op::set,
                                         /*revSeq*/0, /*bySeq*/0));
                 EXPECT_TRUE(manager->queueDirty(*vbucket,
@@ -1042,5 +1042,5 @@ TEST_F(CheckpointTest, CursorUpdateForExistingItemWithNonMetaItemAtHead) {
     manager->getAllItemsForCursor(CheckpointManager::pCursorName, items);
     EXPECT_EQ(1, items.size());
     EXPECT_EQ(1002, items.at(0)->getBySeqno());
-    EXPECT_EQ(makeStorageKey("key"), items.at(0)->getKey());
+    EXPECT_EQ(makeStoredDocKey("key"), items.at(0)->getKey());
 }

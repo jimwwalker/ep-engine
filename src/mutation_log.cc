@@ -296,7 +296,7 @@ void MutationLog::disable() {
     }
 }
 
-void MutationLog::newItem(uint16_t vbucket, const StorageKey& key,
+void MutationLog::newItem(uint16_t vbucket, const StoredDocKey& key,
                           uint64_t rowid) {
     if (isEnabled()) {
         MutationLogEntry *mle = MutationLogEntry::newEntry(entryBuffer.get(),

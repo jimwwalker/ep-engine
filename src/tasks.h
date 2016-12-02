@@ -173,7 +173,7 @@ public:
  */
 class VKeyStatBGFetchTask : public GlobalTask {
 public:
-    VKeyStatBGFetchTask(EventuallyPersistentEngine *e, const StorageKey& k,
+    VKeyStatBGFetchTask(EventuallyPersistentEngine *e, const DocKey k,
                         uint16_t vbid, uint64_t s, const void *c, int sleeptime = 0,
                         bool completeBeforeShutdown = false)
         : GlobalTask(e, TaskId::VKeyStatBGFetchTask, sleeptime, completeBeforeShutdown),
@@ -193,7 +193,7 @@ public:
     }
 
 private:
-    StorageKey                       key;
+    StoredDocKey                     key;
     uint16_t                         vbucket;
     uint64_t                         bySeqNum;
     const void                      *cookie;
@@ -224,7 +224,7 @@ public:
     }
 
 private:
-    const StorageKey           key;
+    const StoredDocKey           key;
     uint16_t                   vbucket;
     const void                *cookie;
     bool                       metaFetch;

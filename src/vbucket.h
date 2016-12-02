@@ -376,10 +376,10 @@ public:
      */
     void createFilter(size_t key_count, double probability);
     void initTempFilter(size_t key_count, double probability);
-    void addToFilter(const StorageKey &key);
+    void addToFilter(const StoredDocKey &key);
     bool maybeKeyExistsInFilter(const DocKey key);
     bool isTempFilterAvailable();
-    void addToTempFilter(const StorageKey &key);
+    void addToTempFilter(const StoredDocKey &key);
     void swapFilter();
     void clearFilter();
     void setFilterStatus(bfilter_status_t to);

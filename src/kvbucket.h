@@ -286,7 +286,7 @@ public:
      *
      * @return a GetValue representing the result of the request
      */
-    virtual GetValue getAndUpdateTtl(const StorageKey& key, uint16_t vbucket,
+    virtual GetValue getAndUpdateTtl(const DocKey& key, uint16_t vbucket,
                                      const void *cookie, time_t exptime) = 0;
 
     /**
@@ -299,11 +299,11 @@ public:
      *
      * @return a status resulting form executing the method
      */
-    virtual ENGINE_ERROR_CODE statsVKey(const StorageKey& key,
+    virtual ENGINE_ERROR_CODE statsVKey(const DocKey key,
                                         uint16_t vbucket,
                                         const void *cookie) = 0;
 
-    virtual void completeStatsVKey(const void* cookie, const StorageKey& key,
+    virtual void completeStatsVKey(const void* cookie, const DocKey key,
                                    uint16_t vbid, uint64_t bySeqNum) = 0;
 
     virtual protocol_binary_response_status evictKey(const DocKey key,
@@ -329,7 +329,7 @@ public:
      *
      * @return the result of the delete operation
      */
-    virtual ENGINE_ERROR_CODE deleteItem(const StorageKey& key,
+    virtual ENGINE_ERROR_CODE deleteItem(const DocKey key,
                                          uint64_t* cas,
                                          uint16_t vbucket,
                                          const void *cookie,
@@ -337,7 +337,7 @@ public:
                                          ItemMetaData *itemMeta,
                                          mutation_descr_t *mutInfo) = 0;
 
-    virtual ENGINE_ERROR_CODE deleteWithMeta(const StorageKey& key,
+    virtual ENGINE_ERROR_CODE deleteWithMeta(const DocKey key,
                                              uint64_t* cas,
                                              uint64_t* seqno,
                                              uint16_t vbucket,
@@ -412,7 +412,7 @@ public:
      * @param type whether the fetch is for a non-resident value or metadata of
      *             a (possibly) deleted item
      */
-    virtual void completeBGFetch(const StorageKey& key,
+    virtual void completeBGFetch(const DocKey key,
                                  uint16_t vbucket,
                                  const void *cookie,
                                  hrtime_t init,
@@ -601,7 +601,7 @@ public:
                                           key_stats &kstats,
                                           bool wantsDeleted) = 0;
 
-    virtual std::string validateKey(const StorageKey& key,  uint16_t vbucket,
+    virtual std::string validateKey(const DocKey key, uint16_t vbucket,
                                     Item &diskItem) = 0;
 
     virtual GetValue getLocked(const DocKey key, uint16_t vbucket,
@@ -622,10 +622,10 @@ public:
 
     virtual KVStore* getROUnderlying(uint16_t vbId) = 0;
 
-    virtual void deleteExpiredItem(uint16_t, const StorageKey&, time_t, uint64_t,
+    virtual void deleteExpiredItem(uint16_t, const DocKey, time_t, uint64_t,
                                    exp_type_t) = 0;
     virtual void deleteExpiredItems(
-                                std::list<std::pair<uint16_t, StorageKey> > &,
+                                std::list<std::pair<uint16_t, StoredDocKey> > &,
                                 exp_type_t) = 0;
 
 
@@ -681,7 +681,7 @@ public:
     virtual void setBfiltersResidencyThreshold(float to) = 0;
 
     virtual bool isMetaDataResident(RCPtr<VBucket> &vb,
-                                    const StorageKey& key) = 0;
+                                    const DocKey key) = 0;
 
     virtual void incExpirationStat(RCPtr<VBucket> &vb, exp_type_t source) = 0;
 
@@ -809,7 +809,7 @@ protected:
      */
     virtual void completeBGFetchForSingleItem(
                                         RCPtr<VBucket> vb,
-                                        const StorageKey& key,
+                                        const DocKey key,
                                         const hrtime_t startTime,
                                         VBucketBGFetchItem& fetched_item) = 0;
 
@@ -861,7 +861,7 @@ protected:
      *
      * @return true if the object was found and method was invoked
      */
-    virtual bool invokeOnLockedStoredValue(const StorageKey& key,
+    virtual bool invokeOnLockedStoredValue(const DocKey key,
                                            uint16_t vbid,
                                            void (StoredValue::* f)()) = 0;
 

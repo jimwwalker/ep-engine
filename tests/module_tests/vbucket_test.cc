@@ -22,7 +22,7 @@
 
 #include "bgfetcher.h"
 #include "item.h"
-#include "makestoragekey.h"
+#include "makestoreddockey.h"
 #include "vbucket.h"
 
 // Dummy time functions (required by Item constructor).
@@ -74,7 +74,7 @@ TEST_F(VBucketTest, GetBGFetchItemsPerformance) {
     for (unsigned int ii = 0; ii < 100000; ii++) {
         auto* fetchItem = new VBucketBGFetchItem(/*cookie*/nullptr,
                                                  /*isMeta*/false);
-        vbucket->queueBGFetchItem(makeStorageKey(std::to_string(ii)), fetchItem, &fetcher);
+        vbucket->queueBGFetchItem(makeStoredDocKey(std::to_string(ii)), fetchItem, &fetcher);
     }
     auto items = vbucket->getBGFetchItems();
 
@@ -108,7 +108,7 @@ TEST_P(VBucketEvictionTest, EjectionResidentCount) {
     ASSERT_EQ(0, this->vbucket->getNumItems(eviction_policy));
     ASSERT_EQ(0, this->vbucket->getNumNonResidentItems(eviction_policy));
 
-    Item item(makeStorageKey("key"), /*flags*/0, /*exp*/0,
+    Item item(makeStoredDocKey("key"), /*flags*/0, /*exp*/0,
               /*data*/nullptr, /*ndata*/0);
 
     EXPECT_EQ(WAS_CLEAN,
@@ -119,7 +119,7 @@ TEST_P(VBucketEvictionTest, EjectionResidentCount) {
 
     // TODO-MT: Should acquire lock really (ok given this is currently
     // single-threaded).
-    auto* stored_item = this->vbucket->ht.find(makeStorageKey("key"));
+    auto* stored_item = this->vbucket->ht.find(makeStoredDocKey("key"));
     EXPECT_NE(nullptr, stored_item);
     // Need to clear the dirty flag to allow it to be ejected.
     stored_item->markClean();

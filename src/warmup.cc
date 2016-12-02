@@ -46,7 +46,7 @@ struct WarmupCookie {
 };
 
 static bool batchWarmupCallback(uint16_t vbId,
-                                const std::set<StorageKey>& fetches,
+                                const std::set<StoredDocKey>& fetches,
                                 void *arg)
 {
     WarmupCookie *c = static_cast<WarmupCookie *>(arg);
@@ -107,7 +107,7 @@ static bool batchWarmupCallback(uint16_t vbId,
     }
 }
 
-static bool warmupCallback(void *arg, uint16_t vb, const StorageKey& key)
+static bool warmupCallback(void *arg, uint16_t vb, const StoredDocKey& key)
 {
     WarmupCookie *cookie = static_cast<WarmupCookie*>(arg);
 

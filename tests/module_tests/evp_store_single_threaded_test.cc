@@ -19,7 +19,7 @@
 #include "evp_store_test.h"
 #include "evp_store_single_threaded_test.h"
 #include "fakes/fake_executorpool.h"
-#include "makestoragekey.h"
+#include "makestoreddockey.h"
 #include "taskqueue.h"
 #include "../mock/mock_dcp_producer.h"
 #include "../mock/mock_dcp_consumer.h"
@@ -167,7 +167,7 @@ TEST_F(SingleThreadedEPStoreTest, MB19695_doTapVbTakeoverStats) {
 TEST_F(SingleThreadedEPStoreTest, MB19428_no_streams_against_dead_vbucket) {
     setVBucketStateAndRunPersistTask(vbid, vbucket_state_active);
 
-    store_item(vbid, makeStorageKey("key"), "value");
+    store_item(vbid, makeStoredDocKey("key"), "value");
 
     // Directly flush the vbucket
     EXPECT_EQ(1, store->flushVBucket(vbid));
@@ -264,7 +264,7 @@ TEST_F(SingleThreadedEPStoreTest, MB19892_BackfillNotDeleted) {
     // Perform one SET, then close it's checkpoint. This means that we no
     // longer have all sequence numbers in memory checkpoints, forcing the
     // DCP stream request to go to disk (backfill).
-    store_item(vbid, makeStorageKey("key"), "value");
+    store_item(vbid, makeStoredDocKey("key"), "value");
 
     // Force a new checkpoint.
     auto vb = store->getVbMap().getBucket(vbid);
@@ -440,7 +440,7 @@ TEST_F(MB20054_SingleThreadedEPStoreTest, MB20054_onDeleteItem_during_bucket_del
     // Perform one SET, then close it's checkpoint. This means that we no
     // longer have all sequence numbers in memory checkpoints, forcing the
     // DCP stream request to go to disk (backfill).
-    store_item(vbid, makeStorageKey("key"), "value");
+    store_item(vbid, makeStoredDocKey("key"), "value");
 
     // Force a new checkpoint.
     RCPtr<VBucket> vb = store->getVbMap().getBucket(vbid);
