@@ -220,7 +220,7 @@ public:
      */
     static MutationLogEntry* newEntry(uint8_t *buf,
                                       uint64_t r, mutation_log_type_t t,
-                                      uint16_t vb, const std::string &k) {
+                                      uint16_t vb, const DocKey k) {
         return new (buf) MutationLogEntry(r, t, vb, k);
     }
 
@@ -288,8 +288,10 @@ public:
     /**
      * This entry's key.
      */
-    const std::string key() const {
-        return std::string(_key, keylen);
+    const DocKey key() const {
+        // Collections: TODO - Store the DocNamespace
+        return DocKey(reinterpret_cast<const uint8_t*>(_key), keylen,
+                      DocNamespace::DefaultCollection);
     }
 
     /**
@@ -317,7 +319,7 @@ private:
                                      const MutationLogEntry &e);
 
     MutationLogEntry(uint64_t r, mutation_log_type_t t,
-                     uint16_t vb, const std::string &k)
+                     uint16_t vb, const DocKey k)
         : _rowid(htonll(r)), _vbucket(htons(vb)), magic(MUTATION_LOG_MAGIC),
           _type(static_cast<uint8_t>(t)),
           keylen(static_cast<uint8_t>(k.size())) {
@@ -363,7 +365,7 @@ public:
 
     ~MutationLog();
 
-    void newItem(uint16_t vbucket, const std::string &key, uint64_t rowid);
+    void newItem(uint16_t vbucket, const DocKey key, uint64_t rowid);
 
     void commit1();
 
@@ -586,16 +588,16 @@ typedef std::pair<uint64_t, uint8_t> mutation_log_event_t;
 /**
  * MutationLogHarvester::apply callback type.
  */
-typedef bool (*mlCallback)(void*, uint16_t, const std::string &);
+typedef bool (*mlCallback)(void*, uint16_t, const DocKey);
 typedef bool (*mlCallbackWithQueue)(uint16_t,
-                                    const std::set<std::string>&,
+                                    const std::set<StoredDocKey>&,
                                     void *arg);
 
 /**
  * Type for mutation log leftovers.
  */
 struct mutation_log_uncommitted_t {
-    std::string         key;
+    StoredDocKey        key;
     uint64_t            rowid;
     mutation_log_type_t type;
     uint16_t            vbucket;
@@ -666,7 +668,7 @@ private:
     EventuallyPersistentEngine *engine;
     std::set<uint16_t> vbid_set;
 
-    std::unordered_map<uint16_t, std::set<std::string>> committed;
-    std::unordered_map<uint16_t, std::set<std::string>> loading;
+    std::unordered_map<uint16_t, std::set<StoredDocKey>> committed;
+    std::unordered_map<uint16_t, std::set<StoredDocKey>> loading;
     size_t itemsSeen[MUTATION_LOG_TYPES];
 };

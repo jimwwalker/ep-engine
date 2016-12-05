@@ -191,8 +191,9 @@ CouchRequest::CouchRequest(const Item &it, uint64_t rev,
 
     // Datatype used to determine whether document requires compression or not
     uint8_t datatype = PROTOCOL_BINARY_RAW_BYTES;
-    dbDoc.id.buf = const_cast<char *>(key.c_str());
-    dbDoc.id.size = it.getNKey();
+    // Collections in-progress not storing the namespace.
+    dbDoc.id.buf = const_cast<char *>(reinterpret_cast<const char*>(key.data()));
+    dbDoc.id.size = it.getKey().size();
     if (it.getNBytes()) {
         dbDoc.data.buf = const_cast<char *>(value->getData());
         dbDoc.data.size = it.getNBytes();;
@@ -388,7 +389,7 @@ void CouchKVStore::set(const Item &itm, Callback<mutation_result> &cb) {
     pendingReqsQ.push_back(req);
 }
 
-void CouchKVStore::get(const std::string &key, uint16_t vb,
+void CouchKVStore::get(const DocKey key, uint16_t vb,
                        Callback<GetValue> &cb, bool fetchDelete) {
     Db *db = NULL;
     GetValue rv;
@@ -410,7 +411,7 @@ void CouchKVStore::get(const std::string &key, uint16_t vb,
     closeDatabaseHandle(db);
 }
 
-void CouchKVStore::getWithHeader(void *dbHandle, const std::string &key,
+void CouchKVStore::getWithHeader(void *dbHandle, const DocKey key,
                                  uint16_t vb, Callback<GetValue> &cb,
                                  bool fetchDelete) {
 
@@ -423,7 +424,7 @@ void CouchKVStore::getWithHeader(void *dbHandle, const std::string &key,
     GetValue rv;
 
     id.size = key.size();
-    id.buf = const_cast<char *>(key.c_str());
+    id.buf = const_cast<char*>(reinterpret_cast<const char*>(key.data()));
 
     couchstore_error_t errCode = couchstore_docinfo_by_id(db, (uint8_t *)id.buf,
                                                           id.size, &docInfo);
@@ -455,7 +456,7 @@ void CouchKVStore::getWithHeader(void *dbHandle, const std::string &key,
         // record stats
         st.readTimeHisto.add((gethrtime() - start) / 1000);
         if (errCode == COUCHSTORE_SUCCESS) {
-            st.readSizeHisto.add(key.length() + rv.getValue()->getNBytes());
+            st.readSizeHisto.add(key.size() + rv.getValue()->getNBytes());
         }
     }
 
@@ -498,7 +499,7 @@ void CouchKVStore::getMulti(uint16_t vb, vb_bgfetch_queue_t &itms) {
     vb_bgfetch_queue_t::iterator itr = itms.begin();
     for (; itr != itms.end(); ++itr) {
         ids[idx].size = itr->first.size();
-        ids[idx].buf = const_cast<char *>(itr->first.c_str());
+        ids[idx].buf = const_cast<char*>(reinterpret_cast<const char*>(itr->first.data()));
         ++idx;
     }
 
@@ -750,7 +751,10 @@ static int time_purge_hook(Db* d, DocInfo* info, void* ctx_p) {
         } else {
             time_t currtime = ep_real_time();
             if (exptime && exptime < currtime) {
-                std::string key(info->id.buf, info->id.size);
+                // Collections in-progress - currently persist/restore to the
+                // DefaultCollection namespace.
+                StoredDocKey key(reinterpret_cast<const uint8_t*>(info->id.buf),
+                               info->id.size, DocNamespace::DefaultCollection);
                 ctx->expiryCallback->callback(ctx->db_file_id, key,
                                               info->rev_seq, currtime);
             }
@@ -759,7 +763,10 @@ static int time_purge_hook(Db* d, DocInfo* info, void* ctx_p) {
 
     if (ctx->bloomFilterCallback) {
         bool deleted = info->deleted;
-        std::string key((const char *)info->id.buf, info->id.size);
+        // Collections in-progress - currently persist/restore to the
+        // DefaultCollection namespace.
+        DocKey key(reinterpret_cast<const uint8_t*>(info->id.buf),
+                   info->id.size, DocNamespace::DefaultCollection);
         ctx->bloomFilterCallback->callback(ctx->db_file_id, key, deleted);
     }
 
@@ -1509,8 +1516,10 @@ couchstore_error_t CouchKVStore::fetchDoc(Db *db, DocInfo *docinfo,
     if (metaOnly || (fetchDelete && docinfo->deleted)) {
         uint8_t extMeta[EXT_META_LEN];
         extMeta[0] = metadata->getDataType();
-        Item *it = new Item(docinfo->id.buf,
-                            (size_t)docinfo->id.size,
+        // Collections in-progress - restore key to DefaultCollection only
+        Item *it = new Item(DocKey(reinterpret_cast<uint8_t*>(docinfo->id.buf),
+                                   docinfo->id.size,
+                                   DocNamespace::DefaultCollection),
                             metadata->getFlags(),
                             metadata->getExptime(),
                             nullptr,
@@ -1565,8 +1574,10 @@ couchstore_error_t CouchKVStore::fetchDoc(Db *db, DocInfo *docinfo,
                     extMeta = metadata->getDataType();
                 }
 
-                Item *it = new Item(docinfo->id.buf,
-                                    (size_t)docinfo->id.size,
+                // Collections in progress - restore key to DefaultCollection
+                Item* it = new Item(DocKey(reinterpret_cast<uint8_t*>(docinfo->id.buf),
+                                        docinfo->id.size,
+                                        DocNamespace::DefaultCollection),
                                     metadata->getFlags(),
                                     metadata->getExptime(),
                                     valuePtr,
@@ -1609,7 +1620,10 @@ int CouchKVStore::recordDbDump(Db *db, DocInfo *docinfo, void *ctx) {
                         ") is greater than " + std::to_string(UINT16_MAX));
     }
 
-    std::string docKey(docinfo->id.buf, docinfo->id.size);
+    // Collections in-progress - restore key to DefaultCollection
+    DocKey docKey(reinterpret_cast<uint8_t*>(docinfo->id.buf),
+                  docinfo->id.size,
+                  DocNamespace::DefaultCollection);
     CacheLookup lookup(docKey, byseqno, vbucketId);
     cl->callback(lookup);
     if (cl->getStatus() == ENGINE_KEY_EEXISTS) {
@@ -1669,8 +1683,9 @@ int CouchKVStore::recordDbDump(Db *db, DocInfo *docinfo, void *ctx) {
 
     uint8_t extMeta = metadata->getDataType();
     uint8_t extMetaLen = metadata->getFlexCode() == FLEX_META_CODE ? EXT_META_LEN : 0;
-    Item *it = new Item((void *)key.buf,
-                        key.size,
+    // Collections in-progress - restore key to DefaultCollection
+    Item *it = new Item(DocKey(reinterpret_cast<uint8_t*>(key.buf), key.size,
+                               DocNamespace::DefaultCollection),
                         metadata->getFlags(),
                         metadata->getExptime(),
                         valueptr,
@@ -1770,9 +1785,9 @@ static int readDocInfos(Db *db, DocInfo *docinfo, void *ctx) {
     if(docinfo) {
         // An item exists in the VB DB file.
         if (!docinfo->deleted) {
-            std::string key(docinfo->id.buf, docinfo->id.size);
-            std::unordered_map<std::string, kstat_entry_t>::iterator itr =
-                cbCtx->keyStats.find(key);
+            StoredDocKey key(reinterpret_cast<uint8_t*>(docinfo->id.buf),
+                           docinfo->id.size, DocNamespace::DefaultCollection);
+            auto itr = cbCtx->keyStats.find(key);
             if (itr != cbCtx->keyStats.end()) {
                 itr->second.first = true;
             }
@@ -1814,7 +1829,8 @@ couchstore_error_t CouchKVStore::saveDocs(uint16_t vbid, uint64_t rev,
         for (size_t idx = 0; idx < docCount; idx++) {
             ids[idx] = docinfos[idx]->id;
             maxDBSeqno = std::max(maxDBSeqno, docinfos[idx]->db_seq);
-            std::string key(ids[idx].buf, ids[idx].size);
+            StoredDocKey key(reinterpret_cast<uint8_t*>(ids[idx].buf),
+                           ids[idx].size, DocNamespace::DefaultCollection);
             kvctx.keyStats[key] = std::make_pair(false,
                     !docinfos[idx]->deleted);
         }
@@ -1909,7 +1925,7 @@ void CouchKVStore::commitCallback(std::vector<CouchRequest *> &committedReqs,
 
     for (size_t index = 0; index < commitSize; index++) {
         size_t dataSize = committedReqs[index]->getNBytes();
-        size_t keySize = committedReqs[index]->getKey().length();
+        size_t keySize = committedReqs[index]->getKey().size();
         /* update ep stats */
         ++st.io_num_write;
         st.io_write_bytes += (keySize + dataSize);
@@ -1917,7 +1933,7 @@ void CouchKVStore::commitCallback(std::vector<CouchRequest *> &committedReqs,
         if (committedReqs[index]->isDelete()) {
             int rv = getMutationStatus(errCode);
             if (rv != -1) {
-                const std::string &key = committedReqs[index]->getKey();
+                auto& key = committedReqs[index]->getKey();
                 if (kvctx.keyStats[key].first) {
                     rv = 1; // Deletion is for an existing item on DB file.
                 } else {
@@ -1932,7 +1948,7 @@ void CouchKVStore::commitCallback(std::vector<CouchRequest *> &committedReqs,
             committedReqs[index]->getDelCallback()->callback(rv);
         } else {
             int rv = getMutationStatus(errCode);
-            const std::string &key = committedReqs[index]->getKey();
+            auto& key = committedReqs[index]->getKey();
             bool insertion = !kvctx.keyStats[key].first;
             if (errCode) {
                 ++st.numSetFailure;
@@ -2111,11 +2127,13 @@ int CouchKVStore::getMultiCb(Db *db, DocInfo *docinfo, void *ctx) {
                 "be non-NULL");
     }
 
-    std::string keyStr(docinfo->id.buf, docinfo->id.size);
+    // Collections in-progress: Restore key to default collection
+    StoredDocKey key(reinterpret_cast<const uint8_t*>(docinfo->id.buf),
+                   docinfo->id.size, DocNamespace::DefaultCollection);
     GetMultiCbCtx *cbCtx = static_cast<GetMultiCbCtx *>(ctx);
     KVStoreStats& st = cbCtx->cks.getKVStoreStat();
 
-    vb_bgfetch_queue_t::iterator qitr = cbCtx->fetches.find(keyStr);
+    vb_bgfetch_queue_t::iterator qitr = cbCtx->fetches.find(key);
     if (qitr == cbCtx->fetches.end()) {
         // this could be a serious race condition in couchstore,
         // log a warning message and continue
@@ -2131,7 +2149,6 @@ int CouchKVStore::getMultiCb(Db *db, DocInfo *docinfo, void *ctx) {
     bool meta_only = bg_itm_ctx.isMetaOnly;
 
     GetValue returnVal;
-
     couchstore_error_t errCode = cbCtx->cks.fetchDoc(db, docinfo, returnVal,
                                                      cbCtx->vbId, meta_only);
     if (errCode != COUCHSTORE_SUCCESS && !meta_only) {
@@ -2151,7 +2168,7 @@ int CouchKVStore::getMultiCb(Db *db, DocInfo *docinfo, void *ctx) {
         (*itr)->value = returnVal;
         st.readTimeHisto.add((gethrtime() - (*itr)->initTime) / 1000);
         if (errCode == COUCHSTORE_SUCCESS) {
-            st.readSizeHisto.add(returnVal.getValue()->getNKey() +
+            st.readSizeHisto.add(returnVal.getValue()->getKey().size() +
                                  returnVal.getValue()->getNBytes());
         }
     }
@@ -2439,7 +2456,7 @@ int populateAllKeys(Db *db, DocInfo *docinfo, void *ctx) {
 
 ENGINE_ERROR_CODE
 CouchKVStore::getAllKeys(uint16_t vbid,
-                         const std::string &start_key,
+                         const DocKey start_key,
                          uint32_t count,
                          std::shared_ptr<Callback<const DocKey&>> cb) {
     Db *db = NULL;
@@ -2448,7 +2465,7 @@ CouchKVStore::getAllKeys(uint16_t vbid,
                                         COUCHSTORE_OPEN_FLAG_RDONLY);
     if(errCode == COUCHSTORE_SUCCESS) {
         sized_buf ref = {NULL, 0};
-        ref.buf = (char*) start_key.c_str();
+        ref.buf = (char*) start_key.data();
         ref.size = start_key.size();
         AllKeysCtx ctx(cb, count);
         errCode = couchstore_all_docs(db, &ref, COUCHSTORE_NO_DELETES,
