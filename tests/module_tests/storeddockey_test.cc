@@ -23,6 +23,9 @@
 class StoredDocKeyTest : public ::testing::TestWithParam<DocNamespace> {
 };
 
+class SerialisedDocKeyTest : public ::testing::TestWithParam<DocNamespace> {
+};
+
 class StoredDocKeyTestCombi : public ::testing::TestWithParam<std::tuple<DocNamespace, DocNamespace>> {
 };
 
@@ -174,6 +177,31 @@ TEST_P(StoredDocKeyTestCombi, map) {
     }
 }
 
+TEST_P(SerialisedDocKeyTest, constructor) {
+    StoredDocKey key("key", GetParam());
+    auto serialKey = SerialisedDocKey::make(key);
+    EXPECT_EQ(sizeof("key"), serialKey->size());
+    EXPECT_EQ(0, std::memcmp("key", serialKey->data(), sizeof("key")));
+    EXPECT_EQ(GetParam(), serialKey->getDocNamespace());
+}
+
+TEST_P(StoredDocKeyTest, constructFromSerialisedDocKey) {
+    StoredDocKey key1("key", GetParam());
+    auto serialKey = SerialisedDocKey::make(key1);
+    StoredDocKey key2(*serialKey);
+
+    // Check key2 equals key1
+    EXPECT_EQ(key1, key2);
+
+    // Key1 equals serialKey
+    EXPECT_EQ(key1, *serialKey);
+
+    // Key 2 must equal serialKey (compare size, data, namespace)
+    EXPECT_EQ(serialKey->size(), key2.size());
+    EXPECT_EQ(0, std::memcmp("key", key2.data(), sizeof("key")));
+    EXPECT_EQ(serialKey->getDocNamespace(), key2.getDocNamespace());
+}
+
 std::vector<DocNamespace> allDocNamespaces = {{DocNamespace::DefaultCollection,
                                                DocNamespace::Collections,
                                                DocNamespace::System}};
@@ -183,6 +211,11 @@ INSTANTIATE_TEST_CASE_P(DocNamespace, StoredDocKeyTestCombi,
                         ::testing::ValuesIn(allDocNamespaces)),);
 
 INSTANTIATE_TEST_CASE_P(DocNamespace, StoredDocKeyTest,
+                        ::testing::Values(DocNamespace::DefaultCollection,
+                                          DocNamespace::Collections,
+                                          DocNamespace::System),);
+
+INSTANTIATE_TEST_CASE_P(DocNamespace, SerialisedDocKeyTest,
                         ::testing::Values(DocNamespace::DefaultCollection,
                                           DocNamespace::Collections,
                                           DocNamespace::System),);

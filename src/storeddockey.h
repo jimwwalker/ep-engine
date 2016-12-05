@@ -33,6 +33,8 @@ static inline uint32_t hashDocKey(const DocKey& key) {
     return h;
 }
 
+class SerialisedDocKey;
+
 /*
  * StoredDocKey copies into its own storage the key data.
  *
@@ -69,6 +71,11 @@ public:
     StoredDocKey(const DocKey key)
         : StoredDocKey(key.data(), key.size(), key.doc_namespace) {
     }
+
+    /*
+     * Create a StoredDocKey from its serialised equivalent.
+     */
+    StoredDocKey(const SerialisedDocKey& key);
 
     /*
      * Create a StoredDocKey from a zero terminated C-string
@@ -175,3 +182,104 @@ namespace std {
         }
     };
 }
+
+class MutationLogEntry;
+class StoredValue;
+
+/*
+ * SerialisedDocKey maintains the key in a single continuous allocation.
+ * For example where the StoredDocKey data needs to exist as part of a bigger
+ * contiguous block of data for writing to disk.
+ *
+ * A limited number of classes are friends and can directly construct this key.
+ *  - A SerialisedDocKey is not C-string safe
+ */
+class SerialisedDocKey {
+public:
+    /*
+     * The copy constructor is deleted.
+     * Copying a SerialisedDocKey is dangerous due to the bytes living outside
+     * of the object.
+     */
+    SerialisedDocKey(const SerialisedDocKey &obj) = delete;
+
+    const uint8_t* data() const {
+        return bytes;
+    }
+
+    size_t size() const {
+        return length;
+    }
+
+    DocNamespace getDocNamespace() const {
+        return docNamespace;
+    }
+
+    bool operator == (const DocKey rhs) const {
+        return size() == rhs.size() &&
+               getDocNamespace() == rhs.doc_namespace &&
+               std::memcmp(data(), rhs.data(), size()) == 0;
+    }
+
+    const DocKey getDocKey() const {
+        return DocKey(data(), size(), docNamespace);
+    }
+
+    /*
+     * Return how many bytes are (or should be) allocated to this object
+     */
+    size_t getObjectSize() const {
+        return getObjectSize(length);
+    }
+
+    /*
+     * Return how many bytes are needed to store a key of len.
+     */
+    static size_t getObjectSize(size_t len) {
+        return sizeof(SerialisedDocKey) + len - 1;
+    }
+
+    /*
+     * Allocate the correct storage for DocKey SerialisedDocKey as a unique_ptr
+     */
+    static std::unique_ptr<SerialisedDocKey> make(const DocKey key) {
+        std::unique_ptr<SerialisedDocKey>
+            rval(reinterpret_cast<SerialisedDocKey*>(new uint8_t[getObjectSize(key.size())]));
+        new (rval.get()) SerialisedDocKey(key);
+        return rval;
+    }
+
+protected:
+
+    /*
+     * These following classes are "white-listed". They know how to allocate
+     * and construct this object so are allowed direct access to the
+     * constructors.
+     */
+    friend class MutationLogEntry;
+    friend class StoredValue;
+
+    SerialisedDocKey() : length(0), bytes() {}
+
+    /*
+     * Create a SerialisedDocKey from a DocKey
+     * Protected constructor as this must be used by friends who know how to
+     * pre-allocate the object.
+     * DocKey::len cannot exceed 255
+     */
+    SerialisedDocKey(const DocKey key) : length(key.size()) {
+        if (length > std::numeric_limits<uint8_t>::max()) {
+            throw std::length_error("SerialisedDocKey(const DocKey key) "
+                                    "key too large " + std::to_string(length));
+        }
+        docNamespace = key.doc_namespace;
+        std::memcpy(bytes, key.data(), key.size());
+    }
+
+    uint8_t length;
+    DocNamespace docNamespace;
+    uint8_t bytes[1];
+};
+
+inline StoredDocKey::StoredDocKey(const SerialisedDocKey& key)
+    : StoredDocKey(key.getDocKey()) {}
