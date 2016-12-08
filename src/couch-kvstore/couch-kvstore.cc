@@ -139,9 +139,15 @@ static std::string couchkvstore_strerrno(Db *db, couchstore_error_t err) {
             err == COUCHSTORE_ERROR_FILE_CLOSE) ? getStrError(db) : "none";
 }
 
-static DocKey makeDocKey(const sized_buf buf, DocNamespace docNamespace) {
-    return DocKey(reinterpret_cast<const uint8_t*>(buf.buf), buf.size,
-                  docNamespace);
+static DocKey makeDocKey(const sized_buf buf, bool restoreNamespace) {
+    if (restoreNamespace) {
+        return DocKey(reinterpret_cast<const uint8_t*>(&buf.buf[1]),
+                      buf.size - 1,
+                      DocNamespace(buf.buf[0]));
+    } else {
+        return DocKey(reinterpret_cast<const uint8_t*>(buf.buf), buf.size,
+                      DocNamespace::DefaultCollection);
+    }
 }
 
 struct GetMultiCbCtx {
@@ -188,15 +194,22 @@ couchstore_content_meta_flags CouchRequest::getContentMeta(const Item& it) {
 }
 
 CouchRequest::CouchRequest(const Item &it, uint64_t rev,
-                           MutationRequestCallback &cb, bool del)
+                           MutationRequestCallback &cb, bool del,
+                           bool persistDocNamespace)
       : IORequest(it.getVBucketId(), cb, del, it.getKey()), value(it.getValue()),
         fileRevNum(rev) {
 
     // Datatype used to determine whether document requires compression or not
     uint8_t datatype = PROTOCOL_BINARY_RAW_BYTES;
-    // Collections: TODO: store the namespace.
-    dbDoc.id.buf = const_cast<char *>(key.c_str());
-    dbDoc.id.size = it.getKey().size();
+    // Collections: TODO: Temporary switch to ensure upgrades don't break.
+    if (persistDocNamespace) {
+        dbDoc.id.buf = const_cast<char*>(reinterpret_cast<const char*>(key.getDocNameSpacedData()));
+        dbDoc.id.size = it.getKey().getDocNameSpacedSize();
+    } else {
+        dbDoc.id.buf = const_cast<char *>(key.c_str());
+        dbDoc.id.size = it.getKey().size();
+    }
+
     if (it.getNBytes()) {
         dbDoc.data.buf = const_cast<char *>(value->getData());
         dbDoc.data.size = it.getNBytes();;
@@ -388,7 +401,8 @@ void CouchKVStore::set(const Item &itm, Callback<mutation_result> &cb) {
 
     // each req will be de-allocated after commit
     requestcb.setCb = &cb;
-    CouchRequest *req = new CouchRequest(itm, fileRev, requestcb, deleteItem);
+    CouchRequest *req = new CouchRequest(itm, fileRev, requestcb, deleteItem,
+                                    configuration.shouldPersistDocNamespace());
     pendingReqsQ.push_back(req);
 }
 
@@ -543,7 +557,8 @@ void CouchKVStore::del(const Item &itm,
     uint64_t fileRev = dbFileRevMap[itm.getVBucketId()];
     MutationRequestCallback requestcb;
     requestcb.delCb = &cb;
-    CouchRequest *req = new CouchRequest(itm, fileRev, requestcb, true);
+    CouchRequest *req = new CouchRequest(itm, fileRev, requestcb, true,
+                                    configuration.shouldPersistDocNamespace());
     pendingReqsQ.push_back(req);
 }
 
@@ -758,9 +773,9 @@ static int time_purge_hook(Db* d, DocInfo* info, void* ctx_p) {
         } else {
             time_t currtime = ep_real_time();
             if (exptime && exptime < currtime) {
-                // Collections: TODO: Restore to stored namespace
+                // Collections: TODO: Permanently restore to stored namespace
                 DocKey key = makeDocKey(info->id,
-                                        DocNamespace::DefaultCollection);
+                                        ctx->store->getConfig().shouldPersistDocNamespace());
                 ctx->expiryCallback->callback(ctx->db_file_id, key,
                                               info->rev_seq, currtime);
             }
@@ -769,8 +784,9 @@ static int time_purge_hook(Db* d, DocInfo* info, void* ctx_p) {
 
     if (ctx->bloomFilterCallback) {
         bool deleted = info->deleted;
-        // Collections: TODO: Restore to stored namespace
-        DocKey key = makeDocKey(info->id, DocNamespace::DefaultCollection);
+        // Collections: TODO: Permanently restore to stored namespace
+        DocKey key = makeDocKey(info->id,
+                                ctx->store->getConfig().shouldPersistDocNamespace());
         ctx->bloomFilterCallback->callback(ctx->db_file_id, key, deleted);
     }
 
@@ -795,7 +811,7 @@ bool CouchKVStore::compactDB(compaction_ctx *hook_ctx) {
     std::string                 dbfile;
     std::string           compact_file;
     std::string               new_file;
-    kvstats_ctx                  kvctx;
+    kvstats_ctx                  kvctx(*this);
     DbInfo                        info;
     uint16_t                      vbid = hook_ctx->db_file_id;
     uint64_t                   fileRev = dbFileRevMap[vbid];
@@ -917,7 +933,7 @@ bool CouchKVStore::setVBucketState(uint16_t vbucketId,
     std::stringstream id, rev;
     std::string dbFileName;
     std::map<uint16_t, uint64_t>::iterator mapItr;
-    kvstats_ctx kvctx;
+    kvstats_ctx kvctx(*this);
     kvctx.vbucket = vbucketId;
     couchstore_error_t errorCode;
 
@@ -1150,7 +1166,7 @@ ScanContext* CouchKVStore::initScanContext(std::shared_ptr<Callback<GetValue> > 
 
     ScanContext* sctx = new ScanContext(cb, cl, vbid, scanId, startSeqno,
                                         info.last_sequence, options,
-                                        valOptions, count);
+                                        valOptions, count, *this);
     sctx->logger = &logger;
     return sctx;
 }
@@ -1520,9 +1536,9 @@ couchstore_error_t CouchKVStore::fetchDoc(Db *db, DocInfo *docinfo,
     if (metaOnly || (fetchDelete && docinfo->deleted)) {
         uint8_t extMeta[EXT_META_LEN];
         extMeta[0] = metadata->getDataType();
-        // Collections: TODO: Restore to stored namespace
+        // Collections: TODO: Permanently restore to stored namespace
         Item *it = new Item(makeDocKey(docinfo->id,
-                                       DocNamespace::DefaultCollection),
+                                       configuration.shouldPersistDocNamespace()),
                             metadata->getFlags(),
                             metadata->getExptime(),
                             nullptr,
@@ -1577,9 +1593,9 @@ couchstore_error_t CouchKVStore::fetchDoc(Db *db, DocInfo *docinfo,
                     extMeta = metadata->getDataType();
                 }
 
-                // Collections: TODO: Restore to stored namespace
+                // Collections: TODO: Permanently restore to stored namespace
                 Item* it = new Item(makeDocKey(docinfo->id,
-                                               DocNamespace::DefaultCollection),
+                                               configuration.shouldPersistDocNamespace()),
                                     metadata->getFlags(),
                                     metadata->getExptime(),
                                     valuePtr,
@@ -1622,8 +1638,9 @@ int CouchKVStore::recordDbDump(Db *db, DocInfo *docinfo, void *ctx) {
                         ") is greater than " + std::to_string(UINT16_MAX));
     }
 
-    // Collections: TODO: Restore to stored namespace
-    DocKey docKey = makeDocKey(docinfo->id, DocNamespace::DefaultCollection);
+    // Collections: TODO: Permanently restore to stored namespace
+    DocKey docKey = makeDocKey(docinfo->id,
+                               sctx->kvstore.getConfig().shouldPersistDocNamespace());
     CacheLookup lookup(docKey, byseqno, vbucketId);
     cl->callback(lookup);
     if (cl->getStatus() == ENGINE_KEY_EEXISTS) {
@@ -1683,8 +1700,8 @@ int CouchKVStore::recordDbDump(Db *db, DocInfo *docinfo, void *ctx) {
 
     uint8_t extMeta = metadata->getDataType();
     uint8_t extMetaLen = metadata->getFlexCode() == FLEX_META_CODE ? EXT_META_LEN : 0;
-    // Collections: TODO: Restore to stored namespace
-    Item *it = new Item(DocKey(makeDocKey(key, DocNamespace::DefaultCollection)),
+    // Collections: TODO: Permanently restore to stored namespace
+    Item *it = new Item(DocKey(makeDocKey(key, sctx->kvstore.getConfig().shouldPersistDocNamespace())),
                         metadata->getFlags(),
                         metadata->getExptime(),
                         valueptr,
@@ -1750,7 +1767,7 @@ bool CouchKVStore::commit2couchstore() {
         }
     }
 
-    kvstats_ctx kvctx;
+    kvstats_ctx kvctx(*this);
     kvctx.vbucket = vbucket2flush;
     // flush all
     couchstore_error_t errCode = saveDocs(vbucket2flush, fileRev, docs,
@@ -1780,12 +1797,13 @@ static int readDocInfos(Db *db, DocInfo *docinfo, void *ctx) {
     if (ctx == nullptr) {
         throw std::invalid_argument("readDocInfos: ctx must be non-NULL");
     }
-    kvstats_ctx *cbCtx = static_cast<kvstats_ctx *>(ctx);
+    kvstats_ctx *cbCtx = static_cast<kvstats_ctx*>(ctx);
     if(docinfo) {
         // An item exists in the VB DB file.
         if (!docinfo->deleted) {
+             // Collections: TODO: Permanently restore to stored namespace
             auto itr = cbCtx->keyStats.find(makeDocKey(docinfo->id,
-                                            DocNamespace::DefaultCollection));
+                                            cbCtx->kvstore.getConfig().shouldPersistDocNamespace()));
             if (itr != cbCtx->keyStats.end()) {
                 itr->second.first = true;
             }
@@ -1827,7 +1845,7 @@ couchstore_error_t CouchKVStore::saveDocs(uint16_t vbid, uint64_t rev,
         for (size_t idx = 0; idx < docCount; idx++) {
             ids[idx] = docinfos[idx]->id;
             maxDBSeqno = std::max(maxDBSeqno, docinfos[idx]->db_seq);
-            DocKey key = makeDocKey(ids[idx], DocNamespace::DefaultCollection);
+            DocKey key = makeDocKey(ids[idx], configuration.shouldPersistDocNamespace());
             kvctx.keyStats[key] = std::make_pair(false,
                                                  !docinfos[idx]->deleted);
         }
@@ -2124,9 +2142,9 @@ int CouchKVStore::getMultiCb(Db *db, DocInfo *docinfo, void *ctx) {
                 "be non-NULL");
     }
 
-    // Collections: TODO: Restore to stored namespace
-    DocKey key = makeDocKey(docinfo->id, DocNamespace::DefaultCollection);
     GetMultiCbCtx *cbCtx = static_cast<GetMultiCbCtx *>(ctx);
+    // Collections: TODO: Permanently restore to stored namespace
+    DocKey key = makeDocKey(docinfo->id, cbCtx->cks.getConfig().shouldPersistDocNamespace());
     KVStoreStats& st = cbCtx->cks.getKVStoreStat();
 
     vb_bgfetch_queue_t::iterator qitr = cbCtx->fetches.find(key);
@@ -2437,8 +2455,8 @@ RollbackResult CouchKVStore::rollback(uint16_t vbid, uint64_t rollbackSeqno,
 
 int populateAllKeys(Db *db, DocInfo *docinfo, void *ctx) {
     AllKeysCtx *allKeysCtx = (AllKeysCtx *)ctx;
-    // Collections: TODO: Restore to stored namespace
-    DocKey key = makeDocKey(docinfo->id, DocNamespace::DefaultCollection);
+    // Collections: TODO: Permanently restore to stored namespace
+    DocKey key = makeDocKey(docinfo->id, false/*restore namespace*/);
     (allKeysCtx->cb)->callback(key);
     if (--(allKeysCtx->count) <= 0) {
         //Only when count met is less than the actual number of entries

@@ -6891,6 +6891,59 @@ static enum test_result test_vbucket_compact_no_purge(ENGINE_HANDLE *h,
     return SUCCESS;
 }
 
+static enum test_result test_namespace_separation(ENGINE_HANDLE *h,
+                                                  ENGINE_HANDLE_V1 *h1) {
+    DocKey key1("key", DocNamespace::System);
+    DocKey key2("key", DocNamespace::Collections);
+    std::string value1 = "value1";
+    std::string value2 = "value2";
+
+    item *it = nullptr;
+    checkeq(ENGINE_SUCCESS,
+            h1->allocate(h, nullptr, &it, key1, value1.size(), 0, 0, 0, 0),
+            "Failed allocate");
+    uint64_t cas{};
+    item_info info;
+    info.nvalue = 1;
+    if (!h1->get_item_info(h, nullptr, it, &info)) {
+        abort();
+    }
+
+    cb_assert(info.value[0].iov_len == value1.size());
+    memcpy(info.value[0].iov_base, value1.data(), value1.size());
+    h1->item_set_cas(h, nullptr, it, 0);
+
+    checkeq(ENGINE_SUCCESS,
+            h1->store(h, nullptr, it, &cas, OPERATION_ADD, DocumentState::Alive),
+            "Failed store");
+
+    h1->release(h, nullptr, it);
+
+
+    checkeq(ENGINE_SUCCESS,
+            h1->allocate(h, nullptr, &it, key2, value2.size(), 0, 0, 0, 0),
+            "Failed allocate");
+
+    info.nvalue = 1;
+    if (!h1->get_item_info(h, nullptr, it, &info)) {
+        abort();
+    }
+
+    cb_assert(info.value[0].iov_len == value2.size());
+    memcpy(info.value[0].iov_base, value2.data(), value2.size());
+    h1->item_set_cas(h, nullptr, it, 0);
+
+    checkeq(ENGINE_SUCCESS,
+            h1->store(h, nullptr, it, &cas, OPERATION_ADD, DocumentState::Alive),
+            "Failed store");
+
+    h1->release(h, nullptr, it);
+
+    sleep(2);
+    cb_assert(false);
+    return SUCCESS;
+}
+
 // Test manifest //////////////////////////////////////////////////////////////
 
 const char *default_dbname = "./ep_testsuite";
@@ -6907,8 +6960,8 @@ BaseTestCase testsuite_testcases[] = {
                  NULL, prepare, cleanup),
         TestCase("expiry_loader", test_expiry_loader, test_setup,
                  teardown, NULL, prepare, cleanup),
-        TestCase("expiration on compaction", test_expiration_on_compaction,
-                 test_setup, teardown, "exp_pager_enabled=false",
+        TestCase("test_namespace_separation", test_namespace_separation,
+                 test_setup, teardown, "persist_doc_namespace=true",
                  prepare, cleanup),
         TestCase("expiration on warmup", test_expiration_on_warmup,
                  test_setup, teardown, "exp_pager_stime=1", prepare, cleanup),

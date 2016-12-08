@@ -420,6 +420,15 @@ SET_TARGET_PROPERTIES(ep_perfsuite PROPERTIES PREFIX "")
 TARGET_LINK_LIBRARIES(ep_perfsuite dirutils platform)
 ADD_DEPENDENCIES(ep_perfsuite engine_testapp)
 
+ADD_LIBRARY(ep_testsuite_collections SHARED
+   tests/ep_testsuite_common.cc
+   tests/ep_testsuite_collections.cc
+   tests/ep_test_apis.cc
+   src/ext_meta_parser.cc)
+SET_TARGET_PROPERTIES(ep_testsuite_collections PROPERTIES PREFIX "")
+TARGET_LINK_LIBRARIES(ep_testsuite_collections JSON_checker dirutils platform ${LIBEVENT_LIBRARIES} ${SNAPPY_LIBRARIES})
+ADD_DEPENDENCIES(ep_testsuite_collections engine_testapp)
+
 #ADD_CUSTOM_COMMAND(OUTPUT
 #                     ${CMAKE_CURRENT_BINARY_DIR}/generated_suite_0.c
 #                     ${CMAKE_CURRENT_BINARY_DIR}/generated_suite_1.c

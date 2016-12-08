@@ -57,7 +57,7 @@ public:
      * @param del flag indicating if it is an item deletion or not
      */
     CouchRequest(const Item &it, uint64_t rev, MutationRequestCallback &cb,
-                 bool del);
+                 bool del, bool persistDocNamespace);
 
     virtual ~CouchRequest() {}
 

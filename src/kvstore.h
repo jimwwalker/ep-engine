@@ -252,11 +252,11 @@ public:
                 std::shared_ptr<Callback<CacheLookup> > cl,
                 uint16_t vb, size_t id, uint64_t start,
                 uint64_t end, DocumentFilter _docFilter,
-                ValueFilter _valFilter, uint64_t _documentCount)
+                ValueFilter _valFilter, uint64_t _documentCount, KVStore& kvs)
     : callback(cb), lookup(cl), lastReadSeqno(0), startSeqno(start),
       maxSeqno(end), scanId(id), vbid(vb), docFilter(_docFilter),
       valFilter(_valFilter), documentCount(_documentCount),
-      logger(&global_logger) {}
+      logger(&global_logger), kvstore(kvs) {}
 
     ~ScanContext() {}
 
@@ -273,6 +273,7 @@ public:
     const uint64_t documentCount;
 
     Logger* logger;
+    KVStore& kvstore;
 };
 
 // First bool is true if an item exists in VB DB file.
@@ -280,10 +281,14 @@ public:
 typedef std::pair<bool, bool> kstat_entry_t;
 
 struct KVStatsCtx{
-    KVStatsCtx() : vbucket(std::numeric_limits<uint16_t>::max()) {}
+    KVStatsCtx(KVStore& kvs)
+        : vbucket(std::numeric_limits<uint16_t>::max()),
+          kvstore(kvs) {
+    }
 
     uint16_t vbucket;
     std::unordered_map<StoredDocKey, kstat_entry_t> keyStats;
+    KVStore& kvstore;
 };
 
 typedef struct KVStatsCtx kvstats_ctx;
@@ -541,7 +546,8 @@ public:
                   uint16_t _maxShards,
                   const std::string& _dbname,
                   const std::string& _backend,
-                  uint16_t _shardId);
+                  uint16_t _shardId,
+                  bool persistDocNamespace);
 
     uint16_t getMaxVBuckets() {
         return maxVBuckets;
@@ -589,6 +595,14 @@ public:
      */
     KVStoreConfig& setBuffered(bool _buffered);
 
+    bool shouldPersistDocNamespace() const {
+        return persistDocNamespace;
+    }
+
+    void setPersistDocNamespace(bool value) {
+        persistDocNamespace = value;
+    }
+
 private:
     uint16_t maxVBuckets;
     uint16_t maxShards;
@@ -597,6 +611,7 @@ private:
     uint16_t shardId;
     Logger* logger;
     bool buffered;
+    bool persistDocNamespace;
 };
 
 class IORequest {

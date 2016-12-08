@@ -463,6 +463,11 @@
                 }
             }
         },
+        "persist_doc_namespace": {
+            "default": "false",
+            "desr": "Whether or not we store/restore the DocNamespace (will break upgrades if true)",
+            "type": "bool"
+        },
         "postInitfile": {
             "default": "",
             "type": "std::string"

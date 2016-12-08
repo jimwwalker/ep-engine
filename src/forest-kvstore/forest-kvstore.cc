@@ -1506,7 +1506,7 @@ ScanContext* ForestKVStore::initScanContext(std::shared_ptr<Callback<GetValue> >
 
     return new ScanContext(cb, cl, vbid, scanId, startSeqno,
                            (uint64_t)kvsInfo.last_seqnum, options,
-                           valOptions, count);
+                           valOptions, count, *this);
 }
 
 scan_error_t ForestKVStore::scan(ScanContext* ctx) {
