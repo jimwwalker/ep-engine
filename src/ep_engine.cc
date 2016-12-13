@@ -1819,6 +1819,12 @@ extern "C" {
         Logger::setGlobalLogLevel(level);
     }
 
+    static ENGINE_ERROR_CODE EvpSetCollections(ENGINE_HANDLE* handle,
+                                        const void* cookie,
+                                        cb::const_char_buffer json) {
+        return ENGINE_ENOTSUP;
+    }
+
     /**
      * The only public interface to the eventually persistent engine.
      * Allocate a new instance and initialize it
@@ -2002,6 +2008,7 @@ EventuallyPersistentEngine::EventuallyPersistentEngine(
     ENGINE_HANDLE_V1::dcp.control = EvpDcpControl;
     ENGINE_HANDLE_V1::dcp.response_handler = EvpDcpResponseHandler;
     ENGINE_HANDLE_V1::set_log_level = EvpSetLogLevel;
+    ENGINE_HANDLE_V1::collections.set_collections = EvpSetCollections;
 
     serverApi = getServerApiFunc();
     memset(&info, 0, sizeof(info));
