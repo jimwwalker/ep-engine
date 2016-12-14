@@ -139,6 +139,7 @@ ADD_LIBRARY(ep_objs OBJECT
             src/checkpoint_remover.cc
             src/collections/manifest.cc
             src/collections/vbucket_manifest_entry.cc
+            src/collections/vbucket_manifest.cc
             src/compress.cc
             src/conflict_resolution.cc
             src/connmap.cc
@@ -208,6 +209,7 @@ ADD_EXECUTABLE(ep-engine_ep_unit_tests
                tests/module_tests/checkpoint_test.cc
                tests/module_tests/collections/manifest_test.cc
                tests/module_tests/collections/vbucket_manifest_entry_test.cc
+               tests/module_tests/collections/vbucket_manifest_test.cc
                tests/module_tests/defragmenter_test.cc
                tests/module_tests/ep_unit_tests_main.cc
                tests/module_tests/dcp_test.cc
