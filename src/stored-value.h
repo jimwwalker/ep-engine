@@ -475,6 +475,10 @@ public:
     static const int64_t state_non_existent_key;
     static const int64_t state_temp_init;
 
+    // This value is used by collections and exists here to ensure it is
+    // compatible with other special negative sequence numbers.
+    static const int64_t state_collection_open;
+
     ~StoredValue() {
         ObjectRegistry::onDeleteStoredValue(this);
     }
