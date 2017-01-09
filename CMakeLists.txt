@@ -207,6 +207,7 @@ ADD_EXECUTABLE(ep-engine_ep_unit_tests
                tests/mock/mock_dcp.cc
                tests/module_tests/bloomfilter_test.cc
                tests/module_tests/checkpoint_test.cc
+               tests/module_tests/collections/collection_dockey_test.cc
                tests/module_tests/collections/manifest_test.cc
                tests/module_tests/collections/vbucket_manifest_entry_test.cc
                tests/module_tests/collections/vbucket_manifest_test.cc
