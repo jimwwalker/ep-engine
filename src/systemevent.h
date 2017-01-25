@@ -22,7 +22,12 @@
 #include "item.h"
 
 /// underlying size of uint32_t as this is to be stored in the Item flags field.
-enum class SystemEvent : uint32_t { CreateCollection, BeginDeleteCollection };
+enum class SystemEvent : uint32_t {
+    CreateCollection,
+    BeginDeleteCollection,
+    DeleteCollectionHard,
+    DeleteCollectionSoft
+};
 
 static inline std::string to_string(const SystemEvent se) {
     switch (se) {
@@ -30,6 +35,10 @@ static inline std::string to_string(const SystemEvent se) {
         return "CreateCollection";
     case SystemEvent::BeginDeleteCollection:
         return "BeginDeleteCollection";
+    case SystemEvent::DeleteCollectionHard:
+        return "DeleteCollectionHard";
+    case SystemEvent::DeleteCollectionSoft:
+        return "DeleteCollectionSoft";
     default:
         throw std::invalid_argument("to_string(SystemEvent) unknown " +
                                     std::to_string(int(se)));

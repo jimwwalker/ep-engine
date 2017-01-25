@@ -141,8 +141,9 @@ void Collections::VB::Manifest::beginDelCollection(
     }
 }
 
-void Collections::VB::Manifest::completeDeletion(
-        const std::string& collection) {
+void Collections::VB::Manifest::completeDeletion(::VBucket& vb,
+                                                 const std::string& collection,
+                                                 uint32_t revision) {
     std::lock_guard<WriterLock> writeLock(lock.writer());
     auto itr = map.find(collection);
 
@@ -152,8 +153,14 @@ void Collections::VB::Manifest::completeDeletion(
     }
 
     if (!itr->second->isOpen()) {
+        queueSystemEvent(
+                vb, SystemEvent::DeleteCollectionHard, collection, revision);
         map.erase(itr);
     } else {
+        queueSystemEvent(vb,
+                         SystemEvent::DeleteCollectionSoft,
+                         collection,
+                         itr->second->getRevision());
         itr->second->resetEndSeqno();
     }
 }
@@ -314,12 +321,22 @@ std::string Collections::VB::Manifest::serialToJson(
                     reinterpret_cast<const SerialisedManifestEntry*>(serial);
             json += sme->toJson();
             serial = sme->nextEntry();
-            json += ",";
+
+            if (ii < sMan->getEntryCount() - 1) {
+                json += ",";
+            }
         }
+        const auto* sme =
+                reinterpret_cast<const SerialisedManifestEntry*>(serial);
+        if (se != SystemEvent::DeleteCollectionHard) {
+            json += "," + sme->toJson(se, finalEntrySeqno);
+        }
+    } else {
+        const auto* sme =
+                reinterpret_cast<const SerialisedManifestEntry*>(serial);
+        json += sme->toJson(se, finalEntrySeqno);
     }
 
-    const auto* sme = reinterpret_cast<const SerialisedManifestEntry*>(serial);
-    json += sme->toJson(se, finalEntrySeqno);
     json += "]}";
     return json;
 }

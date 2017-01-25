@@ -361,15 +361,12 @@ TEST_F(VBucketManifestTest, add_beginDelete_delete) {
             makeStoredDocKey("vegetable::carrot", DocNamespace::Collections)));
 
     // finally remove vegetable
-    vbm.completeDeletion("vegetable");
+    vbm.completeDeletion(vbucket, "vegetable", 1);
     EXPECT_EQ(1, vbm.size());
     EXPECT_FALSE(vbm.doesKeyContainValidCollection(
             makeStoredDocKey("vegetable::carrot", DocNamespace::Collections)));
 
-    // Note: at this patch level expect this to fail as completeDeletion is not
-    // operating against the vbucket and thus the JSON we generate will be
-    // missing the completeDeletion action.
-    EXPECT_FALSE(checkJson());
+    EXPECT_TRUE(checkJson());
 }
 
 TEST_F(VBucketManifestTest, add_beginDelete_add_delete) {
@@ -401,7 +398,7 @@ TEST_F(VBucketManifestTest, add_beginDelete_add_delete) {
             makeStoredDocKey("vegetable::carrot", DocNamespace::Collections)));
 
     // finally remove vegetable
-    vbm.completeDeletion("vegetable");
+    vbm.completeDeletion(vbucket, "vegetable", 3);
     EXPECT_EQ(2, vbm.size());
 
     // No longer OpenAndDeleting, now ExclusiveOpen
@@ -410,8 +407,5 @@ TEST_F(VBucketManifestTest, add_beginDelete_add_delete) {
     EXPECT_TRUE(vbm.doesKeyContainValidCollection(
             makeStoredDocKey("vegetable::carrot", DocNamespace::Collections)));
 
-    // Note: at this patch level expect this to fail as completeDeletion is not
-    // operating against the vbucket and thus the JSON we generate will be
-    // missing the completeDeletion action.
-    EXPECT_FALSE(checkJson());
+    EXPECT_TRUE(checkJson());
 }
