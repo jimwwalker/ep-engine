@@ -949,6 +949,18 @@ public:
 
     virtual void destroyScanContext(ScanContext* ctx) = 0;
 
+    void setCollectionsManifestItem(const queued_item& manifestValue) {
+        collectionsManifestItem = manifestValue;
+    }
+
+    /**
+     * KVStore must implement this method which should perform a full write
+     * of the collections manifest, firstly by converting the Item value to
+     * JSON and then writing it the JSON data.
+     */
+    virtual bool persistCollectionsManifestItem(uint16_t vbid,
+                                                const Item* manifestItem) = 0;
+
 protected:
 
     /* all stats */
@@ -978,6 +990,12 @@ protected:
      * @return true if the cached vbucket state is updated
      */
     bool updateCachedVBState(uint16_t vbid, const vbucket_state& vbState);
+
+    /**
+     * A queued_item which will point to a real item if there's a collection's
+     * manifest to perist in a flush of a VB.
+     */
+    queued_item collectionsManifestItem;
 };
 
 /**

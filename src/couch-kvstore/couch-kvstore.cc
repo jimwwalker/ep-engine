@@ -1922,6 +1922,11 @@ couchstore_error_t CouchKVStore::saveDocs(uint16_t vbid, uint64_t rev,
             return errCode;
         }
 
+        if (collectionsManifestItem) {
+            saveCollectionsManifest(db, collectionsManifestItem.get());
+            collectionsManifestItem.reset();
+        }
+
         cs_begin = gethrtime();
         errCode = couchstore_commit(db);
         st.commitHisto.add((gethrtime() - cs_begin) / 1000);
@@ -2172,6 +2177,36 @@ couchstore_error_t CouchKVStore::saveVBState(Db *db,
                    "error:%s [%s]", couchstore_strerror(errCode),
                    couchkvstore_strerrno(db, errCode).c_str());
     }
+
+    return errCode;
+}
+
+couchstore_error_t CouchKVStore::saveCollectionsManifest(Db* db,
+                                                         const Item* item) {
+    LocalDoc lDoc;
+    lDoc.id.buf = (char*)Collections::CouchstoreManifest;
+    lDoc.id.size = sizeof(Collections::CouchstoreManifest) - 1;
+
+    // Convert the Item value into JSON
+    cb::const_char_buffer buffer(item->getData(), item->getNBytes());
+    std::string state = Collections::VB::Manifest::serialToJson(
+            SystemEvent(item->getFlags()), buffer, item->getBySeqno());
+
+    lDoc.json.buf = (char*)state.c_str();
+    lDoc.json.size = state.size();
+    lDoc.deleted = 0;
+
+    couchstore_error_t errCode = couchstore_save_local_document(db, &lDoc);
+
+    if (errCode != COUCHSTORE_SUCCESS) {
+        logger.log(EXTENSION_LOG_WARNING,
+                   "CouchKVStore::saveCollectionsManifest "
+                   "couchstore_save_local_document "
+                   "error:%s [%s]",
+                   couchstore_strerror(errCode),
+                   couchkvstore_strerrno(db, errCode).c_str());
+    }
+
     return errCode;
 }
 
@@ -2613,6 +2648,32 @@ void CouchKVStore::removeCompactFile(const std::string &filename) {
             }
         }
     }
+}
+
+bool CouchKVStore::persistCollectionsManifestItem(uint16_t vbid,
+                                                  const Item* manifestItem) {
+    DbHolder db(this);
+
+    // openDB logs error details
+    couchstore_error_t errCode =
+            openDB(vbid, 0, db.getDbAddress(), COUCHSTORE_OPEN_FLAG_CREATE);
+    if (errCode != COUCHSTORE_SUCCESS) {
+        return false;
+    }
+
+    // saveCollecionsManifest logs error details
+    errCode = saveCollectionsManifest(db.getDb(), manifestItem);
+    if (errCode != COUCHSTORE_SUCCESS) {
+        return false;
+    }
+
+    // commit logs error details
+    errCode = couchstore_commit(db.getDb());
+    if (errCode != COUCHSTORE_SUCCESS) {
+        return false;
+    }
+
+    return true;
 }
 
 /* end of couch-kvstore.cc */

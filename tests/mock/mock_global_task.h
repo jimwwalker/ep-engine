@@ -17,19 +17,25 @@
 
 #pragma once
 
-namespace Collections {
+#include "globaltask.h"
 
-// The reserved name of the system owned, default collection.
-const char* const DefaultCollectionIdentifier = "$default";
+#include <string>
 
-// The default separator we will use for identifying collections in keys.
-const char* const DefaultSeparator = "::";
+/**
+ * Mock Task class. Doesn't actually run() or snooze() - they both do nothing.
+ */
+class MockGlobalTask : public GlobalTask {
+public:
+    MockGlobalTask(Taskable& t, TaskId id) : GlobalTask(t, id) {
+    }
 
-// SystemEvent keys
-const char* const CreateEventKey = "$collections::create:";
-const char* const DeleteEventKey = "$collections::delete:";
+    bool run() override {
+        return false;
+    }
+    std::string getDescription() override {
+        return "MockGlobalTask";
+    }
 
-// Couchstore private file name for manifest data
-const char* const CouchstoreManifest = "_local/collections_manifest";
-
-} // end namespace Collections
+    void snooze(const double secs) override {
+    }
+};

@@ -17,6 +17,7 @@
 
 #include "systemevent.h"
 #include "collections/collections_types.h"
+#include "kvstore.h"
 
 std::unique_ptr<Item> SystemEventFactory::make(SystemEvent se,
                                                const std::string& keyExtra,
@@ -63,4 +64,59 @@ std::unique_ptr<Item> SystemEventFactory::make(SystemEvent se,
     item->setOperation(queue_op::system_event);
 
     return item;
+}
+
+SystemEventFlushStatus SystemEventFlush::process(const queued_item& item) {
+    if (item->getOperation() != queue_op::system_event) {
+        return SystemEventFlushStatus::Continue;
+    }
+
+    switch (SystemEvent(item->getFlags())) {
+    case SystemEvent::CreateCollection: {
+        // CreateCollection will update the manifest and leave an SystemEvent
+        // document in the vbucket data store
+        maybeUpdateKVStoreCollectionsManifest(item);
+
+        // flip this Item so that the flusher performs a set
+        item->setOperation(queue_op::set);
+        return SystemEventFlushStatus::Continue;
+    }
+    case SystemEvent::BeginDeleteCollection: {
+        maybeUpdateKVStoreCollectionsManifest(item);
+
+        item->setOperation(queue_op::del);
+        return SystemEventFlushStatus::Continue;
+    }
+    case SystemEvent::DeleteCollectionHard:
+    case SystemEvent::DeleteCollectionSoft: {
+        maybeUpdateKVStoreCollectionsManifest(item);
+        return SystemEventFlushStatus::Skip;
+    }
+    }
+}
+
+void SystemEventFlush::commitIfNeeded(int itemsFlushed) {
+    if (collectionManifestItem) {
+        if (itemsFlushed == 0) {
+            if (!kvstore.persistCollectionsManifestItem(
+                        vbid, collectionManifestItem.get())) {
+                LOG(EXTENSION_LOG_WARNING,
+                    "SystemEventFlush::commitIfNeeded: failed to persist "
+                    "manifest");
+            }
+        } else {
+            kvstore.setCollectionsManifestItem(collectionManifestItem);
+        }
+    }
+}
+
+void SystemEventFlush::maybeUpdateKVStoreCollectionsManifest(
+        const queued_item& item) {
+    // For a given checkpoint only the highest system event should be the
+    // one which writes the manifest
+    if ((collectionManifestItem &&
+         item->getBySeqno() > collectionManifestItem->getBySeqno()) ||
+        !collectionManifestItem) {
+        collectionManifestItem = item;
+    }
 }

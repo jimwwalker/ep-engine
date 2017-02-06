@@ -26,9 +26,9 @@
 
 #include "evp_store_test.h"
 
+#include "../mock/mock_dcp_producer.h"
 #include "bgfetcher.h"
 #include "checkpoint.h"
-#include "../mock/mock_dcp_producer.h"
 #include "checkpoint_remover.h"
 #include "dcp/dcpconnmap.h"
 #include "dcp/flow-control-manager.h"
@@ -38,6 +38,7 @@
 #include "replicationthrottle.h"
 #include "tapconnmap.h"
 #include "tasks.h"
+#include "tests/mock/mock_global_task.h"
 #include "vbucketmemorydeletiontask.h"
 
 #include "programs/engine_testapp/mock_server.h"
@@ -102,19 +103,6 @@ VBucketMap& MockEPStore::getVbMap() {
     return vbMap;
 }
 
-/* Mock Task class. Doesn't actually run() or snooze() - they both do nothing.
- */
-class MockGlobalTask : public GlobalTask {
-public:
-    MockGlobalTask(Taskable& t, TaskId id)
-        : GlobalTask(t, id) {}
-
-    bool run() override { return false; }
-    std::string getDescription() override { return "MockGlobalTask"; }
-
-    void snooze(const double secs) override {}
-};
-
 void EPBucketTest::SetUp() {
     // Paranoia - kill any existing files in case they are left over
     // from a previous run.
@@ -173,14 +161,15 @@ Item EPBucketTest::store_item(uint16_t vbid,
                               const StoredDocKey& key,
                               const std::string& value,
                               uint32_t exptime,
+                              cb::engine_errc expected,
                               protocol_binary_datatype_t datatype) {
     auto item = make_item(vbid, key, value, exptime, datatype);
-    EXPECT_EQ(ENGINE_SUCCESS, store->set(item, nullptr));
+    EXPECT_EQ(ENGINE_ERROR_CODE(expected), store->set(item, nullptr));
 
     return item;
 }
 
-void EPBucketTest::flush_vbucket_to_disk(uint16_t vbid) {
+void EPBucketTest::flush_vbucket_to_disk(uint16_t vbid, int expected) {
     int result;
     const auto time_limit = std::chrono::seconds(10);
     const auto deadline = std::chrono::steady_clock::now() + time_limit;
@@ -200,7 +189,8 @@ void EPBucketTest::flush_vbucket_to_disk(uint16_t vbid) {
         << "Hit timeout (" << time_limit.count() << " seconds) waiting for "
            "warmup to complete while flushing VBucket.";
 
-    ASSERT_EQ(1, result) << "Failed to flush the one item we have stored.";
+    ASSERT_EQ(expected, result)
+            << "Failed to flush the expected item(s) we have stored.";
 
     /**
      * Although a flushVBucket writes the item to the underlying store,

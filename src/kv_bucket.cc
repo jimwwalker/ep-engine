@@ -633,6 +633,8 @@ ENGINE_ERROR_CODE KVBucket::set(Item &itm, const void *cookie) {
         LOG(EXTENSION_LOG_DEBUG, "(vb %u) Returned TMPFAIL to a set op"
                 ", becuase takeover is lagging", vb->getId());
         return ENGINE_TMPFAIL;
+    } else if (!vb->isCollectionValid(itm.getKey())) {
+        return ENGINE_UNKNOWN_COLLECTION;
     }
 
     return vb->set(itm, cookie, engine, bgFetchDelay);
@@ -1216,6 +1218,8 @@ GetValue KVBucket::getInternal(const DocKey& key, uint16_t vbucket,
     if (!vb) {
         ++stats.numNotMyVBuckets;
         return GetValue(NULL, ENGINE_NOT_MY_VBUCKET);
+    } else if (!vb->isCollectionValid(key)) {
+        return GetValue(NULL, ENGINE_UNKNOWN_COLLECTION);
     }
 
     const bool honorStates = (options & HONOR_STATES);
@@ -1991,14 +1995,26 @@ int KVBucket::flushVBucket(uint16_t vbid) {
             Item *prev = NULL;
             auto vbstate = vb->getVBucketState();
             uint64_t maxSeqno = 0;
+
             range.start = std::max(range.start, vbstate.lastSnapStart);
 
             bool mustCheckpointVBState = false;
             std::list<PersistenceCallback*>& pcbs = rwUnderlying->getPersistenceCbList();
 
+            SystemEventFlush sef(*rwUnderlying, vb->getId());
+
             for (const auto& item : items) {
 
                 if (!item->shouldPersist()) {
+                    continue;
+                }
+
+                if (sef.process(item) == SystemEventFlushStatus::Skip) {
+                    // The item has no further flushing actions i.e. we've
+                    // absorbed it in the process function.
+                    // Update stats and carry-on
+                    --stats.diskQueueSize;
+                    vb->doStatsForFlushing(*item, item->size());
                     continue;
                 }
 
@@ -2078,6 +2094,8 @@ int KVBucket::flushVBucket(uint16_t vbid) {
                     LOG(EXTENSION_LOG_INFO, "VBucket %" PRIu16 " created", vbid);
                 }
             }
+
+            sef.commitIfNeeded(items_flushed);
 
             /* Perform an explicit commit to disk if the commit
              * interval reaches zero and if there is a non-zero number

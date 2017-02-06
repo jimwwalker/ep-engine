@@ -62,3 +62,47 @@ public:
                                       const std::string& keyExtra,
                                       size_t itemSize);
 };
+
+class KVStore;
+
+enum class SystemEventFlushStatus { Skip, Continue };
+
+/**
+ * SystemEventFlush holds all SystemEvent data for a single invocation of a
+ * vbucket's flush
+ * If the flush encountered no SystemEvents then this class does nothing
+ * If the flush has SystemEvents then this class will ensure the correct
+ * actions occur.
+ */
+class SystemEventFlush {
+public:
+    SystemEventFlush(KVStore& kvs, uint16_t vb) : vbid(vb), kvstore(kvs) {
+    }
+
+    /**
+     * The flusher calls this after all items have been flushed, passing
+     * how many items were flushed.
+     *
+     * if 0 items were flushed, then this function may need to request a full
+     * update of meta-data documents.
+     */
+    void commitIfNeeded(int itemsFlushed);
+
+    /**
+     * The flusher passes each item into this function and process determines
+     * what needs to happen (possibly updating the Item)
+     *
+     * @param item an item from the flushers items to flush.
+     * @returns Skip if the flusher should not continue with the item or
+     *          Continue if the flusher can continue the rest of the flushing
+     *          function against the item.
+     */
+    SystemEventFlushStatus process(const queued_item& item);
+
+private:
+    void maybeUpdateKVStoreCollectionsManifest(const queued_item& item);
+
+    uint16_t vbid;
+    KVStore& kvstore;
+    queued_item collectionManifestItem;
+};

@@ -22,6 +22,7 @@
 
 #include "bloomfilter.h"
 #include "checkpoint.h"
+#include "collections/vbucket_manifest.h"
 #include "conflict_resolution.h"
 #include "ep_types.h"
 #include "failover-table.h"
@@ -478,6 +479,24 @@ public:
 
     // Set the persistence checkpoint ID to the given value.
     void setPersistenceCheckpointId(uint64_t checkpointId);
+
+    /**
+     * @returns true if the DocKey contains a valid collection for the VBucket
+     */
+    bool isCollectionValid(const DocKey& key) {
+        return manifest.doesKeyContainValidCollection(key);
+    }
+
+    /**
+     * Update the Collections::VB::Manifest and the VBucket.
+     * Adds SystemEvents for the create and delete of collections into the
+     * checkpoint.
+     *
+     * @param m A Collections::Manifest to apply to the VB::Manifest
+     */
+    void updateFromManifest(const Collections::Manifest& m) {
+        manifest.update(*this, m);
+    }
 
     static const vbucket_state_t ACTIVE;
     static const vbucket_state_t REPLICA;
@@ -1168,6 +1187,9 @@ private:
     const item_eviction_policy_t eviction;
 
     const bool multiBGFetchEnabled;
+
+    /// The VBucket collection state
+    Collections::VB::Manifest manifest;
 
     static std::atomic<size_t> chkFlushTimeout;
 
