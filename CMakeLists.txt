@@ -20,6 +20,7 @@ INCLUDE_DIRECTORIES(BEFORE ${CMAKE_INSTALL_PREFIX}/include
                            ${CMAKE_CURRENT_SOURCE_DIR}/src
                            ${CMAKE_CURRENT_BINARY_DIR}/src
                            ${SNAPPY_INCLUDE_DIR}
+                           ${BOOST_INCLUDE_DIR}
                            ${Platform_SOURCE_DIR}/include
                            ${Platform_SOURCE_DIR}/external
                            ${Memcached_SOURCE_DIR}
@@ -223,6 +224,7 @@ ADD_EXECUTABLE(ep-engine_ep_unit_tests
                tests/module_tests/bloomfilter_test.cc
                tests/module_tests/checkpoint_test.cc
                tests/module_tests/collections/collection_dockey_test.cc
+               tests/module_tests/collections/evp_store_collections_test.cc
                tests/module_tests/collections/manifest_test.cc
                tests/module_tests/collections/vbucket_manifest_test.cc
                tests/module_tests/collections/vbucket_manifest_entry_test.cc

@@ -21,6 +21,8 @@
 
 #include "item.h"
 
+class KVStore;
+
 /// underlying size of uint32_t as this is to be stored in the Item flags field.
 enum class SystemEvent : uint32_t {
     /**
@@ -95,4 +97,65 @@ public:
     static std::unique_ptr<Item> make(SystemEvent se,
                                       const std::string& keyExtra,
                                       size_t itemSize);
+};
+
+enum class SystemEventFlushStatus { Skip, Continue };
+
+/**
+ * SystemEventFlush holds all SystemEvent data for a single invocation of a
+ * vbucket's flush
+ * If the flush encountered no SystemEvents then this class does nothing
+ * If the flush has SystemEvents then this class will ensure the correct
+ * actions occur.
+ */
+class SystemEventFlush {
+public:
+    /**
+     * Get the Item which is updating the collections manifest (if any)
+     *
+     * @return nullptr if no manifest exists or the Item to be used in writing
+     *         a manifest.
+     */
+    const Item* getCollectionsManifestItem() const;
+
+    /**
+     * The flusher passes each item into this function and process determines
+     * what needs to happen (possibly updating the Item).
+     *
+     * This function /may/ take a reference to the ref-counted Item if the Item
+     * is required for a collections manifest update.
+     *
+     * Warning: Even though the input is a const queued_item, the Item* is not
+     * const. This function may call setOperation on the shared item
+     *
+     * @param item an item from the flushers items to flush.
+     * @returns Skip if the flusher should not continue with the item or
+     *          Continue if the flusher can continue the rest of the flushing
+     *          function against the item.
+     */
+    SystemEventFlushStatus process(const queued_item& item);
+
+    /**
+     * Determine the flushing action of the Item, knows about normal set/del
+     * and how to flush SystemEvent Items
+     *
+     * @param item An Item to determine if it should result in an upsert.
+     * @returns true if the Item is an upsert (add or update) of the Item
+     */
+    static bool isUpsert(const Item& item);
+
+private:
+    /**
+     * Save the item as the item which contains the manifest which will be
+     * used in the flush's update of the vbucket's metadata documents.
+     * The function will only set the them if it has a seqno higher than any
+     * previously saved item.
+     */
+    void saveCollectionsManifestItem(const queued_item& item);
+
+    /**
+     * Shared pointer to an Item which holds collections manifest data that
+     * maybe needed by the flush::commit
+     */
+    queued_item collectionManifestItem;
 };
