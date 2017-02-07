@@ -794,7 +794,8 @@ ENGINE_ERROR_CODE KVBucket::setVBucketState_UNLOCKED(uint16_t vbid,
                             to,
                             shard,
                             std::move(ft),
-                            std::make_unique<NotifyNewSeqnoCB>(*this));
+                            std::make_unique<NotifyNewSeqnoCB>(*this),
+                            {/*no collections*/});
 
         Configuration& config = engine.getConfiguration();
         if (config.isBfilterEnabled()) {

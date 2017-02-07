@@ -32,7 +32,8 @@ EphemeralVBucket::EphemeralVBucket(
         item_eviction_policy_t evictionPolicy,
         vbucket_state_t initState,
         uint64_t purgeSeqno,
-        uint64_t maxCas)
+        uint64_t maxCas,
+        const std::string& collectionsManifest)
     : VBucket(i,
               newState,
               st,
@@ -48,4 +49,5 @@ EphemeralVBucket::EphemeralVBucket(
               evictionPolicy,
               initState,
               purgeSeqno,
-              maxCas) {}
+              maxCas,
+              collectionsManifest) {}

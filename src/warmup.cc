@@ -224,6 +224,12 @@ std::ostream& operator <<(std::ostream &out, const WarmupState &state)
 void LoadStorageKVPairCallback::callback(GetValue &val) {
     // This callback method is responsible for deleting the Item
     std::unique_ptr<Item> i(val.getValue());
+
+    // Don't attempt to load the system event documents.
+    if (i->getKey().getDocNamespace() == DocNamespace::System) {
+        return;
+    }
+
     bool stopLoading = false;
     if (i != NULL && !epstore.getWarmup()->isComplete()) {
         RCPtr<VBucket> vb = vbuckets.getBucket(i->getVBucketId());
@@ -519,7 +525,8 @@ void Warmup::createVBuckets(uint16_t shardId) {
                                    vbs.lastSnapStart,
                                    vbs.lastSnapEnd,
                                    vbs.purgeSeqno,
-                                   vbs.maxCas);
+                                   vbs.maxCas,
+                                   config.isCollectionsCreatedOnWarmup() ? store.getROUnderlyingByShard(shardId)->getCollectionsManifest(vbid) : "");
 
             if(vbs.state == vbucket_state_active && !cleanShutdown) {
                 if (static_cast<uint64_t>(vbs.highSeqno) == vbs.lastSnapEnd) {

@@ -34,7 +34,8 @@ RCPtr<VBucket> EphemeralBucket::makeVBucket(
         uint64_t lastSnapStart,
         uint64_t lastSnapEnd,
         uint64_t purgeSeqno,
-        uint64_t maxCas) {
+        uint64_t maxCas,
+        const std::string& collectionsManifest) {
     return RCPtr<VBucket>(new EphemeralVBucket(id,
                                                state,
                                                stats,
@@ -49,5 +50,6 @@ RCPtr<VBucket> EphemeralBucket::makeVBucket(
                                                eviction_policy,
                                                initState,
                                                purgeSeqno,
-                                               maxCas));
+                                               maxCas,
+                                               collectionsManifest));
 }

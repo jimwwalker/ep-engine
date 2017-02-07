@@ -257,7 +257,9 @@ RCPtr<VBucket> EPBucket::makeVBucket(
         uint64_t lastSnapStart,
         uint64_t lastSnapEnd,
         uint64_t purgeSeqno,
-        uint64_t maxCas) {
+        uint64_t maxCas,
+        const std::string& collectionsManifest) {
+    printf("makeVB %s\n", collectionsManifest.c_str());
     auto flusherCb = std::make_shared<NotifyFlusherCB>(shard);
     return RCPtr<VBucket>(new VBucket(id,
                                       state,
@@ -274,5 +276,6 @@ RCPtr<VBucket> EPBucket::makeVBucket(
                                       eviction_policy,
                                       initState,
                                       purgeSeqno,
-                                      maxCas));
+                                      maxCas,
+                                      collectionsManifest));
 }

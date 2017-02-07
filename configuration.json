@@ -126,6 +126,11 @@
                         ]
             }
         },
+        "collections_created_on_warmup": {
+            "default": "false",
+            "desr": "Should we create collections when warming up? This triggers reads of _local manifest",
+            "type": "bool"
+        },
         "compaction_exp_mem_threshold": {
             "default": "85",
             "desr": "Memory usage threshold after which compaction will not queue expired items for deletion",

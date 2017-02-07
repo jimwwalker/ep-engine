@@ -428,6 +428,8 @@ public:
     bool persistCollectionsManifestItem(uint16_t vbid,
                                         const Item* manifestItem) override;
 
+    std::string getCollectionsManifest(uint16_t vbid) override;
+
 protected:
     /*
      * Returns the DbInfo for the given vbucket database.
@@ -476,7 +478,8 @@ protected:
      * @param db Handle to the open data store.
      * @param item A SystemEvent which can generate the JSON data to write.
      */
-    couchstore_error_t saveCollectionsManifest(Db* db, const Item* item);
+    couchstore_error_t saveCollectionsManifest(Db *db, const Item* item);
+    std::string readCollectionsManifest(Db *db);
 
     void setDocsCommitted(uint16_t docs);
     void closeDatabaseHandle(Db *db);

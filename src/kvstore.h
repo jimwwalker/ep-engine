@@ -961,6 +961,8 @@ public:
     virtual bool persistCollectionsManifestItem(uint16_t vbid,
                                                 const Item* manifestItem) = 0;
 
+    virtual std::string getCollectionsManifest(uint16_t vbid) = 0;
+
 protected:
 
     /* all stats */
