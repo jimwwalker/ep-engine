@@ -486,6 +486,12 @@ protected:
 
     ENGINE_ERROR_CODE processDeletion(MutationResponse* deletion);
 
+    ENGINE_ERROR_CODE processSystemEvent(const SystemEventMessage& event);
+
+    ENGINE_ERROR_CODE processCreateCollection(VBucket& vb, const CollectionsEvent& event);
+
+    ENGINE_ERROR_CODE processBeginDeleteCollection(VBucket& vb, const CollectionsEvent& event);
+
     void handleSnapshotEnd(RCPtr<VBucket>& vb, uint64_t byseqno);
 
     void processMarker(SnapshotMarker* marker);

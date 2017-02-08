@@ -211,3 +211,38 @@ TEST_F(CollectionsTest, warmup) {
                   engine2->store(NULL, &item, &cas, OPERATION_SET));
     }
 }
+
+#include "tests/mock/mock_dcp_consumer.h"
+TEST_F(CollectionsTest, test_dcp_consumer) {
+    const void* cookie = create_mock_cookie();
+    uint16_t vbid = 0;
+
+    /* Create a Mock Dcp consumer. Since child class subobj of MockDcpConsumer
+       obj are accounted for by SingleThreadedRCPtr, use the same here */
+    auto* consumer = new MockDcpConsumer(*engine, cookie, "test_consumer");
+
+    store->setVBucketState(vbid, vbucket_state_replica, false);
+    ASSERT_EQ(ENGINE_SUCCESS, consumer->addStream(/*opaque*/0, vbid,
+                                                  /*flags*/0));
+    std::string collection = "meat";
+
+    uint32_t revision = 4;
+    consumer->snapshotMarker(/*opaque*/1,
+                             /*vbucket*/0,
+                             /*start_seqno*/0,
+                             /*end_seqno*/100,
+                             /*flags*/0);
+    RCPtr<VBucket> vb = store->getVBucket(vbid);
+
+    EXPECT_FALSE(vb->isCollectionValid({"meat::beer", DocNamespace::Collections}));
+    consumer->systemEvent(1, vbid, uint32_t(SystemEvent::CreateCollection), 1, {(uint8_t*)collection.data(), collection.size()}, {(const uint8_t*)&revision, sizeof(uint32_t)});
+
+    EXPECT_TRUE(vb->isCollectionValid({"meat::beer", DocNamespace::Collections}));
+
+    consumer->systemEvent(1, vbid, uint32_t(SystemEvent::BeginDeleteCollection), 2, {(uint8_t*)collection.data(), collection.size()}, {(const uint8_t*)&revision, sizeof(uint32_t)});
+
+    EXPECT_FALSE(vb->isCollectionValid({"meat::beer", DocNamespace::Collections}));
+
+    destroy_mock_cookie(cookie);
+    consumer->cancelTask();
+}

@@ -499,6 +499,14 @@ public:
         manifest.update(*this, m);
     }
 
+    void replicaAddCollection(cb::const_char_buffer collection, uint32_t revision, int64_t bySeqno) {
+        manifest.replicaAdd(*this, collection, revision, bySeqno);
+    }
+
+    void replicaBeginDeleteCollection(cb::const_char_buffer collection, uint32_t revision, int64_t bySeqno) {
+        manifest.replicaBeginDelete(*this, collection, revision, bySeqno);
+    }
+
     static const vbucket_state_t ACTIVE;
     static const vbucket_state_t REPLICA;
     static const vbucket_state_t PENDING;
@@ -827,10 +835,12 @@ public:
     /**
      * Queue an Item to the checkpoint and return its seqno
      *
-     * @param an Item object to queue, can be any kind of item and will be given
-     *        a CAS and seqno by this function.
+     * @param item an Item object to queue, can be any kind of item and will be
+     *        given a CAS and seqno by this function.
+     * @param seqno An optional sequence number, if not specified checkpoint
+     *        queueing will assign a seqno to the Item.
      */
-    int64_t queueItem(Item* item);
+    int64_t queueItem(Item* item, OptionalSeqno seqno);
 
     /**
      * Insert an item into the VBucket during warmup. If we're trying to insert

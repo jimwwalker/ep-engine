@@ -43,8 +43,12 @@ namespace VB {
  * SerialisedManifest just stores the entry count and can return a pointer
  * to the buffer where entries can be written.
  */
+class SerialisedManifestEntry;
 class SerialisedManifest {
 public:
+  SerialisedManifest() : itemCount(0), finalEntryOffset(0) {
+
+  }
     static size_t getObjectSize() {
         return sizeof(SerialisedManifest);
     }
@@ -55,6 +59,10 @@ public:
 
     uint32_t getEntryCount() const {
         return itemCount;
+    }
+
+    void setFinalEntry(const SerialisedManifestEntry* sme) {
+        finalEntryOffset = reinterpret_cast<const char*>(sme) - getManifestEntryBuffer();
     }
 
     /**
@@ -71,8 +79,20 @@ public:
         return reinterpret_cast<const char*>(this + 1);
     }
 
+    /**
+     * Return the final entry in the SerialManifest - this entry is always the
+     * entry which is being created or deleted. DCP event generation can use
+     * this method to obtain the data neeeded to send to replicas.
+     *
+     * @return The entry which is being added or removed.
+     */
+    const SerialisedManifestEntry* getFinalManifestEntry() const {
+        return reinterpret_cast<const SerialisedManifestEntry*>(getManifestEntryBuffer() + finalEntryOffset);
+    }
+
 private:
     uint32_t itemCount;
+    size_t finalEntryOffset;
 };
 
 class SerialisedManifestEntry {
@@ -86,8 +106,16 @@ public:
         return getObjectSize(getCollectionNameLen());
     }
 
+    uint32_t getRevision() const {
+        return revision;
+    }
+
     void setRevision(uint32_t rev) {
         revision = rev;
+    }
+
+    const char* getCollectionName() const {
+        return collectionName;
     }
 
     size_t getCollectionNameLen() const {
@@ -136,7 +164,7 @@ private:
 
     static SerialisedManifestEntry* make(char* address,
                                          int32_t revision,
-                                         const std::string& collection,
+                                         cb::const_char_buffer collection,
                                          cb::char_buffer out) {
         return new (address) SerialisedManifestEntry(revision, collection, out);
     }
@@ -151,7 +179,7 @@ private:
     }
 
     SerialisedManifestEntry(int revision,
-                            const std::string& collection,
+                            cb::const_char_buffer collection,
                             cb::char_buffer out) {
         tryConstruction(out,
                         revision,
@@ -175,7 +203,7 @@ private:
                          uint32_t revision,
                          int64_t startSeqno,
                          int64_t endSeqno,
-                         const std::string collection) {
+                         cb::const_char_buffer collection) {
         if (!((out.data() + out.size()) >=
               (reinterpret_cast<char*>(this) +
                getObjectSize(collection.size())))) {
@@ -199,6 +227,7 @@ private:
      *
      * @param _startSeqno The startSeqno value to be used
      * @param _endSeqno The endSeqno value to be used
+     * @return A std::string JSON object for this object.
      */
     std::string toJson(int64_t _startSeqno, int64_t _endSeqno) const {
         std::string json =

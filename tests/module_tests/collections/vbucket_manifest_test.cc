@@ -93,6 +93,10 @@ public:
 
     bool operator==(const MockVBManifest& rhs) const {
         std::lock_guard<ReaderLock> readLock(lock.reader());
+        if (rhs.size() != size()) {
+            return false;
+        }
+        // Check all collections match
         for (const auto& e : map) {
             if (!rhs.compareEntry(*e.second)) {
                 return false;
@@ -103,6 +107,16 @@ public:
 
     bool operator!=(const MockVBManifest& rhs) const {
         return !(*this == rhs);
+    }
+
+    void replicaCopyAll(VBucket& vb, MockVBManifest& dest) {
+        std::lock_guard<ReaderLock> readLock(lock.reader());
+        for (const auto& e : map) {
+            // Only copy non-default collections
+            if (!std::equal(e.second->getCollectionName().begin(), e.second->getCollectionName().end(), Collections::DefaultCollectionIdentifier)) {
+                dest.replicaAdd(vb, e.second->getCollectionName(), e.second->getRevision(), e.second->getStartSeqno());
+            }
+        }
     }
 
 protected:
@@ -180,6 +194,40 @@ public:
         cb::const_char_buffer buffer(event->getData(), event->getNBytes());
         return Collections::VB::Manifest::serialToJson(
                 SystemEvent(event->getFlags()), buffer, event->getBySeqno());
+    }
+
+    void applyCheckpointEventsAsReplica(VBucket& replicaVB, MockVBManifest& replicaManifest) {
+        std::vector<queued_item> items;
+        vbucket.checkpointManager.getAllItemsForCursor(
+                CheckpointManager::pCursorName, items);
+        std::vector<queued_item> events;
+        for (const auto& qi : items) {
+
+
+
+            if (qi->getOperation() == queue_op::system_event) {
+                auto dcpData = Collections::VB::Manifest::getSystemEventData({qi->getData(), qi->getNBytes()});
+
+                switch (SystemEvent(qi->getFlags())) {
+                case SystemEvent::CreateCollection: {
+
+                    replicaManifest.replicaAdd(replicaVB, dcpData.first, dcpData.second, qi->getBySeqno());
+                    break;
+                }
+                case SystemEvent::BeginDeleteCollection: {
+                    replicaManifest.replicaBeginDelete(replicaVB, dcpData.first, dcpData.second, qi->getBySeqno());
+                    break;
+                }
+                case SystemEvent::DeleteCollectionSoft: {
+
+                }
+                case SystemEvent::DeleteCollectionHard: {
+
+
+                }
+            }
+            }
+        }
     }
 
     /**
@@ -410,4 +458,66 @@ TEST_F(VBucketManifestTest, add_beginDelete_add_delete) {
     EXPECT_TRUE(checkJson());
 
     Collections::VB::Manifest g("");
+}
+
+TEST_F(VBucketManifestTest, replica_add_remove) {
+    // add vegetable
+    vbm.update(
+            vbucket,
+            {R"({"revision":1,"separator":"::","collections":)"
+             R"(["$default","vegetable"]})"});
+
+    VBucket replica(1,
+                  vbucket_state_replica,
+                  global_stats,
+                  checkpoint_config,
+                  /*kvshard*/ nullptr,
+                  /*lastSeqno*/ 0,
+                  /*lastSnapStart*/ 0,
+                  /*lastSnapEnd*/ 100,
+                  /*table*/ nullptr,
+                  std::make_shared<DummyCB>(),
+                  /*newSeqnoCb*/ nullptr,
+                  config,
+                  VALUE_ONLY);
+
+    MockVBManifest replicaManifest;
+    applyCheckpointEventsAsReplica(replica, replicaManifest);
+    EXPECT_EQ(vbm, replicaManifest);
+
+    // add meat & dairy
+    vbm.update(
+            vbucket,
+            {R"({"revision":2,"separator":"::","collections":)"
+             R"(["$default","vegetable","meat","dairy"]})"});
+
+    applyCheckpointEventsAsReplica(replica, replicaManifest);
+    EXPECT_EQ(vbm, replicaManifest);
+
+    // remove vegetable
+    vbm.update(
+            vbucket,
+            {R"({"revision":3,"separator":"::","collections":)"
+             R"(["$default","meat","dairy"]})"});
+
+    applyCheckpointEventsAsReplica(replica, replicaManifest);
+    EXPECT_EQ(vbm, replicaManifest);
+
+    // remove $default
+    vbm.update(
+            vbucket,
+            {R"({"revision":4,"separator":"::","collections":)"
+             R"(["meat","dairy"]})"});
+
+    applyCheckpointEventsAsReplica(replica, replicaManifest);
+    EXPECT_EQ(vbm, replicaManifest);
+
+    EXPECT_FALSE(replicaManifest.doesKeyContainValidCollection(
+            makeStoredDocKey("vegetable::carrot", DocNamespace::Collections)));
+    EXPECT_FALSE(replicaManifest.doesKeyContainValidCollection(
+            makeStoredDocKey("anykey", DocNamespace::DefaultCollection)));
+    EXPECT_TRUE(replicaManifest.doesKeyContainValidCollection(
+            makeStoredDocKey("meat::sausage", DocNamespace::Collections)));
+    EXPECT_TRUE(replicaManifest.doesKeyContainValidCollection(
+            makeStoredDocKey("dairy::butter", DocNamespace::Collections)));
 }

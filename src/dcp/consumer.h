@@ -102,6 +102,8 @@ public:
 
     ENGINE_ERROR_CODE handleResponse(protocol_binary_response_header *resp) override;
 
+    ENGINE_ERROR_CODE systemEvent(uint32_t opaque, uint16_t vbucket, uint32_t event, uint64_t bySeqno, cb::const_byte_buffer key, cb::const_byte_buffer extras);
+
     bool doRollback(uint32_t opaque, uint16_t vbid, uint64_t rollbackSeqno);
 
     void addStats(ADD_STAT add_stat, const void *c) override;

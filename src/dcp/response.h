@@ -22,6 +22,7 @@
 
 #include "ext_meta_parser.h"
 #include "item.h"
+#include "systemevent.h"
 
 enum class DcpEvent : uint8_t {
     Mutation,
@@ -32,7 +33,8 @@ enum class DcpEvent : uint8_t {
     StreamReq,
     StreamEnd,
     SnapshotMarker,
-    AddStream
+    AddStream,
+    SystemEvent
 };
 
 std::string to_string(const DcpEvent event);
@@ -75,6 +77,7 @@ public:
         case DcpEvent::StreamEnd:
         case DcpEvent::SnapshotMarker:
         case DcpEvent::AddStream:
+        case DcpEvent::SystemEvent:
             return true;
         }
         throw std::invalid_argument(
@@ -350,6 +353,73 @@ public:
 private:
     queued_item item_;
     ExtendedMetaData *emd;
+};
+
+class CollectionsEvent;
+class SystemEventMessage : public DcpResponse {
+public:
+    SystemEventMessage(uint32_t opaque, SystemEvent ev, uint64_t seqno, cb::const_byte_buffer _key, cb::const_byte_buffer _extra)
+    : DcpResponse(DcpEvent::SystemEvent, opaque),
+    event(ev),
+    bySeqno(seqno),
+     key(reinterpret_cast<const char*>(_key.data()), _key.size()),
+     extra(_extra.begin(), _extra.end()) {
+        if (seqno > std::numeric_limits<int64_t>::max()) {
+            throw std::overflow_error("SystemEventMessage: overflow condition on seqno " + std::to_string(seqno));
+        }
+    }
+
+    uint32_t getMessageSize() override {
+        return baseMsgBytes + key.size() + extra.size();
+    }
+
+    SystemEvent getEvent() const {
+        return event;
+    }
+
+    int64_t getBySeqno() const {
+        return bySeqno;
+    }
+
+    const std::string& getKey() const {
+        return key;
+    }
+
+    const std::vector<uint8_t>& getExtra() const {
+        return extra;
+    }
+
+    static const uint32_t baseMsgBytes;
+
+private:
+    SystemEvent event;
+    int64_t bySeqno;
+    std::string key;
+    std::vector<uint8_t> extra;
+};
+
+class CollectionsEvent {
+public:
+    CollectionsEvent(const SystemEventMessage& e) : event(e) {
+    }
+
+    const std::string& getCollectionName() const {
+        return event.getKey();
+    }
+
+    uint32_t getRevision() const {
+        if (event.getExtra().size() != sizeof(uint32_t)) {
+            throw std::invalid_argument("CollectionsEvent::getRevision size invalid " +  std::to_string(event.getExtra().size()));
+        }
+        return *reinterpret_cast<const uint32_t*>(event.getExtra().data());
+    }
+
+    int64_t getBySeqno() const {
+        return event.getBySeqno();
+    }
+
+    private:
+    const SystemEventMessage& event;
 };
 
 #endif  // SRC_DCP_RESPONSE_H_

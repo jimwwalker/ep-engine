@@ -53,6 +53,8 @@ std::string to_string(const DcpEvent event) {
         return "snapshot marker";
     case DcpEvent::AddStream:
         return "add stream";
+    case DcpEvent::SystemEvent:
+        return "system event";
     }
     throw std::invalid_argument(
         "to_string(DcpEvent): " + std::to_string(int(event)));
@@ -1553,6 +1555,21 @@ ENGINE_ERROR_CODE PassiveStream::messageReceived(std::unique_ptr<DcpResponse> dc
             /* No validations necessary */
             break;
         }
+        case DcpEvent::SystemEvent: {
+            uint64_t bySeqno =
+                static_cast<SystemEventMessage*>(dcpResponse.get())->getBySeqno();
+             if (bySeqno <= last_seqno.load()) {
+                consumer->getLogger().log(EXTENSION_LOG_WARNING,
+                    "(vb %d) Erroneous (out of sequence) SystemEvent received, "
+                    "with opaque: %" PRIu32 ", its seqno (%" PRIu64 ") is not "
+                    "greater than last received seqno (%" PRIu64 "); "
+                    "Dropping mutation!",
+                    vb_, opaque_, bySeqno, last_seqno.load());
+                return ENGINE_ERANGE;
+            }
+            last_seqno.store(bySeqno);
+            break;
+        }
         default:
         {
             consumer->getLogger().log(EXTENSION_LOG_WARNING,
@@ -1585,6 +1602,10 @@ ENGINE_ERROR_CODE PassiveStream::messageReceived(std::unique_ptr<DcpResponse> dc
                     transitionState(STREAM_DEAD);
                 }
                 break;
+            case DcpEvent::SystemEvent:{
+                ret = processSystemEvent(*static_cast<SystemEventMessage*>(dcpResponse.get()));
+                break;
+            }
             default:
                 // Above switch should've returned DISCONNECT, throw an exception
                 throw std::logic_error("PassiveStream::messageReceived: (vb " +
@@ -1649,6 +1670,10 @@ process_items_error_t PassiveStream::processBufferedMessages(uint32_t& processed
                     transitionState(STREAM_DEAD);
                 }
                 break;
+            case DcpEvent::SystemEvent: {
+                processSystemEvent(*static_cast<SystemEventMessage*>(response.get()));
+                break;
+            }
             default:
                 consumer->getLogger().log(EXTENSION_LOG_WARNING,
                                           "PassiveStream::processBufferedMessages:"
@@ -1803,6 +1828,43 @@ ENGINE_ERROR_CODE PassiveStream::processDeletion(MutationResponse* deletion) {
     }
 
     return ret;
+}
+
+
+
+
+ENGINE_ERROR_CODE PassiveStream::processSystemEvent(const SystemEventMessage& event) {
+    RCPtr<VBucket> vb = engine->getVBucket(vb_);
+
+    if (!vb) {
+        return ENGINE_NOT_MY_VBUCKET;
+    }
+
+    // Depending on the event, extras is different and key may even be empty
+    switch(event.getEvent()) {
+        case SystemEvent::CreateCollection: {
+            return processCreateCollection(*vb, {event});
+        }
+        case SystemEvent::BeginDeleteCollection: {
+            return processBeginDeleteCollection(*vb, {event});
+        }
+        case SystemEvent::DeleteCollectionSoft:
+        case SystemEvent::DeleteCollectionHard: {
+            // these may not be DCP sent?
+            break;
+        }
+    }
+    return ENGINE_SUCCESS;
+}
+
+ENGINE_ERROR_CODE PassiveStream::processCreateCollection(VBucket& vb, const CollectionsEvent& event) {
+    vb.replicaAddCollection(event.getCollectionName(), event.getRevision(), event.getBySeqno());
+    return ENGINE_SUCCESS;
+}
+
+ENGINE_ERROR_CODE PassiveStream::processBeginDeleteCollection(VBucket& vb, const CollectionsEvent& event) {
+    vb.replicaBeginDeleteCollection(event.getCollectionName(), event.getRevision(), event.getBySeqno());
+    return ENGINE_SUCCESS;
 }
 
 void PassiveStream::processMarker(SnapshotMarker* marker) {

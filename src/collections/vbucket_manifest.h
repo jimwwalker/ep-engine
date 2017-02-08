@@ -77,10 +77,10 @@ public:
      * A non-empty string must be a valid JSON manifest that determines which
      * collections to instantiate.
      *
-     * @param manifest An empty string or valid JSON data to construct the
-     *                 object from.
+     * @param jsonManifest An empty string or valid JSON data to construct the
+     *                     object from.
      */
-    Manifest(const std::string& manifest);
+    Manifest(const std::string& jsonManifest);
 
     /**
      * Update from a Collections::Manifest
@@ -95,6 +95,30 @@ public:
      * @param manifest The incoming manifest to compare this object with.
      */
     void update(::VBucket& vb, const Collections::Manifest& manifest);
+
+    /**
+     * Add a collection for a replica VB, this is for receiving
+     * collection updates via DCP and the system-event already has a seqno
+     * assigned.
+     *
+     * @param vb The vbucket to add the collection to.
+     * @param collection Name of the new collection.
+     * @param revision manifest revision which added the collection.
+     * @param endSeqno The seqno assigned to the create event.
+     */
+    void replicaAdd(::VBucket& vb, const cb::const_char_buffer collection, uint32_t revision, int64_t startSeqno);
+
+    /**
+     * Begin a delete collection for a replica VB, this is for receiving
+     * collection updates via DCP and the system-event already has a seqno
+     * assigned.
+     *
+     * @param vb The vbucket to begin collection deletion on.
+     * @param collection Name of the deleted collection.
+     * @param revision manifest revision which started the deletion.
+     * @param endSeqno The seqno assigned to the end event.
+     */
+    void replicaBeginDelete(::VBucket& vb, const cb::const_char_buffer collection, uint32_t revision, int64_t endSeqno);
 
     /**
      * Complete the deletion of a collection.
@@ -143,6 +167,12 @@ public:
                                     cb::const_char_buffer buffer,
                                     int64_t finalEntrySeqno);
 
+    /**
+     * Obtain the info needed for DCP
+     */
+    static std::pair<cb::const_char_buffer, uint32_t>
+        getSystemEventData(cb::const_char_buffer itemData);
+
 protected:
     /**
      * Add a collection to the manifest specifing the Collections::Manifest
@@ -154,7 +184,7 @@ protected:
      *        add.
      * @param seqno The seqno of an Item which represents the creation event.
      */
-    void addCollection(const std::string& collection,
+    void addCollection(const cb::const_char_buffer collection,
                        uint32_t revision,
                        int64_t startSeqno,
                        int64_t endSeqno);
@@ -171,7 +201,7 @@ protected:
      * @param seqno The seqno of the deleted event mutation for the collection
      *        deletion,
      */
-    void beginDelCollection(const std::string& collection,
+    void beginDelCollection(cb::const_char_buffer collection,
                             uint32_t revision,
                             int64_t seqno);
 
@@ -199,8 +229,9 @@ protected:
      * @param revision Manifest revision triggering the update.
      */
     std::unique_ptr<Item> createSystemEvent(SystemEvent se,
-                                            const std::string& collection,
-                                            uint32_t revision) const;
+                                            cb::const_char_buffer collection,
+                                            uint32_t revision,
+                                            OptionalSeqno seqno) const;
 
     /**
      * Create an Item that carries a system event and queue it.
@@ -209,8 +240,9 @@ protected:
      */
     int64_t queueSystemEvent(::VBucket& vb,
                              SystemEvent se,
-                             const std::string& collection,
-                             uint32_t revision) const;
+                             cb::const_char_buffer collection,
+                             uint32_t revision,
+                             OptionalSeqno seqno) const;
 
     /**
      * Obtain how many bytes of storage are needed for a serialised copy
@@ -219,7 +251,7 @@ protected:
      * @param collection The name of the collection being changed. It's size is
      *        included in the returned value.
      */
-    size_t getSerialisedDataSize(const std::string& collection) const;
+    size_t getSerialisedDataSize(cb::const_char_buffer collection) const;
 
     /**
      * Populate a buffer with the serialised state of the manifest and one
@@ -232,7 +264,7 @@ protected:
      * @param se The SystemEvent we're working on
      */
     void populateWithSerialisedData(cb::char_buffer out,
-                                    const std::string& collection,
+                                    cb::const_char_buffer collection,
                                     uint32_t revision,
                                     SystemEvent se) const;
 

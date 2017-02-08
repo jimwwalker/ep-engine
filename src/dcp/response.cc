@@ -35,3 +35,7 @@ const uint32_t SetVBucketState::baseMsgBytes = 25;
 const uint32_t SnapshotMarker::baseMsgBytes = 44;
 const uint32_t MutationResponse::mutationBaseMsgBytes = 55;
 const uint32_t MutationResponse::deletionBaseMsgBytes = 42;
+// TODO: Implementing this internally first, no protocol_binary message has
+// been committed yet, but the following size allows for the transmission of
+// a message header + seqno + event (uint32)
+const uint32_t SystemEventMessage::baseMsgBytes = 36;

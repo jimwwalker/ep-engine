@@ -25,25 +25,23 @@
 #include <cJSON_utils.h>
 #include <platform/make_unique.h>
 
-Collections::VB::Manifest::Manifest(const std::string& manifest)
+Collections::VB::Manifest::Manifest(const std::string& jsonManifest)
     : defaultCollectionExists(false), separator(DefaultSeparator) {
 
-    if (manifest.size() == 0) {
+    if (jsonManifest.size() == 0) {
         // Leave manifest with default settings
-        addCollection(DefaultCollectionIdentifier,           0,
-              0,
-              StoredValue::state_collection_open);
+        addCollection({DefaultCollectionIdentifier}, 0, 0, StoredValue::state_collection_open);
 
         return;
     }
 
-    if (!checkUTF8JSON(reinterpret_cast<const unsigned char*>(manifest.data()),
-                       manifest.size())) {
+    if (!checkUTF8JSON(reinterpret_cast<const unsigned char*>(jsonManifest.data()),
+                       jsonManifest.size())) {
         throw std::invalid_argument(
                 "Collections::VBucket::Manifest input not valid json");
     }
 
-    unique_cJSON_ptr cjson(cJSON_Parse(manifest.c_str()));
+    unique_cJSON_ptr cjson(cJSON_Parse(jsonManifest.c_str()));
     if (!cjson) {
         throw std::invalid_argument(
                 "Collections::VBucket::Manifest cJSON cannot parse json");
@@ -79,7 +77,8 @@ void Collections::VB::Manifest::update(::VBucket& vb,
         auto seqno = queueSystemEvent(vb,
                                       SystemEvent::CreateCollection,
                                       collection,
-                                      manifest.getRevision());
+                                      manifest.getRevision(),
+                                      OptionalSeqno{/*no-seqno*/});
 
         LOG(EXTENSION_LOG_INFO,
             "Adding collection:%s vb:%" PRIu16 " seqno:%" PRIu64,
@@ -98,7 +97,8 @@ void Collections::VB::Manifest::update(::VBucket& vb,
         auto seqno = queueSystemEvent(vb,
                                       SystemEvent::BeginDeleteCollection,
                                       collection,
-                                      manifest.getRevision());
+                                      manifest.getRevision(),
+                                      OptionalSeqno{/*no-seqno*/});
 
         LOG(EXTENSION_LOG_INFO,
             "Begin delete of collection:%s vb:%" PRIu16 " seqno:%" PRIu64,
@@ -110,7 +110,7 @@ void Collections::VB::Manifest::update(::VBucket& vb,
     }
 }
 
-void Collections::VB::Manifest::addCollection(const std::string& collection,
+void Collections::VB::Manifest::addCollection(const cb::const_char_buffer collection,
                                               uint32_t revision,
                                               int64_t startSeqno,
                                               int64_t endSeqno) {
@@ -127,18 +127,18 @@ void Collections::VB::Manifest::addCollection(const std::string& collection,
         std::stringstream ss;
         ss << *itr->second;
         throw std::logic_error("addCollection: cannot add collection:" +
-                               collection + ", startSeqno:" +
+                               std::string(collection.data(), collection.size()) + ", startSeqno:" +
                                std::to_string(startSeqno) + ", endSeqno:" +
                                std::to_string(endSeqno) + " " + ss.str());
     }
 
-    if (collection == DefaultCollectionIdentifier) {
+    if (std::equal(collection.begin(), collection.end(), DefaultCollectionIdentifier)) {
         defaultCollectionExists = true;
     }
 }
 
 void Collections::VB::Manifest::beginDelCollection(
-        const std::string& collection, uint32_t revision, int64_t seqno) {
+        cb::const_char_buffer collection, uint32_t revision, int64_t seqno) {
     std::lock_guard<WriterLock> writeLock(lock.writer());
     auto itr = map.find({collection.data(), collection.size()});
     if (itr != map.end()) {
@@ -146,7 +146,7 @@ void Collections::VB::Manifest::beginDelCollection(
         itr->second->setEndSeqno(seqno);
     }
 
-    if (collection == DefaultCollectionIdentifier) {
+    if (std::equal(collection.begin(), collection.end(), DefaultCollectionIdentifier)) {
         defaultCollectionExists = false;
     }
 }
@@ -163,16 +163,40 @@ void Collections::VB::Manifest::completeDeletion(::VBucket& vb,
     }
 
     if (!itr->second->isOpen()) {
-        queueSystemEvent(
-                vb, SystemEvent::DeleteCollectionHard, collection, revision);
+        queueSystemEvent(vb, SystemEvent::DeleteCollectionHard, collection, revision, {/*no-seqno*/});
         map.erase(itr);
     } else {
         queueSystemEvent(vb,
                          SystemEvent::DeleteCollectionSoft,
                          collection,
-                         itr->second->getRevision());
+                         itr->second->getRevision(),
+                         {/*no-seqno*/});
         itr->second->resetEndSeqno();
     }
+}
+
+void Collections::VB::Manifest::replicaAdd(::VBucket& vb,
+                                    const cb::const_char_buffer collection,
+                                    uint32_t revision,
+                                    int64_t startSeqno) {
+    (void)queueSystemEvent(vb, SystemEvent::CreateCollection,
+                                      collection,
+                                      revision,
+                                      OptionalSeqno(startSeqno));
+
+    addCollection(collection, revision, startSeqno, StoredValue::state_collection_open);
+}
+
+void Collections::VB::Manifest::replicaBeginDelete(::VBucket& vb,
+                                    const cb::const_char_buffer collection,
+                                    uint32_t revision,
+                                    int64_t endSeqno) {
+    (void)queueSystemEvent(vb, SystemEvent::BeginDeleteCollection,
+                                      collection,
+                                      revision,
+                                      OptionalSeqno(endSeqno));
+
+    beginDelCollection(collection, revision, endSeqno);
 }
 
 Collections::VB::Manifest::processResult
@@ -230,8 +254,9 @@ bool Collections::VB::Manifest::doesKeyContainValidCollection(
 
 std::unique_ptr<Item> Collections::VB::Manifest::createSystemEvent(
         SystemEvent se,
-        const std::string& collection,
-        uint32_t revision) const {
+        cb::const_char_buffer collection,
+        uint32_t revision,
+        OptionalSeqno seqno) const {
     // Create an item (to be queued and written to disk) that represents
     // the update of a collection and allows the checkpoint to update
     // the _local document with a persisted version of this object (the entire
@@ -241,8 +266,9 @@ std::unique_ptr<Item> Collections::VB::Manifest::createSystemEvent(
 
     auto item = SystemEventFactory::make(
             se,
-            collection + " " + std::to_string(revision),
-            getSerialisedDataSize(collection));
+            std::string(collection.data()) + " " + std::to_string(revision),
+            getSerialisedDataSize(collection),
+            seqno);
 
     // Quite rightly an Item's value is const, but in this case the Item is
     // owned only by the local scope so is safe to mutate (by const_cast force)
@@ -258,18 +284,19 @@ std::unique_ptr<Item> Collections::VB::Manifest::createSystemEvent(
 int64_t Collections::VB::Manifest::queueSystemEvent(
         ::VBucket& vb,
         SystemEvent se,
-        const std::string& collection,
-        uint32_t revision) const {
+        cb::const_char_buffer collection,
+        uint32_t revision,
+        OptionalSeqno seqno) const {
     // Create and transfer Item ownership to the VBucket
-    return vb.queueItem(createSystemEvent(se, collection, revision).release());
+    return vb.queueItem(createSystemEvent(se, collection, revision, seqno).release(), seqno);
 }
 
 size_t Collections::VB::Manifest::getSerialisedDataSize(
-        const std::string& collection) const {
+        cb::const_char_buffer collection) const {
     size_t bytesNeeded = SerialisedManifest::getObjectSize();
     for (const auto& collectionEntry : map) {
         // Skip if a collection in the map matches the collection being changed
-        if (collectionEntry.second->getCollectionName() == collection) {
+        if (collectionEntry.second->getCharBuffer() == collection) {
             continue;
         }
         bytesNeeded += SerialisedManifestEntry::getObjectSize(
@@ -282,7 +309,7 @@ size_t Collections::VB::Manifest::getSerialisedDataSize(
 
 void Collections::VB::Manifest::populateWithSerialisedData(
         cb::char_buffer out,
-        const std::string& collection,
+        cb::const_char_buffer collection,
         uint32_t revision,
         SystemEvent se) const {
     auto* sMan = reinterpret_cast<SerialisedManifest*>(out.data());
@@ -293,7 +320,7 @@ void Collections::VB::Manifest::populateWithSerialisedData(
     for (const auto& collectionEntry : map) {
         // Check if we find the mutated entry in the map (so we know if we're
         // deleting it)
-        if (collectionEntry.second->getCollectionName() == collection) {
+        if (collectionEntry.second->getCharBuffer() == collection) {
             // If a collection in the map matches the collection being changed
             // save the iterator so we can use it when creating the final entry
             finalEntry = &collectionEntry.second;
@@ -305,17 +332,19 @@ void Collections::VB::Manifest::populateWithSerialisedData(
         }
     }
 
+    SerialisedManifestEntry* finalSme = nullptr;
     if (finalEntry) {
         // delete
-        auto* sme =
+        finalSme =
                 SerialisedManifestEntry::make(serial, *finalEntry->get(), out);
-        sme->setRevision(revision);
+        finalSme->setRevision(revision);
     } else {
         // create
-        (void)SerialisedManifestEntry::make(serial, revision, collection, out);
+        finalSme = SerialisedManifestEntry::make(serial, revision, collection, out);
     }
 
     sMan->setEntryCount(itemCounter);
+    sMan->setFinalEntry(finalSme);
 }
 
 std::string Collections::VB::Manifest::serialToJson(
@@ -361,6 +390,14 @@ const char* Collections::VB::Manifest::getJsonEntry(cJSON* cJson,
                 (!jsonEntry ? "nullptr" : std::to_string(jsonEntry->type)));
     }
     return jsonEntry->valuestring;
+}
+
+std::pair<cb::const_char_buffer, uint32_t> Collections::VB::Manifest::getSystemEventData(cb::const_char_buffer itemData) {
+    const auto* sMan =
+            reinterpret_cast<const SerialisedManifest*>(itemData.data());
+    const auto* sme = sMan->getFinalManifestEntry();
+    return std::make_pair(cb::const_char_buffer{sme->getCollectionName(), sme->getCollectionNameLen()}, sme->getRevision());
+
 }
 
 std::ostream& Collections::VB::operator<<(
