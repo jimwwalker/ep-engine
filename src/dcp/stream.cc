@@ -53,6 +53,8 @@ std::string to_string(const DcpEvent event) {
         return "snapshot marker";
     case DcpEvent::AddStream:
         return "add stream";
+    case DcpEvent::SystemEvent:
+        return "system event";
     }
     throw std::invalid_argument(
         "to_string(DcpEvent): " + std::to_string(int(event)));
@@ -1600,6 +1602,28 @@ ENGINE_ERROR_CODE PassiveStream::messageReceived(std::unique_ptr<DcpResponse> dc
             /* No validations necessary */
             break;
         }
+        case DcpEvent::SystemEvent: {
+            auto ev = static_cast<SystemEventMessage*>(dcpResponse.get());
+            if (ev->getBySeqno() <= last_seqno.load()) {
+                consumer->getLogger().log(
+                        EXTENSION_LOG_WARNING,
+                        "(vb %d) Erroneous (out of sequence) SystemEvent "
+                        "received, "
+                        "with opaque: %" PRIu32 ", its seqno (%" PRIu64
+                        ") is not "
+                        "greater than last received seqno (%" PRIu64
+                        "); "
+                        "Dropping event %s",
+                        vb_,
+                        opaque_,
+                        ev->getBySeqno(),
+                        last_seqno.load(),
+                        to_string(ev->getEvent()).c_str());
+                return ENGINE_ERANGE;
+            }
+            last_seqno.store(ev->getBySeqno());
+            break;
+        }
         default:
         {
             consumer->getLogger().log(EXTENSION_LOG_WARNING,
@@ -1632,12 +1656,19 @@ ENGINE_ERROR_CODE PassiveStream::messageReceived(std::unique_ptr<DcpResponse> dc
                     transitionState(STREAM_DEAD);
                 }
                 break;
-            default:
-                // Above switch should've returned DISCONNECT, throw an exception
-                throw std::logic_error("PassiveStream::messageReceived: (vb " +
-                                       std::to_string(vb_) +
-                                       ") received unknown message type " +
-                                       to_string(dcpResponse->getEvent()));
+                case DcpEvent::SystemEvent: {
+                    ret = processSystemEvent(*static_cast<SystemEventMessage*>(
+                            dcpResponse.get()));
+                    break;
+                }
+                default:
+                    // Above switch should've returned DISCONNECT, throw an
+                    // exception
+                    throw std::logic_error(
+                            "PassiveStream::messageReceived: (vb " +
+                            std::to_string(vb_) +
+                            ") received unknown message type " +
+                            to_string(dcpResponse->getEvent()));
         }
         if (ret != ENGINE_TMPFAIL && ret != ENGINE_ENOMEM) {
             return ret;
@@ -1696,14 +1727,21 @@ process_items_error_t PassiveStream::processBufferedMessages(uint32_t& processed
                     transitionState(STREAM_DEAD);
                 }
                 break;
-            default:
-                consumer->getLogger().log(EXTENSION_LOG_WARNING,
-                                          "PassiveStream::processBufferedMessages:"
-                                          "(vb %" PRIu16 ") PassiveStream ignoring "
-                                          "unknown message type %s",
-                                          vb_,
-                                          to_string(response->getEvent()).c_str());
-                continue;
+                case DcpEvent::SystemEvent: {
+                    processSystemEvent(
+                            *static_cast<SystemEventMessage*>(response.get()));
+                    break;
+                }
+                default:
+                    consumer->getLogger().log(
+                            EXTENSION_LOG_WARNING,
+                            "PassiveStream::processBufferedMessages:"
+                            "(vb %" PRIu16
+                            ") PassiveStream ignoring "
+                            "unknown message type %s",
+                            vb_,
+                            to_string(response->getEvent()).c_str());
+                    continue;
         }
 
         if (ret == ENGINE_TMPFAIL || ret == ENGINE_ENOMEM) {
@@ -1852,6 +1890,80 @@ ENGINE_ERROR_CODE PassiveStream::processDeletion(MutationResponse* deletion) {
     }
 
     return ret;
+}
+
+ENGINE_ERROR_CODE PassiveStream::processSystemEvent(
+        const SystemEventMessage& event) {
+    RCPtr<VBucket> vb = engine->getVBucket(vb_);
+
+    if (!vb) {
+        return ENGINE_NOT_MY_VBUCKET;
+    }
+
+    ENGINE_ERROR_CODE rv = ENGINE_SUCCESS;
+    // Depending on the event, extras is different and key may even be empty
+    // The specific handler will know how to interpret,
+    switch (event.getEvent()) {
+    case SystemEvent::CreateCollection: {
+        return processCreateCollection(*vb, {event});
+    }
+    case SystemEvent::BeginDeleteCollection: {
+        return processBeginDeleteCollection(*vb, {event});
+    }
+    case SystemEvent::CollectionsSeparatorChanged: {
+        return processSeparatorChanged(*vb, {event});
+    }
+    case SystemEvent::DeleteCollectionSoft:
+    case SystemEvent::DeleteCollectionHard: {
+        rv = ENGINE_EINVAL; // Producer won't send
+    }
+    }
+    return rv;
+}
+
+ENGINE_ERROR_CODE PassiveStream::processCreateCollection(
+        VBucket& vb, const CollectionsEvent& event) {
+    try {
+        vb.replicaAddCollection(event.getCollectionName().data(),
+                                event.getRevision(),
+                                event.getBySeqno());
+    } catch (std::exception& e) {
+        LOG(EXTENSION_LOG_WARNING,
+            "PassiveStream::processCreateCollection exception %s",
+            e.what());
+        return ENGINE_EINVAL;
+    }
+    return ENGINE_SUCCESS;
+}
+
+ENGINE_ERROR_CODE PassiveStream::processBeginDeleteCollection(
+        VBucket& vb, const CollectionsEvent& event) {
+    try {
+        vb.replicaBeginDeleteCollection(event.getCollectionName(),
+                                        event.getRevision(),
+                                        event.getBySeqno());
+    } catch (std::exception& e) {
+        LOG(EXTENSION_LOG_WARNING,
+            "PassiveStream::processBeginDeleteCollection exception %s",
+            e.what());
+        return ENGINE_EINVAL;
+    }
+    return ENGINE_SUCCESS;
+}
+
+ENGINE_ERROR_CODE PassiveStream::processSeparatorChanged(
+        VBucket& vb, const CollectionsEvent& event) {
+    try {
+        vb.replicaChangeCollectionSeparator(event.getSeparator(),
+                                            event.getRevision(),
+                                            event.getBySeqno());
+    } catch (std::exception& e) {
+        LOG(EXTENSION_LOG_WARNING,
+            "PassiveStream::processSeparatorChanged exception %s",
+            e.what());
+        return ENGINE_EINVAL;
+    }
+    return ENGINE_SUCCESS;
 }
 
 void PassiveStream::processMarker(SnapshotMarker* marker) {

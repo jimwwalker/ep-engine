@@ -22,6 +22,7 @@
 
 #include "ext_meta_parser.h"
 #include "item.h"
+#include "systemevent.h"
 
 enum class DcpEvent : uint8_t {
     Mutation,
@@ -32,7 +33,8 @@ enum class DcpEvent : uint8_t {
     StreamReq,
     StreamEnd,
     SnapshotMarker,
-    AddStream
+    AddStream,
+    SystemEvent
 };
 
 std::string to_string(const DcpEvent event);
@@ -75,6 +77,7 @@ public:
         case DcpEvent::StreamEnd:
         case DcpEvent::SnapshotMarker:
         case DcpEvent::AddStream:
+        case DcpEvent::SystemEvent:
             return true;
         }
         throw std::invalid_argument(
@@ -344,6 +347,122 @@ public:
 private:
     queued_item item_;
     std::unique_ptr<ExtendedMetaData> emd;
+};
+
+/**
+ * SystemEventMessage defines the interface required by consumer and producer
+ * message classes.
+ */
+class SystemEventMessage : public DcpResponse {
+public:
+    SystemEventMessage(uint32_t opaque)
+        : DcpResponse(DcpEvent::SystemEvent, opaque) {
+    }
+    /// @todo use sizeof(protocol_system_ev_message) once defined in memcached
+    static const uint32_t baseMsgBytes =
+            sizeof(protocol_binary_request_header) + sizeof(SystemEvent) +
+            sizeof(uint16_t) + sizeof(int64_t);
+    virtual SystemEvent getEvent() const = 0;
+    virtual int64_t getBySeqno() const = 0;
+    virtual uint16_t getVBucket() const = 0;
+    virtual cb::const_char_buffer getKey() const = 0;
+    virtual cb::const_byte_buffer getEventData() const = 0;
+};
+
+/**
+ * A SystemEventConsumerMessage is used by DcpConsumer and associated code
+ * for storing the data of a SystemEvent. The key and event bytes must be
+ * copied from the caller into the object's storage because the consumer
+ * will queue the message for future processing.
+ */
+class SystemEventConsumerMessage : public SystemEventMessage {
+public:
+    SystemEventConsumerMessage(uint32_t opaque,
+                               SystemEvent ev,
+                               uint64_t seqno,
+                               cb::const_byte_buffer _key,
+                               cb::const_byte_buffer _eventData)
+        : SystemEventMessage(opaque),
+          event(ev),
+          bySeqno(seqno),
+          key(reinterpret_cast<const char*>(_key.data()), _key.size()),
+          eventData(_eventData.begin(), _eventData.end()) {
+        if (seqno > std::numeric_limits<int64_t>::max()) {
+            throw std::overflow_error(
+                    "SystemEventMessage: overflow condition on seqno " +
+                    std::to_string(seqno));
+        }
+    }
+
+    uint32_t getMessageSize() override {
+        return SystemEventMessage::baseMsgBytes + key.size() + eventData.size();
+    }
+
+    SystemEvent getEvent() const override {
+        return event;
+    }
+
+    int64_t getBySeqno() const override {
+        return bySeqno;
+    }
+
+    uint16_t getVBucket() const override {
+        return vbid;
+    }
+
+    cb::const_char_buffer getKey() const override {
+        return key;
+    }
+
+    cb::const_byte_buffer getEventData() const override {
+        return {eventData.data(), eventData.size()};
+    }
+
+private:
+    SystemEvent event;
+    int64_t bySeqno;
+    uint16_t vbid;
+    std::string key;
+    std::vector<uint8_t> eventData;
+};
+
+/**
+ * CollectionsEvent provides a shim on top of SystemEventMessage for
+ * when a SystemEvent is a Collection's SystemEvent.
+ */
+class CollectionsEvent {
+public:
+    CollectionsEvent(const SystemEventMessage& e) : event(e) {
+    }
+
+    const cb::const_char_buffer getCollectionName() const {
+        return event.getKey();
+    }
+
+    const cb::const_char_buffer getSeparator() const {
+        return event.getKey();
+    }
+
+    /**
+     * @returns the revision of the collection stored in
+     *          SystemEventMessage::getEventData()
+     * @throws invalid_argument if the event data is not 4 bytes.
+     */
+    uint32_t getRevision() const {
+        if (event.getEventData().size() != sizeof(uint32_t)) {
+            throw std::invalid_argument(
+                    "CollectionsEvent::getRevision size invalid " +
+                    std::to_string(event.getEventData().size()));
+        }
+        return *reinterpret_cast<const uint32_t*>(event.getEventData().data());
+    }
+
+    int64_t getBySeqno() const {
+        return event.getBySeqno();
+    }
+
+private:
+    const SystemEventMessage& event;
 };
 
 #endif  // SRC_DCP_RESPONSE_H_

@@ -21,6 +21,7 @@
 #include "bgfetcher.h"
 #include "kvstore.h"
 #include "programs/engine_testapp/mock_server.h"
+#include "tests/mock/mock_dcp_consumer.h"
 #include "tests/mock/mock_global_task.h"
 #include "tests/module_tests/evp_store_test.h"
 #include "tests/module_tests/thread_gate.h"
@@ -537,4 +538,67 @@ TEST_F(CollectionsTest, warmup) {
     destroy_mock_event_callbacks();
 
     ObjectRegistry::onSwitchThread(nullptr);
+}
+
+TEST_F(CollectionsTest, test_dcp_consumer) {
+    const void* cookie = create_mock_cookie();
+
+    SingleThreadedRCPtr<MockDcpConsumer> consumer(
+            new MockDcpConsumer(*engine, cookie, "test_consumer"));
+
+    store->setVBucketState(vbid, vbucket_state_replica, false);
+    ASSERT_EQ(ENGINE_SUCCESS,
+              consumer->addStream(/*opaque*/ 0, vbid, /*flags*/ 0));
+
+    std::string collection = "meat";
+
+    uint32_t revision = 4;
+    ASSERT_EQ(ENGINE_SUCCESS,
+              consumer->snapshotMarker(/*opaque*/ 1,
+                                       vbid,
+                                       /*start_seqno*/ 0,
+                                       /*end_seqno*/ 100,
+                                       /*flags*/ 0));
+
+    RCPtr<VBucket> vb = store->getVBucket(vbid);
+
+    EXPECT_FALSE(vb->lockCollections().doesKeyContainValidCollection(
+            {"meat::bacon", DocNamespace::Collections}));
+
+    // Call the consumer function for handling DCP events
+    // create the meat collection
+    EXPECT_EQ(ENGINE_SUCCESS,
+              consumer->systemEvent(
+                      /*opaque*/ 1,
+                      vbid,
+                      uint32_t(SystemEvent::CreateCollection),
+                      /*seqno*/ 1,
+                      {reinterpret_cast<const uint8_t*>(collection.data()),
+                       collection.size()},
+                      {reinterpret_cast<const uint8_t*>(&revision),
+                       sizeof(uint32_t)}));
+
+    // We can now access the collection
+    EXPECT_TRUE(vb->lockCollections().doesKeyContainValidCollection(
+            {"meat::bacon", DocNamespace::Collections}));
+
+    // Call the consumer function for handling DCP events
+    // delete the meat collection
+    EXPECT_EQ(ENGINE_SUCCESS,
+              consumer->systemEvent(
+                      /*opaque*/ 1,
+                      vbid,
+                      uint32_t(SystemEvent::BeginDeleteCollection),
+                      /*seqno*/ 2,
+                      {reinterpret_cast<const uint8_t*>(collection.data()),
+                       collection.size()},
+                      {reinterpret_cast<const uint8_t*>(&revision),
+                       sizeof(uint32_t)}));
+
+    // It's gone!
+    EXPECT_FALSE(vb->lockCollections().doesKeyContainValidCollection(
+            {"meat::bacon", DocNamespace::Collections}));
+
+    destroy_mock_cookie(cookie);
+    consumer->cancelTask();
 }

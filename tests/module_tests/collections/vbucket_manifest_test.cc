@@ -296,7 +296,8 @@ private:
         for (const auto& qi : events) {
             if (qi->getOperation() == queue_op::system_event) {
                 auto dcpData = Collections::VB::Manifest::getSystemEventData(
-                        {qi->getData(), qi->getNBytes()});
+                        {qi->getData(),
+                         qi->getNBytes()});
 
                 // Extract the revision to a local
                 uint32_t revision = *reinterpret_cast<const uint32_t*>(
@@ -304,26 +305,17 @@ private:
 
                 switch (SystemEvent(qi->getFlags())) {
                 case SystemEvent::CreateCollection: {
-                    replica.wlock().replicaAdd(
-                            vbR, dcpData.first, revision, qi->getBySeqno());
+                    replica.wlock().replicaAdd(vbR, {dcpData.first.data(), dcpData.first.size()}, revision, qi->getBySeqno());
                     break;
                 }
                 case SystemEvent::BeginDeleteCollection: {
-                    replica.wlock().replicaBeginDelete(
-                            vbR, dcpData.first, revision, qi->getBySeqno());
+                    replica.wlock().replicaBeginDelete(vbR, {dcpData.first.data(), dcpData.first.size()}, revision, qi->getBySeqno());
                     break;
                 }
                 case SystemEvent::CollectionsSeparatorChanged: {
                     auto dcpData = Collections::VB::Manifest::
-                            getSystemEventSeparatorData(
-                                    {qi->getData(), qi->getNBytes()});
-                    replica.wlock().replicaChangeSeparator(
-                            vbR,
-                            {reinterpret_cast<const char*>(
-                                     dcpData.first.data()),
-                             dcpData.first.size()},
-                            revision,
-                            qi->getBySeqno());
+                            getSystemEventSeparatorData({qi->getData(), qi->getNBytes()});
+                    replica.wlock().replicaChangeSeparator(vbR, {dcpData.first.data(), dcpData.first.size()}, revision, qi->getBySeqno());
                     break;
                 }
                 case SystemEvent::DeleteCollectionSoft:
