@@ -34,7 +34,8 @@ EphemeralVBucket::EphemeralVBucket(
         item_eviction_policy_t evictionPolicy,
         vbucket_state_t initState,
         uint64_t purgeSeqno,
-        uint64_t maxCas)
+        uint64_t maxCas,
+        const std::string& collectionsManifest)
     : VBucket(i,
               newState,
               st,
@@ -43,13 +44,15 @@ EphemeralVBucket::EphemeralVBucket(
               lastSnapStart,
               lastSnapEnd,
               std::move(table),
-              /*flusherCb*/nullptr,
+              /*flusherCb*/ nullptr,
               std::move(newSeqnoCb),
               config,
               evictionPolicy,
               initState,
               purgeSeqno,
-              maxCas) {}
+              maxCas,
+              collectionsManifest) {
+    }
 
 size_t EphemeralVBucket::getNumItems() const {
     return ht.getNumInMemoryItems() - ht.getNumDeletedItems();
