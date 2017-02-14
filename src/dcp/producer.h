@@ -167,8 +167,6 @@ public:
         */
         void unpauseIfSpaceAvailable();
 
-    private:
-
         bool isEnabled_UNLOCKED() {
             return maxBytes != 0;
         }
@@ -242,8 +240,6 @@ protected:
     } noopCtx;
 
     Couchbase::RelaxedAtomic<rel_time_t> lastReceiveTime;
-private:
-
 
     DcpResponse* getNextItem();
 

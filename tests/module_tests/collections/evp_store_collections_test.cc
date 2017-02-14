@@ -21,7 +21,9 @@
 #include "bgfetcher.h"
 #include "kvstore.h"
 #include "programs/engine_testapp/mock_server.h"
+#include "tests/mock/mock_dcp.h"
 #include "tests/mock/mock_dcp_consumer.h"
+#include "tests/mock/mock_dcp_producer.h"
 #include "tests/mock/mock_global_task.h"
 #include "tests/module_tests/evp_store_test.h"
 #include "tests/module_tests/thread_gate.h"
@@ -540,65 +542,191 @@ TEST_F(CollectionsTest, warmup) {
     ObjectRegistry::onSwitchThread(nullptr);
 }
 
-TEST_F(CollectionsTest, test_dcp_consumer) {
-    const void* cookie = create_mock_cookie();
+class CollectionsDcpTest : public CollectionsTest {
+public:
+public:
+    CollectionsDcpTest()
+        : cookieC(create_mock_cookie()),
+          cookieP(create_mock_cookie()),
+          producers(get_dcp_producers(nullptr, nullptr)) {
+    }
 
-    SingleThreadedRCPtr<MockDcpConsumer> consumer(
-            new MockDcpConsumer(*engine, cookie, "test_consumer"));
+    // Setup a producer/consumer ready for the test
+    void SetUp() override {
+        CollectionsTest::SetUp();
 
-    store->setVBucketState(vbid, vbucket_state_replica, false);
-    ASSERT_EQ(ENGINE_SUCCESS,
-              consumer->addStream(/*opaque*/ 0, vbid, /*flags*/ 0));
+        CollectionsDcpTest::consumer =
+                new MockDcpConsumer(*engine, cookieC, "test_consumer");
 
-    std::string collection = "meat";
+        producer = new MockDcpProducer(
+                *engine, cookieP, "test_producer", /*notifyOnly*/ false);
 
-    uint32_t revision = 4;
-    ASSERT_EQ(ENGINE_SUCCESS,
-              consumer->snapshotMarker(/*opaque*/ 1,
-                                       vbid,
-                                       /*start_seqno*/ 0,
-                                       /*end_seqno*/ 100,
-                                       /*flags*/ 0));
+        store->setVBucketState(replicaVB, vbucket_state_replica, false);
+        ASSERT_EQ(ENGINE_SUCCESS,
+                  consumer->addStream(/*opaque*/ 0,
+                                      replicaVB,
+                                      /*flags*/ 0));
+        uint64_t rollbackSeqno;
+        ASSERT_EQ(ENGINE_SUCCESS,
+                  producer->streamRequest(
+                          0, // flags
+                          1, // opaque
+                          vbid,
+                          0, // start_seqno
+                          ~0ull, // end_seqno
+                          0, // vbucket_uuid,
+                          0, // snap_start_seqno,
+                          0, // snap_end_seqno,
+                          &rollbackSeqno,
+                          &CollectionsDcpTest::dcpAddFailoverLog));
 
+        // Patch our local callback into the handlers
+        producers->system_event = &CollectionsDcpTest::sendSystemEvent;
+
+        // Setup a snapshot on the consumer
+        ASSERT_EQ(ENGINE_SUCCESS,
+                  consumer->snapshotMarker(/*opaque*/ 1,
+                                           /*vbucket*/ replicaVB,
+                                           /*start_seqno*/ 0,
+                                           /*end_seqno*/ 100,
+                                           /*flags*/ 0));
+    }
+
+    void TearDown() override {
+        destroy_mock_cookie(cookieC);
+        destroy_mock_cookie(cookieP);
+        consumer->cancelTask();
+        producer->closeAllStreams();
+        producer.reset();
+    }
+
+    static const uint16_t replicaVB{1};
+    static SingleThreadedRCPtr<MockDcpConsumer> consumer;
+
+    /*
+     * DCP callback method to push SystemEvents on to the consumer
+     */
+    static ENGINE_ERROR_CODE sendSystemEvent(const void* cookie,
+                                             uint32_t opaque,
+                                             uint16_t vbucket,
+                                             uint64_t bySeqno,
+                                             uint32_t event,
+                                             cb::const_byte_buffer key,
+                                             cb::const_byte_buffer eventData) {
+        (void)cookie;
+        (void)vbucket; // ignored as we are connecting VBn to VBn+1
+        return consumer->systemEvent(
+                opaque, replicaVB, event, bySeqno, key, eventData);
+    }
+
+    static ENGINE_ERROR_CODE dcpAddFailoverLog(vbucket_failover_t* entry,
+                                               size_t nentries,
+                                               const void* cookie) {
+        return ENGINE_SUCCESS;
+    }
+
+    const void* cookieC;
+    const void* cookieP;
+    std::unique_ptr<dcp_message_producers> producers;
+    SingleThreadedRCPtr<MockDcpProducer> producer;
+};
+
+SingleThreadedRCPtr<MockDcpConsumer> CollectionsDcpTest::consumer;
+
+/*
+ * test_dcp connects a producer and consumer to test that collections created
+ * on the producer are tranferred to the consumer
+ *
+ * The test replicates VBn to VBn+1
+ */
+TEST_F(CollectionsDcpTest, test_dcp) {
     RCPtr<VBucket> vb = store->getVBucket(vbid);
 
+    // Add a collection, then remove it. This generated events into the CP which
+    // we'll manually replicate with calls to step
+    vb->updateFromManifest(
+            {R"({"revision":1,"separator":"::","collections":["$default","meat"]})"});
+
+    vb->updateFromManifest(
+            {R"({"revision":2,"separator":"::","collections":["$default"]})"});
+
+    vb->completeDeletion("meat", 2);
+
+    producer->notifySeqnoAvailable(vb->getId(), vb->getHighSeqno());
+
+    // Step which will trigger the background snapshot task
+    EXPECT_EQ(ENGINE_SUCCESS, producer->step(producers.get()));
+
+    // Now call run on the snapshot task. This ensures the task is done when get
+    // to the next step(). Either this run() or the bg one need to be complete
+    // before we step. Calling run here may just be a no-op if the bg task
+    // completed
+    producer->getCheckpointSnapshotTask().run();
+
+    // Next step which should process a snapshot marker
+    EXPECT_EQ(ENGINE_WANT_MORE, producer->step(producers.get()));
+
+    RCPtr<VBucket> replica = store->getVBucket(replicaVB);
+
+    // Replica does not know about meat
     EXPECT_FALSE(vb->lockCollections().doesKeyContainValidCollection(
             {"meat::bacon", DocNamespace::Collections}));
 
-    // Call the consumer function for handling DCP events
-    // create the meat collection
-    EXPECT_EQ(ENGINE_SUCCESS,
-              consumer->systemEvent(
-                      /*opaque*/ 1,
-                      vbid,
-                      uint32_t(SystemEvent::CreateCollection),
-                      /*seqno*/ 1,
-                      {reinterpret_cast<const uint8_t*>(collection.data()),
-                       collection.size()},
-                      {reinterpret_cast<const uint8_t*>(&revision),
-                       sizeof(uint32_t)}));
+    // Now step the producer to transfer the collection
+    EXPECT_EQ(ENGINE_WANT_MORE, producer->step(producers.get()));
 
-    // We can now access the collection
-    EXPECT_TRUE(vb->lockCollections().doesKeyContainValidCollection(
+    // Collection should now be live on the replica
+    EXPECT_TRUE(replica->lockCollections().doesKeyContainValidCollection(
             {"meat::bacon", DocNamespace::Collections}));
 
-    // Call the consumer function for handling DCP events
-    // delete the meat collection
-    EXPECT_EQ(ENGINE_SUCCESS,
-              consumer->systemEvent(
-                      /*opaque*/ 1,
-                      vbid,
-                      uint32_t(SystemEvent::BeginDeleteCollection),
-                      /*seqno*/ 2,
-                      {reinterpret_cast<const uint8_t*>(collection.data()),
-                       collection.size()},
-                      {reinterpret_cast<const uint8_t*>(&revision),
-                       sizeof(uint32_t)}));
+    // Now step the producer to transfer the collection deletion
+    EXPECT_EQ(ENGINE_WANT_MORE, producer->step(producers.get()));
 
-    // It's gone!
-    EXPECT_FALSE(vb->lockCollections().doesKeyContainValidCollection(
+    // Collection should no longer be live on the replica
+    EXPECT_FALSE(replica->lockCollections().doesKeyContainValidCollection(
             {"meat::bacon", DocNamespace::Collections}));
 
-    destroy_mock_cookie(cookie);
-    consumer->cancelTask();
+    // Now step the producer, no more collection events
+    EXPECT_EQ(ENGINE_SUCCESS, producer->step(producers.get()));
+}
+
+TEST_F(CollectionsDcpTest, test_dcp_separator) {
+    RCPtr<VBucket> vb = store->getVBucket(vbid);
+
+    // Change the separator
+    vb->updateFromManifest(
+            {R"({"revision":1,"separator":"@@","collections":["$default"]})"});
+
+    // Add a collection
+    vb->updateFromManifest(
+            {R"({"revision":2,"separator":"@@","collections":["$default","meat"]})"});
+
+    producer->notifySeqnoAvailable(vb->getId(), vb->getHighSeqno());
+
+    // Step which will trigger the background snapshot task
+    EXPECT_EQ(ENGINE_SUCCESS, producer->step(producers.get()));
+
+    // Now call run on the snapshot task. This ensures the task is done when get
+    // to the next step(). Either this run() or the bg one need to be complete
+    // before we step. Calling run here may just be a no-op if the bg task
+    // completed
+    producer->getCheckpointSnapshotTask().run();
+
+    // Next step which should process a snapshot marker
+    EXPECT_EQ(ENGINE_WANT_MORE, producer->step(producers.get()));
+
+    RCPtr<VBucket> replica = store->getVBucket(replicaVB);
+
+    // Now step the producer to transfer the separator
+    EXPECT_EQ(ENGINE_WANT_MORE, producer->step(producers.get()));
+
+    // Now step the producer to transfer the collection
+    EXPECT_EQ(ENGINE_WANT_MORE, producer->step(producers.get()));
+
+    // Collection should now be live on the replica
+    EXPECT_TRUE(replica->lockCollections().doesKeyContainValidCollection(
+            {"meat@@bacon", DocNamespace::Collections}));
+
+    // And done
+    EXPECT_EQ(ENGINE_SUCCESS, producer->step(producers.get()));
 }

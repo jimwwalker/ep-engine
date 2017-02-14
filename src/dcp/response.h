@@ -427,6 +427,62 @@ private:
 };
 
 /**
+ * A SystemEventProducerMessage is used by DcpProducer and associated code
+ * for storing the data of a SystemEvent. The class can just own a
+ * queued_item (shared_ptr) and then read all data from the underlying
+ * Item object.
+ */
+class SystemEventProducerMessage : public SystemEventMessage {
+public:
+    /**
+     * @return a SystemEventMessage raw pointer (all users are bare pointers)
+     *         constructed from the queued_item data. Increases ref count on
+     *         the Item.
+     */
+    static SystemEventMessage* make(uint32_t opaque, queued_item& item);
+
+    uint32_t getMessageSize() override {
+        return SystemEventMessage::baseMsgBytes + getKey().size() +
+               getEventData().size();
+    }
+
+    SystemEvent getEvent() const override {
+        return SystemEvent(item->getFlags());
+    }
+
+    int64_t getBySeqno() const override {
+        return item->getBySeqno();
+    }
+
+    uint16_t getVBucket() const override {
+        return item->getVBucketId();
+    }
+
+    cb::const_char_buffer getKey() const override {
+        return key;
+    }
+
+    cb::const_byte_buffer getEventData() const override {
+        return eventData;
+    }
+
+private:
+    SystemEventProducerMessage(uint32_t opaque,
+                               queued_item& itm,
+                               cb::const_char_buffer _key,
+                               cb::const_byte_buffer _eventData)
+        : SystemEventMessage(opaque),
+          key(_key),
+          eventData(_eventData),
+          item(itm) {
+    }
+
+    cb::const_char_buffer key;
+    cb::const_byte_buffer eventData;
+    queued_item item;
+};
+
+/**
  * CollectionsEvent provides a shim on top of SystemEventMessage for
  * when a SystemEvent is a Collection's SystemEvent.
  */

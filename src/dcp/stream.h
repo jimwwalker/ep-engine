@@ -261,6 +261,8 @@ protected:
 
     DcpResponse* nextQueuedItem();
 
+    DcpResponse* makeResponseFromItem(queued_item& item);
+
     /* The transitionState function is protected (as opposed to private) for
      * testing purposes.
      */
@@ -291,7 +293,7 @@ private:
 
     DcpResponse* deadPhase();
 
-    void snapshot(std::deque<MutationResponse*>& snapshot, bool mark);
+    void snapshot(std::deque<DcpResponse*>& snapshot, bool mark);
 
     void endStream(end_stream_status_t reason);
 

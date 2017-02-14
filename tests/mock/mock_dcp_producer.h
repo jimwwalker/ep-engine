@@ -61,4 +61,8 @@ public:
     bool getNoopEnabled() {
         return noopCtx.enabled;
     }
+
+    GlobalTask& getCheckpointSnapshotTask() {
+        return *checkpointCreatorTask;
+    }
 };

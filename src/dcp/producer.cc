@@ -535,6 +535,18 @@ ENGINE_ERROR_CODE DcpProducer::step(struct dcp_message_producers* producers) {
                                                s->getVBucket(), s->getState());
             break;
         }
+        case DcpEvent::SystemEvent: {
+            SystemEventProducerMessage* s =
+                    static_cast<SystemEventProducerMessage*>(resp);
+            ret = producers->system_event(getCookie(),
+                                          s->getOpaque(),
+                                          s->getVBucket(),
+                                          s->getBySeqno(),
+                                          uint32_t(s->getEvent()),
+                                          {reinterpret_cast<const uint8_t*>(s->getKey().data()), s->getKey().size()},
+                                          s->getEventData());
+            break;
+        }
         default:
         {
             LOG(EXTENSION_LOG_WARNING, "%s Unexpected dcp event (%s), "
@@ -935,6 +947,7 @@ DcpResponse* DcpProducer::getNextItem() {
                 case DcpEvent::Expiration:
                 case DcpEvent::StreamEnd:
                 case DcpEvent::SetVbucket:
+                case DcpEvent::SystemEvent:
                     break;
                 default:
                     throw std::logic_error(
@@ -946,8 +959,10 @@ DcpResponse* DcpProducer::getNextItem() {
 
             ready.pushUnique(vbucket);
 
-            if (op->getEvent() == DcpEvent::Mutation || op->getEvent() == DcpEvent::Deletion ||
-                op->getEvent() == DcpEvent::Expiration) {
+            if (op->getEvent() == DcpEvent::Mutation ||
+                op->getEvent() == DcpEvent::Deletion ||
+                op->getEvent() == DcpEvent::Expiration ||
+                op->getEvent() == DcpEvent::SystemEvent) {
                 itemsSent++;
             }
 

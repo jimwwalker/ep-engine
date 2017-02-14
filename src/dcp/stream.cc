@@ -821,6 +821,14 @@ void ActiveStream::getOutstandingItems(RCPtr<VBucket> &vb,
     }
 }
 
+DcpResponse* ActiveStream::makeResponseFromItem(queued_item& item) {
+    if (item->getOperation() != queue_op::system_event) {
+        return new MutationResponse(item, opaque_);
+    } else {
+        return SystemEventProducerMessage::make(opaque_, item);
+    }
+}
+
 void ActiveStream::processItems(std::vector<queued_item>& items) {
     if (!items.empty()) {
         bool mark = false;
@@ -828,16 +836,16 @@ void ActiveStream::processItems(std::vector<queued_item>& items) {
             mark = true;
         }
 
-        std::deque<MutationResponse*> mutations;
+        std::deque<DcpResponse*> mutations;
         std::vector<queued_item>::iterator itr = items.begin();
         for (; itr != items.end(); ++itr) {
             queued_item& qi = *itr;
 
-            if (qi->shouldReplicate()) {
+            if (SystemEventReplicate::process(*qi) == ProcessStatus::Continue) {
                 curChkSeqno = qi->getBySeqno();
                 lastReadSeqnoUnSnapshotted = qi->getBySeqno();
 
-                mutations.push_back(new MutationResponse(qi, opaque_));
+                mutations.push_back(makeResponseFromItem(qi));
             } else if (qi->getOperation() == queue_op::checkpoint_start) {
                 /* if there are already other mutations, then they belong to the
                    previous checkpoint and hence we must create a snapshot and
@@ -867,7 +875,7 @@ void ActiveStream::processItems(std::vector<queued_item>& items) {
     producer->notifyStreamReady(vb_);
 }
 
-void ActiveStream::snapshot(std::deque<MutationResponse*>& items, bool mark) {
+void ActiveStream::snapshot(std::deque<DcpResponse*>& items, bool mark) {
     if (items.empty()) {
         return;
     }
@@ -881,9 +889,8 @@ void ActiveStream::snapshot(std::deque<MutationResponse*>& items, bool mark) {
         // should be added on the stream's readyQ. We must drop items in case
         // we switch state from in-memory to backfill because we schedule
         // backfill from lastReadSeqno + 1
-        std::deque<MutationResponse *>::iterator itr = items.begin();
-        for (; itr != items.end(); ++itr) {
-            delete *itr;
+        for (const auto& item : items) {
+            delete item;
         }
         items.clear();
         return;
@@ -894,8 +901,24 @@ void ActiveStream::snapshot(std::deque<MutationResponse*>& items, bool mark) {
 
     if (isCurrentSnapshotCompleted()) {
         uint32_t flags = MARKER_FLAG_MEMORY;
-        uint64_t snapStart = items.front()->getBySeqno();
-        uint64_t snapEnd = items.back()->getBySeqno();
+
+        // May find mutations/deletions or system-events in the items array
+        auto getSeqno = [](DcpResponse* rsp) {
+            if (rsp->getEvent() == DcpEvent::SystemEvent) {
+                return uint64_t(
+                        static_cast<SystemEventMessage*>(rsp)->getBySeqno());
+            } else if (rsp->getEvent() == DcpEvent::Mutation ||
+                       rsp->getEvent() == DcpEvent::Deletion) {
+                return static_cast<MutationResponse*>(rsp)->getBySeqno();
+            } else {
+                throw std::logic_error(
+                        "ActiveStream::snapshot incorrect DcpEvent " +
+                        std::to_string(int(rsp->getEvent())));
+            }
+        };
+
+        uint64_t snapStart = getSeqno(items.front());
+        uint64_t snapEnd = getSeqno(items.back());
 
         if (mark) {
             flags |= MARKER_FLAG_CHK;
@@ -915,9 +938,8 @@ void ActiveStream::snapshot(std::deque<MutationResponse*>& items, bool mark) {
         lastSentSnapEndSeqno.store(snapEnd, std::memory_order_relaxed);
     }
 
-    std::deque<MutationResponse*>::iterator itemItr;
-    for (itemItr = items.begin(); itemItr != items.end(); itemItr++) {
-        pushToReadyQ(*itemItr);
+    for (const auto& item : items) {
+        pushToReadyQ(item);
     }
 }
 
@@ -1604,7 +1626,7 @@ ENGINE_ERROR_CODE PassiveStream::messageReceived(std::unique_ptr<DcpResponse> dc
         }
         case DcpEvent::SystemEvent: {
             auto ev = static_cast<SystemEventMessage*>(dcpResponse.get());
-            if (ev->getBySeqno() <= last_seqno.load()) {
+            if (uint64_t(ev->getBySeqno()) <= last_seqno.load()) {
                 consumer->getLogger().log(
                         EXTENSION_LOG_WARNING,
                         "(vb %d) Erroneous (out of sequence) SystemEvent "
