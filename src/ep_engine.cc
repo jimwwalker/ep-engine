@@ -1734,9 +1734,8 @@ static bool EvpGetItemInfo(ENGINE_HANDLE* handle, const void*,
                            const item* itm, item_info* itm_info) {
     const Item* it = reinterpret_cast<const Item*>(itm);
     auto engine = acquireEngine(handle);
-    RCPtr<VBucket> vb = engine->getKVBucket()->getVBucket(it->getVBucketId());
-    uint64_t vb_uuid = vb ? vb->failovers->getLatestUUID() : 0;
-    *itm_info = it->toItemInfo(vb_uuid);
+    *itm_info = it->toItemInfo(
+            engine->getKVBucket()->getVBucket(it->getVBucketId()).get());
     return true;
 }
 

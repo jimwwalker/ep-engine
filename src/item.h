@@ -34,6 +34,8 @@
 #include "stats.h"
 #include "storeddockey.h"
 
+class VBucket;
+
 /// The set of possible operations which can be queued into a checkpoint.
 enum class queue_op : uint8_t {
     /// Set a document key to a given value. Sets to the same key can (and
@@ -689,7 +691,7 @@ public:
      * return item_info structure with populate item
      *        information
      */
-    item_info toItemInfo(uint64_t vb_uuid) const;
+    item_info toItemInfo(const VBucket* vb) const;
 
 private:
     /**

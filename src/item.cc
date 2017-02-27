@@ -17,8 +17,9 @@
 
 #include "config.h"
 
-#include "item.h"
 #include "cJSON.h"
+#include "item.h"
+#include "vbucket.h"
 
 #include <platform/compress.h>
 
@@ -161,10 +162,10 @@ bool Item::decompressValue() {
     return true;
 }
 
-item_info Item::toItemInfo(uint64_t vb_uuid) const {
+item_info Item::toItemInfo(const VBucket* vb) const {
     item_info info;
     info.cas = getCas();
-    info.vbucket_uuid = vb_uuid;
+    info.vbucket_uuid = vb ? vb->failovers->getLatestUUID() : 0;
     info.seqno = getBySeqno();
     info.exptime = getExptime();
     info.nbytes = getNBytes();
@@ -180,6 +181,31 @@ item_info Item::toItemInfo(uint64_t vb_uuid) const {
     info.key = getKey().data();
     info.value[0].iov_base = const_cast<char*>(getData());
     info.value[0].iov_len = getNBytes();
-
+    if (vb) {
+        /*
+         * Set the collectionLen - note this is currently an extra scan/search
+         * on the key looking for the separator. Two points:
+         *
+         * 1. When separator changes are added this can go wrong. If the
+         *    get_item_info engine call back is made with a key "c::k" and the
+         *    separator has just changed from "::" to "-", we will report
+         *    a collectionLen of 0, instead of 1.
+         *    We would need to block separator changes if we know this bug could
+         *    be possible, e.g. if DCP queue is not empty cannot change
+         *    separator. Or read 2...
+         *
+         * 2. This extra search could be removed if all StoredValue/Item carry
+         *    the collectionLen from construction onwards. Note we will have
+         *    scanned the DocKey at SET time for collection validation and thus
+         *    could save the collectionLen at that point removing the need for
+         *    this extra scan and at the same time addressing point 1.
+         *    This would be at the cost of 1 extra byte per Item/StoredValue.
+         *
+         * For now do the scan here.
+         */
+        info.collectionLen = vb->lockCollections()
+                                     .makeCollectionsDocKey(key)
+                                     .getCollectionLen();
+    }
     return info;
 }

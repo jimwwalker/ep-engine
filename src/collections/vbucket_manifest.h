@@ -90,6 +90,10 @@ public:
             return manifest.doesKeyContainValidCollection(key);
         }
 
+        DocKey makeCollectionsDocKey(::DocKey key) {
+            return Collections::DocKey::make(key, manifest.getSeparator());
+        }
+
     private:
         std::unique_lock<cb::ReaderLock> readLock;
         const Manifest& manifest;
@@ -384,6 +388,10 @@ private:
      *   not be in the process of deletion.
      */
     bool doesKeyContainValidCollection(const ::DocKey& key) const;
+
+    const std::string& getSeparator() const {
+        return separator;
+    }
 
 protected:
     /**
