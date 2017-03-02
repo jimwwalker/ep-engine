@@ -20,6 +20,8 @@
 #include <string>
 #include <type_traits>
 
+#include <boost/optional/optional.hpp>
+
 enum class GenerateBySeqno {
     No, Yes
 };
@@ -94,3 +96,6 @@ enum get_options_t {
     // hidden (return -1).
     GET_DELETED_VALUE = 0x0040 // whether to retrieve value of a deleted item
 };
+
+/// Allow for methods to optionally accept a seqno
+using OptionalSeqno = boost::optional<int64_t>;

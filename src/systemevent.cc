@@ -21,7 +21,8 @@
 
 std::unique_ptr<Item> SystemEventFactory::make(SystemEvent se,
                                                const std::string& keyExtra,
-                                               size_t itemSize) {
+                                               size_t itemSize,
+                                               OptionalSeqno seqno) {
     std::string key;
     switch (se) {
     case SystemEvent::CreateCollection: {
@@ -70,6 +71,10 @@ std::unique_ptr<Item> SystemEventFactory::make(SystemEvent se,
                                        itemSize);
 
     item->setOperation(queue_op::system_event);
+
+    if (seqno) {
+        item->setBySeqno(seqno.value());
+    }
 
     return item;
 }
