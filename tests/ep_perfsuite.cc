@@ -115,6 +115,12 @@ struct Stats {
 static const int iterations_for_fast_stats = 100;
 static const int iterations_for_slow_stats = 10;
 
+// Collections the tests are allowed to know about.
+static const std::vector<std::string> collections = {
+        "fruit", "dairy", "vegetable", "bakery", "meat"};
+static const std::string separator = "::";
+static const std::string manifest =
+        R"({"revision":1, "separator":"::", "collections" : ["$default","fruit", "dairy", "vegetable", "bakery", "meat"]})";
 
 struct StatProperties {
      const std::string key;
@@ -359,8 +365,15 @@ static void perf_latency_core(ENGINE_HANDLE *h,
 
     // Build vector of keys
     std::vector<std::string> keys;
+    auto itr = collections.begin();
     for (int i = 0; i < num_docs; i++) {
-        keys.push_back(std::to_string(key_prefix) + std::to_string(i));
+        // Cycle through the collections so the keys live in collections
+        if (itr == collections.end()) {
+            itr = collections.begin();
+        }
+
+        keys.push_back(*itr + "::" + std::to_string(key_prefix) +
+                       std::to_string(i));
     }
 
     // Create (add)
@@ -454,6 +467,18 @@ static enum test_result perf_latency_baseline(ENGINE_HANDLE *h,
                                               ENGINE_HANDLE_V1 *h1) {
 
     return perf_latency(h, h1, "1_bucket_1_thread_baseline", ITERATIONS);
+}
+
+/* Benchmark the baseline latency (without any tasks running) of ep-engine
+ * with collections enabled
+ */
+static enum test_result perf_latency_collections_baseline(
+        ENGINE_HANDLE* h, ENGINE_HANDLE_V1* h1) {
+    // Switch to collections namespace for all documents
+    testHarness.doc_namespace = DocNamespace::Collections;
+    h1->collections.set_manifest(h, {manifest.data(), manifest.size()});
+    return perf_latency(
+            h, h1, "1_bucket_1_thread_collections_baseline", ITERATIONS);
 }
 
 /* Benchmark the baseline latency with the defragmenter enabled.
@@ -1420,6 +1445,10 @@ BaseTestCase testsuite_testcases[] = {
         TestCase("Baseline latency", perf_latency_baseline,
                  test_setup, teardown,
                  "backend=couchdb;ht_size=393209",
+                 prepare, cleanup),
+         TestCase("Baseline latency (collections)", perf_latency_collections_baseline,
+                 test_setup, teardown,
+                 "backend=couchdb;ht_size=393209;collections_prototype_enabled=true",
                  prepare, cleanup),
         TestCase("Defragmenter latency", perf_latency_defragmenter,
                  test_setup, teardown,
