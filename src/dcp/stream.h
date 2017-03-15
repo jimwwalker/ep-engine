@@ -20,6 +20,7 @@
 
 #include "config.h"
 
+#include "collections/vbucket_filter.h"
 #include "ep_engine.h"
 #include "ext_meta_parser.h"
 #include "dcp/dcp-types.h"
@@ -116,6 +117,9 @@ public:
 
     virtual void notifySeqnoAvailable(uint64_t seqno) {}
 
+    void addFilter(const Collections::Filter& filter,
+                   const Collections::VB::Manifest& manifest);
+
     const std::string& getName() {
         return name_;
     }
@@ -179,6 +183,14 @@ protected:
 
     uint64_t getReadyQueueMemory(void);
 
+    /**
+     * Sub-function of pushToReadyQ.
+     * @return true if the DcpRepsonse should be queued, false to skip
+     */
+    virtual bool queueResponse(DcpResponse* resp) const {
+        return true;
+    }
+
     const std::string &name_;
     uint32_t flags_;
     uint32_t opaque_;
@@ -217,11 +229,20 @@ class ActiveStreamCheckpointProcessorTask;
 
 class ActiveStream : public Stream {
 public:
-    ActiveStream(EventuallyPersistentEngine* e, dcp_producer_t p,
-                 const std::string &name, uint32_t flags, uint32_t opaque,
-                 uint16_t vb, uint64_t st_seqno, uint64_t en_seqno,
-                 uint64_t vb_uuid, uint64_t snap_start_seqno,
-                 uint64_t snap_end_seqno, bool isKeyOnly);
+    ActiveStream(EventuallyPersistentEngine* e,
+                 dcp_producer_t p,
+                 const std::string& name,
+                 uint32_t flags,
+                 uint32_t opaque,
+                 uint16_t vb,
+                 uint64_t st_seqno,
+                 uint64_t en_seqno,
+                 uint64_t vb_uuid,
+                 uint64_t snap_start_seqno,
+                 uint64_t snap_end_seqno,
+                 bool isKeyOnly,
+                 const Collections::Filter& filter,
+                 const Collections::VB::Manifest& manifest);
 
     virtual ~ActiveStream();
 
@@ -313,12 +334,19 @@ protected:
     void transitionState(StreamState newState);
 
     /**
-     * Check to see if the response is a CollectionsSeparatorChanged event
-     * which would update the separator.
+     * Check to see if the response is a SystemEvent and if so, apply any
+     * actions to the stream.
      *
      * @param response A DcpResponse that is about to be sent to a client
      */
-    void maybeChangeSeparator(DcpResponse* response);
+    void processSystemEvent(DcpResponse* response);
+
+    /**
+     * Sub-function of Stream::pushToReadyQ.
+     *
+     * @return true if the DcpRepsonse should be queued, false to skip
+     */
+    bool queueResponse(DcpResponse* resp) const;
 
     /* Indicates that a backfill has been scheduled and has not yet completed.
      * Is protected (as opposed to private) for testing purposes.
@@ -438,6 +466,8 @@ private:
      * CollectionsSeparatorChanged events and update the copy accordingly.
      */
     std::string currentSeparator;
+
+    Collections::VB::Filter filter;
 };
 
 
@@ -504,11 +534,19 @@ private:
 
 class NotifierStream : public Stream {
 public:
-    NotifierStream(EventuallyPersistentEngine* e, dcp_producer_t producer,
-                   const std::string &name, uint32_t flags, uint32_t opaque,
-                   uint16_t vb, uint64_t start_seqno, uint64_t end_seqno,
-                   uint64_t vb_uuid, uint64_t snap_start_seqno,
-                   uint64_t snap_end_seqno);
+    NotifierStream(EventuallyPersistentEngine* e,
+                   dcp_producer_t producer,
+                   const std::string& name,
+                   uint32_t flags,
+                   uint32_t opaque,
+                   uint16_t vb,
+                   uint64_t start_seqno,
+                   uint64_t end_seqno,
+                   uint64_t vb_uuid,
+                   uint64_t snap_start_seqno,
+                   uint64_t snap_end_seqno,
+                   const Collections::Filter& filter,
+                   const Collections::VB::Manifest& manifest);
 
     ~NotifierStream() {
         transitionState(StreamState::Dead);
@@ -520,11 +558,20 @@ public:
 
     void notifySeqnoAvailable(uint64_t seqno);
 
+    void addStats(ADD_STAT add_stat, const void* c);
+
 private:
+    /**
+     * Sub-function of Stream::pushToReadyQ.
+     * @return true if the DcpRepsonse should be queued, false to skip
+     */
+    bool queueResponse(DcpResponse* resp) const;
 
     void transitionState(StreamState newState);
 
     dcp_producer_t producer;
+
+    Collections::VB::Filter filter;
 };
 
 class PassiveStream : public Stream {

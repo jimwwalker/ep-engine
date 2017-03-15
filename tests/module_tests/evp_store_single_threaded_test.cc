@@ -138,19 +138,24 @@ TEST_F(SingleThreadedEPBucketTest, MB22421_backfilling_but_task_finished) {
      dcp_producer_t producer = new MockDcpProducer(*engine,
                                                    cookie,
                                                    "test_producer",
-                                                   /*notifyOnly*/false);
+                                                   /*notifyOnly*/ false,
+                                                   {/*nojson*/});
      // Create a Mock Active Stream
      stream_t stream = new MockActiveStream(
              static_cast<EventuallyPersistentEngine*>(engine.get()),
              producer,
              producer->getName(),
-             /*flags*/0,
-             /*opaque*/0, vbid,
-             /*st_seqno*/0,
-             /*en_seqno*/~0,
-             /*vb_uuid*/0xabcd,
-             /*snap_start_seqno*/0,
-             /*snap_end_seqno*/~0);
+             /*flags*/ 0,
+             /*opaque*/ 0,
+             vbid,
+             /*st_seqno*/ 0,
+             /*en_seqno*/ ~0,
+             /*vb_uuid*/ 0xabcd,
+             /*snap_start_seqno*/ 0,
+             /*snap_end_seqno*/ ~0,
+             /*keyOnly*/ false,
+             producer->getFilter(),
+             vb->getManifest());
 
      MockActiveStream* mock_stream =
              static_cast<MockActiveStream*>(stream.get());
@@ -195,19 +200,24 @@ TEST_F(SingleThreadedEPBucketTest, MB22421_reregister_cursor) {
     dcp_producer_t producer = new MockDcpProducer(*engine,
                                                   cookie,
                                                   "test_producer",
-                                                  /*notifyOnly*/false);
+                                                  /*flags*/ 0,
+                                                  {/*no json*/});
     // Create a Mock Active Stream
     stream_t stream = new MockActiveStream(
             static_cast<EventuallyPersistentEngine*>(engine.get()),
             producer,
             producer->getName(),
-            /*flags*/0,
-            /*opaque*/0, vbid,
-            /*st_seqno*/0,
-            /*en_seqno*/~0,
-            /*vb_uuid*/0xabcd,
-            /*snap_start_seqno*/0,
-            /*snap_end_seqno*/~0);
+            /*flags*/ 0,
+            /*opaque*/ 0,
+            vbid,
+            /*st_seqno*/ 0,
+            /*en_seqno*/ ~0,
+            /*vb_uuid*/ 0xabcd,
+            /*snap_start_seqno*/ 0,
+            /*snap_end_seqno*/ ~0,
+            /*keyOnly*/ false,
+            producer->getFilter(),
+            vb->getManifest());
 
     MockActiveStream* mock_stream =
             static_cast<MockActiveStream*>(stream.get());
@@ -285,19 +295,24 @@ TEST_F(SingleThreadedEPBucketTest, MB22960_cursor_dropping_data_loss) {
     dcp_producer_t producer = new MockDcpProducer(*engine,
                                                   cookie,
                                                   "test_producer",
-                                                  /*notifyOnly*/false);
+                                                  /*flags*/ 0,
+                                                  {/*no json*/});
     // Create a Mock Active Stream
     stream_t stream = new MockActiveStream(
             static_cast<EventuallyPersistentEngine*>(engine.get()),
             producer,
             producer->getName(),
-            /*flags*/0,
-            /*opaque*/0, vbid,
-            /*st_seqno*/0,
-            /*en_seqno*/~0,
-            /*vb_uuid*/0xabcd,
-            /*snap_start_seqno*/0,
-            /*snap_end_seqno*/~0);
+            /*flags*/ 0,
+            /*opaque*/ 0,
+            vbid,
+            /*st_seqno*/ 0,
+            /*en_seqno*/ ~0,
+            /*vb_uuid*/ 0xabcd,
+            /*snap_start_seqno*/ 0,
+            /*snap_end_seqno*/ ~0,
+            /*keyOnly*/ false,
+            producer->getFilter(),
+            vb->getManifest());
 
     MockActiveStream* mock_stream =
             static_cast<MockActiveStream*>(stream.get());
@@ -426,19 +441,25 @@ TEST_F(SingleThreadedEPBucketTest, test_mb22451) {
     dcp_producer_t producer = new MockDcpProducer(*engine,
                                                   cookie,
                                                   "test_producer",
-                                                  /*notifyOnly*/false);
+                                                  /*flags*/ 0,
+                                                  {/*no json*/});
     // Create a Mock Active Stream
+    auto vb = store->getVBucket(vbid);
     stream_t stream = new MockActiveStream(
             static_cast<EventuallyPersistentEngine*>(engine.get()),
             producer,
             producer->getName(),
-            /*flags*/0,
-            /*opaque*/0, vbid,
-            /*st_seqno*/0,
-            /*en_seqno*/~0,
-            /*vb_uuid*/0xabcd,
-            /*snap_start_seqno*/0,
-            /*snap_end_seqno*/~0);
+            /*flags*/ 0,
+            /*opaque*/ 0,
+            vbid,
+            /*st_seqno*/ 0,
+            /*en_seqno*/ ~0,
+            /*vb_uuid*/ 0xabcd,
+            /*snap_start_seqno*/ 0,
+            /*snap_end_seqno*/ ~0,
+            /*keyOnly*/ false,
+            producer->getFilter(),
+            vb->getManifest());
 
     MockActiveStream* mock_stream =
             static_cast<MockActiveStream*>(stream.get());
@@ -533,7 +554,8 @@ TEST_F(SingleThreadedEPBucketTest, MB19428_no_streams_against_dead_vbucket) {
         dcp_producer_t producer = new MockDcpProducer(*engine,
                                                       cookie,
                                                       "test_producer",
-                                                      /*notifyOnly*/false);
+                                                      /*flags*/ 0,
+                                                      {/*no json*/});
 
         // Creating a producer will schedule one ActiveStreamCheckpointProcessorTask
         // that task though sleeps forever, so won't run until woken.
@@ -1017,7 +1039,8 @@ TEST_F(SingleThreadedEPBucketTest, stream_from_active_vbucket_only) {
         dcp_producer_t producer = new MockDcpProducer(*engine,
                                                       cookie,
                                                       "test_producer",
-                                                      /*notifyOnly*/false);
+                                                      /*flags*/ 0,
+                                                      {/*no json*/});
 
         /* Try to open stream on replica vb with
            DCP_ADD_STREAM_ACTIVE_VB_ONLY flag */

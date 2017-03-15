@@ -21,6 +21,7 @@
 #include "config.h"
 
 #include "atomic_unordered_map.h"
+#include "collections/filter.h"
 #include "dcp/dcp-types.h"
 #include "tapconnection.h"
 
@@ -46,20 +47,18 @@ enum class MutationType {
      * @param e The engine.
      * @param cookie Cookie of the connection creating the producer.
      * @param n A name chosen by the client.
-     * @param notifyOnly If true the producer only notifies, i.e. no data is
-     *        sent.
+     * @param flags The DCP_OPEN flags (as per mcbp).
+     * @param jsonFilter JSON document containing filter configuration.
      * @param startTask If true an internal checkpoint task is created and
      *        started. Test code may wish to defer or manually handle the task
      *        creation.
-     * @param mutType The MutationType to use for the items sent from the
-     *        DcpProducer.
      */
     DcpProducer(EventuallyPersistentEngine& e,
                 const void* cookie,
                 const std::string& n,
-                bool notifyOnly,
-                bool startTask,
-                MutationType mutType);
+                uint32_t flags,
+                cb::const_byte_buffer jsonFilter,
+                bool startTask);
 
     virtual ~DcpProducer();
 
@@ -246,6 +245,10 @@ private:
     */
     void clearCheckpointProcessorTaskQueues();
 
+    const Collections::Filter& getFilter() const {
+        return filter;
+    }
+
 protected:
     /** Searches the streams map for a stream for vbucket ID. Returns the
      *  found stream, or an empty pointer if none found.
@@ -333,6 +336,12 @@ protected:
     // active streams belonging to the DcpProducer should send their data.
     MutationType mutationType;
 
+    /**
+     * The producer owns a "bucket" level filter which is used to build the
+     * actual data filter (Collections::VB::Filter) per VB stream at request
+     * time.
+     */
+    Collections::Filter filter;
 };
 
 #endif  // SRC_DCP_PRODUCER_H_

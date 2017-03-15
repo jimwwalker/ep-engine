@@ -36,7 +36,9 @@ public:
                      uint64_t vb_uuid,
                      uint64_t snap_start_seqno,
                      uint64_t snap_end_seqno,
-                     bool isKeyOnly = false)
+                     bool isKeyOnly,
+                     const Collections::Filter& filter,
+                     const Collections::VB::Manifest& manifest)
         : ActiveStream(e,
                        p,
                        name,
@@ -48,7 +50,9 @@ public:
                        vb_uuid,
                        snap_start_seqno,
                        snap_end_seqno,
-                       isKeyOnly) {
+                       isKeyOnly,
+                       filter,
+                       manifest) {
     }
 
     // Expose underlying protected ActiveStream methods as public

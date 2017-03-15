@@ -15,6 +15,7 @@
  *   limitations under the License.
  */
 
+#include "collections/filter.h"
 #include "collections/manager.h"
 #include "collections/manifest.h"
 #include "kv_bucket.h"
@@ -73,4 +74,15 @@ void Collections::Manager::update(VBucket& vb) const {
     // Lock manager updates
     std::lock_guard<std::mutex> ul(lock);
     vb.updateFromManifest(*current);
+}
+
+Collections::Filter Collections::Manager::makeFilter(
+        bool collectionsEnabled, const std::string& json) const {
+    // Lock manager updates
+    std::lock_guard<std::mutex> lg(lock);
+    boost::optional<const std::string&> jsonFilter;
+    if (collectionsEnabled) {
+        jsonFilter = json;
+    }
+    return Collections::Filter(jsonFilter, *current);
 }

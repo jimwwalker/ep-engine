@@ -18,16 +18,16 @@
 #include <vector>
 #include <memcached/server_api.h>
 
-#include "dcp/producer.h"
-
 #include "backfill.h"
+#include "collections/manager.h"
 #include "common.h"
-#include "ep_engine.h"
-#include "failover-table.h"
 #include "dcp/backfill-manager.h"
 #include "dcp/dcpconnmap.h"
+#include "dcp/producer.h"
 #include "dcp/response.h"
 #include "dcp/stream.h"
+#include "ep_engine.h"
+#include "failover-table.h"
 
 const std::chrono::seconds DcpProducer::defaultDcpNoopTxInterval(20);
 
@@ -131,17 +131,23 @@ void DcpProducer::BufferLog::addStats(ADD_STAT add_stat, const void *c) {
 DcpProducer::DcpProducer(EventuallyPersistentEngine& e,
                          const void* cookie,
                          const std::string& name,
-                         bool isNotifier,
-                         bool startTask,
-                         MutationType mutType)
+                         uint32_t flags,
+                         cb::const_byte_buffer jsonFilter,
+                         bool startTask)
     : Producer(e, cookie, name),
       rejectResp(NULL),
-      notifyOnly(isNotifier),
+      notifyOnly((flags & DCP_OPEN_NOTIFIER) != 0),
       lastSendTime(ep_current_time()),
       log(*this),
       itemsSent(0),
       totalBytesSent(0),
-      mutationType(mutType) {
+      mutationType(((flags & DCP_OPEN_NO_VALUE) != 0)
+                           ? DcpProducer::MutationType::KeyOnly
+                           : DcpProducer::MutationType::KeyAndValue),
+      filter(e.getKVBucket()->getCollectionsManager().makeFilter(
+              (flags & DCP_OPEN_COLLECTIONS) != 0,
+              {reinterpret_cast<const char*>(jsonFilter.data()),
+               jsonFilter.size()})) {
     setSupportAck(true);
     setReserved(true);
     setPaused(true);
@@ -152,6 +158,7 @@ DcpProducer::DcpProducer(EventuallyPersistentEngine& e,
     } else {
         setLogHeader("DCP (Producer) " + getName() + " -");
     }
+
     // Reduce the minimum log level of view engine DCP streams as they are
     // extremely noisy due to creating new stream, per vbucket,per design doc
     // every ~10s.
@@ -368,13 +375,15 @@ ENGINE_ERROR_CODE DcpProducer::streamRequest(uint32_t flags,
         s = new NotifierStream(&engine_, this, getName(), flags,
                                opaque, vbucket, notifySeqno,
                                end_seqno, vbucket_uuid,
-                               snap_start_seqno, snap_end_seqno);
+                               snap_start_seqno, snap_end_seqno,
+                               filter, vb->getManifest());
     } else {
         s = new ActiveStream(&engine_, this, getName(), flags,
                              opaque, vbucket, start_seqno,
                              end_seqno, vbucket_uuid,
                              snap_start_seqno, snap_end_seqno,
-                             (mutationType == MutationType::KeyOnly));
+                             (mutationType == MutationType::KeyOnly),
+                             filter, vb->getManifest());
     }
 
     {
