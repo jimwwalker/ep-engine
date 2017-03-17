@@ -128,6 +128,31 @@ void DcpProducer::BufferLog::addStats(ADD_STAT add_stat, const void *c) {
     }
 }
 
+/**
+ * make the Collections::Filter and ensure replication gets a pass through
+ * filter if we have the collection prototype enabled.
+ * When collections is truly supported, this function will no longer look
+ * for replication streams.
+ */
+static Collections::Filter makeFilter(EventuallyPersistentEngine& e,
+                                      const std::string& name,
+                                      uint32_t flags,
+                                      cb::const_byte_buffer jsonExtra) {
+
+    const auto& manager = e.getKVBucket()->getCollectionsManager();
+    static std::string replication = "eq_dcpq:replication:";
+    // If collections_prototype, then automatically enable collections on
+    // replication streams.
+    if (e.getConfiguration().isCollectionsPrototypeEnabled() &&
+        name.compare(0, replication.size(), replication) == 0) {
+        return manager.makeFilter(true, {nullptr, 0});
+    } else {
+        return manager.makeFilter((flags & DCP_OPEN_COLLECTIONS) != 0,
+                              {reinterpret_cast<const char*>(jsonExtra.data()),
+                               jsonExtra.size()});
+    }
+}
+
 DcpProducer::DcpProducer(EventuallyPersistentEngine& e,
                          const void* cookie,
                          const std::string& name,
@@ -144,10 +169,7 @@ DcpProducer::DcpProducer(EventuallyPersistentEngine& e,
       mutationType(((flags & DCP_OPEN_NO_VALUE) != 0)
                            ? DcpProducer::MutationType::KeyOnly
                            : DcpProducer::MutationType::KeyAndValue),
-      filter(e.getKVBucket()->getCollectionsManager().makeFilter(
-              (flags & DCP_OPEN_COLLECTIONS) != 0,
-              {reinterpret_cast<const char*>(jsonFilter.data()),
-               jsonFilter.size()})) {
+      filter(makeFilter(e, name, flags, jsonFilter)) {
     setSupportAck(true);
     setReserved(true);
     setPaused(true);
