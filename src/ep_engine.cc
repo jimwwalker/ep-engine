@@ -4476,6 +4476,11 @@ ENGINE_ERROR_CODE EventuallyPersistentEngine::getStats(const void* cookie,
         } else {
             return ENGINE_EINVAL;
         }
+    } else if (statKey == "collections" &&
+               configuration.isCollectionsPrototypeEnabled()) {
+        // For development, just log everything.
+        kvBucket->getCollectionsManager().logAll(*kvBucket.get());
+        rv = ENGINE_SUCCESS;
     }
 
     return rv;
