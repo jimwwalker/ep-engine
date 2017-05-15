@@ -182,7 +182,7 @@
             "type": "size_t"
         },
         "collections_prototype_enabled" : {
-            "default": "false",
+            "default": "true",
             "descr": "Enable the collections functionality. Warning breaks upgrades and compatibility with legacy clients",
             "type": "bool"
         },
