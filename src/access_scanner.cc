@@ -68,7 +68,7 @@ public:
         }
     }
 
-    bool visit(StoredValue& v) override {
+    bool visit(const HashTable::HashBucketLock& hbl, StoredValue& v) override {
         if (log && v.isResident()) {
             if (v.isExpired(startTime) || v.isDeleted()) {
                 LOG(EXTENSION_LOG_INFO,

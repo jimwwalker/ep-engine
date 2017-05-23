@@ -728,10 +728,12 @@ public:
     /**
      * Visit an individual item within a hash table.
      *
+     * @param hbl The HashTableBucket lock for the value's bucket
      * @param v a pointer to a value in the hash table.
      * @return True if visiting should continue, otherwise false.
      */
-    virtual bool visit(StoredValue& v) = 0;
+    virtual bool visit(const HashTable::HashBucketLock& hbl,
+                       StoredValue& v) = 0;
 };
 
 /**

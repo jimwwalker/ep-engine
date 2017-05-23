@@ -500,12 +500,28 @@ bool KVBucket::initialize() {
     defragmenterTask = new DefragmenterTask(&engine, stats);
     ExecutorPool::get()->schedule(defragmenterTask);
 #endif
-
     return true;
+}
+
+void KVBucket::startCollectionsDeleter() {
+    if (engine.getConfiguration().isCollectionsPrototypeEnabled()) {
+        for (const auto& shard : vbMap.shards) {
+            shard->startCollectionsDeleter(*this);
+        }
+    }
+}
+
+void KVBucket::stopCollectionsDeleter() {
+    if (engine.getConfiguration().isCollectionsPrototypeEnabled()) {
+        for (const auto& shard : vbMap.shards) {
+            shard->stopCollectionsDeleter();
+        }
+    }
 }
 
 void KVBucket::deinitialize() {
     stopWarmup();
+    stopCollectionsDeleter();
     ExecutorPool::get()->stopTaskGroup(engine.getTaskable().getGID(),
                                        NONIO_TASK_IDX, stats.forceShutdown);
 

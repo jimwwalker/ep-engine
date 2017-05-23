@@ -117,3 +117,17 @@ void NotifyFlusherCB::callback(uint16_t &vb) {
         shard->getFlusher()->notifyFlushEvent();
     }
 }
+
+void KVShard::startCollectionsDeleter(KVBucket& kvBucket) {
+    collectionsDeleter = std::make_unique<Collections::Deleter>(kvBucket);
+}
+
+void KVShard::stopCollectionsDeleter() {
+    collectionsDeleter->stop();
+}
+
+void KVShard::scheduleCollectionDeletion(cb::const_char_buffer collection,
+                                         uint32_t revision,
+                                         int64_t seqno) {
+    collectionsDeleter->scheduleCollectionDeletion(collection, revision, seqno);
+}

@@ -2451,3 +2451,9 @@ void VBucket::DeferredDeleter::operator()(VBucket* vb) const {
     }
     delete vb;
 }
+
+void VBucket::scheduleCollectionDeletion(cb::const_char_buffer collection,
+                                         uint32_t revision,
+                                         int64_t seqno) {
+    getShard()->scheduleCollectionDeletion(collection, revision, seqno);
+}

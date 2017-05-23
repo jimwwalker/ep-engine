@@ -640,6 +640,10 @@ public:
         manifest.wlock().update(*this, m);
     }
 
+    void scheduleCollectionDeletion(cb::const_char_buffer collection,
+                                    uint32_t revision,
+                                    int64_t seqno);
+
     /**
      * Finalise the deletion of a collection (no items remain in the collection)
      *

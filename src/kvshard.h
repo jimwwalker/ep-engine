@@ -19,6 +19,7 @@
 
 #include "config.h"
 
+#include "collections/deleter.h"
 #include "kvstore.h"
 #include "utility.h"
 #include "vbucket.h"
@@ -101,6 +102,13 @@ public:
 
     std::vector<VBucket::id_type> getVBucketsSortedByState();
     std::vector<VBucket::id_type> getVBuckets();
+
+    void startCollectionsDeleter(KVBucket& kvBucket);
+    void stopCollectionsDeleter();
+
+    void scheduleCollectionDeletion(cb::const_char_buffer collection,
+                                    uint32_t revision,
+                                    int64_t seqno);
 
 private:
     KVStoreConfig kvConfig;
@@ -195,6 +203,11 @@ private:
 
     std::unique_ptr<Flusher> flusher;
     std::unique_ptr<BgFetcher> bgFetcher;
+
+    /**
+     * Collections deleter is created when the first collection is deleted
+     */
+    std::unique_ptr<Collections::Deleter> collectionsDeleter;
 
 public:
     std::atomic<size_t> highPriorityCount;

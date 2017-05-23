@@ -173,6 +173,8 @@ void Collections::VB::Manifest::beginCollectionDelete(
         seqno);
 
     beginDeleteCollectionEntry(collection, revision, seqno);
+
+    vb.scheduleCollectionDeletion(collection, revision, seqno);
 }
 
 void Collections::VB::Manifest::beginDeleteCollectionEntry(

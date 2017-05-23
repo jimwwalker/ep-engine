@@ -594,12 +594,12 @@ HashTable::pauseResumeVisit(PauseResumeHashTableVisitor& visitor,
         // Note: we don't record how far into the bucket linked-list we
         // pause at; so any restart will begin from the next bucket.
         for (; !paused && hash_bucket < size; hash_bucket += n_locks) {
-            LockHolder lh(mutexes[lock]);
+            HashBucketLock hbl(hash_bucket, mutexes[lock]);
 
             StoredValue* v = values[hash_bucket].get();
             while (!paused && v) {
                 StoredValue* tmp = v->getNext().get();
-                paused = !visitor.visit(*v);
+                paused = !visitor.visit(hbl, *v);
                 v = tmp;
             }
         }

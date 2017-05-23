@@ -39,7 +39,7 @@ public:
     virtual bool visit(uint16_t vbucket_id, HashTable& ht);
 
     // Implementation of PauseResumeHashTableVisitor interface:
-    virtual bool visit(StoredValue& v);
+    virtual bool visit(const HashTable::HashBucketLock& hbl, StoredValue& v);
 
     // Returns the current hashtable position.
     HashTable::Position getHashtablePosition() const;
